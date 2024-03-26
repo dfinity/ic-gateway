@@ -1,0 +1,51 @@
+[package]
+name = "ic-gateway"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0"
+arc-swap = "1"
+async-scoped = { version = "0.8", features = ["use-tokio"] }
+async-trait = "0.1"
+axum = "0.7"
+candid = "0.10"
+clap = { version = "4.5", features = ["derive", "string"] }
+clap_derive = "4.5"
+http = "1.1"
+hyper = "1.2"
+jemallocator = "0.5"
+jemalloc-ctl = "0.5"
+lazy_static = "1.4"
+little-loadshedder = "0.2"
+maxminddb = "0.24"
+moka = { version = "0.12", features = ["sync", "future"] }
+prometheus = "0.13"
+rand = "0.8"
+regex = "1.10"
+reqwest = "0.12"
+rustls = "0.23"
+rustls-pemfile = "1"
+serde = "1.0"
+serde_json = "1.0"
+strum = "0.26"
+thiserror = "1.0"
+tokio = "1.36"
+tokio-util = "0.7"
+tokio-rustls = "0.26"
+tower = "0.4"
+tower_governor = "0.3"
+tower-http = { version = "0.5", features = [
+    "trace",
+    "request-id",
+    "compression-full",
+] }
+tracing = "0.1"
+tracing-core = "0.1"
+tracing-serde = "0.1"
+tracing-subscriber = "0.3"
+url = "2.5"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["async_tokio"] }
+mockall = "0.12"
