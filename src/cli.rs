@@ -1,7 +1,4 @@
-use std::{net::SocketAddr, path::PathBuf};
-
-use clap::{Args, Parser};
-use url::Url;
+use clap::Parser;
 
 use crate::core::{AUTHOR_NAME, SERVICE_NAME};
 
