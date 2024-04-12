@@ -130,7 +130,7 @@ mod tests {
     use reqwest::Body;
     use std::{str::FromStr, sync::Arc};
 
-    use crate::tls::cert::{http::MockHttpClient, verify::MockVerify};
+    use crate::{http::MockHttpClient, tls::cert::syncer::verify::MockVerify};
 
     #[tokio::test]
     async fn import_ok() -> Result<(), AnyhowError> {
