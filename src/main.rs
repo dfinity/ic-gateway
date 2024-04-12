@@ -11,7 +11,6 @@ use crate::cli::Cli;
 mod cache;
 mod cli;
 mod core;
-mod dns;
 mod http;
 mod policy;
 mod tls;
