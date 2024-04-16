@@ -1,23 +1,22 @@
-use std::{collections::HashMap, str::FromStr, sync::Arc};
+use std::{str::FromStr, sync::Arc};
 
-use arc_swap::ArcSwapOption;
 use fqdn::FQDN;
 use rustls::{
     server::{ClientHello, ResolvesServerCert},
     sign::CertifiedKey,
 };
 
-pub type CertStorage<T> = Arc<ArcSwapOption<HashMap<String, T>>>;
+use crate::tls::cert::Storage;
 
 // Generic certificate resolver that supports wildcards.
 // It provides Rustls with a certificate corresponding to the SNI hostname, if there's one.
 #[derive(Debug)]
-pub struct CertResolver<T: Clone> {
-    storage: CertStorage<T>,
+pub struct Resolver<T: Clone> {
+    storage: Storage<T>,
 }
 
-impl<T: Clone> CertResolver<T> {
-    pub fn new(storage: CertStorage<T>) -> Self {
+impl<T: Clone> Resolver<T> {
+    pub fn new(storage: Storage<T>) -> Self {
         Self { storage }
     }
 
@@ -39,7 +38,7 @@ impl<T: Clone> CertResolver<T> {
     }
 }
 
-impl ResolvesServerCert for CertResolver<Arc<CertifiedKey>> {
+impl ResolvesServerCert for Resolver<Arc<CertifiedKey>> {
     fn resolve(&self, ch: ClientHello) -> Option<Arc<CertifiedKey>> {
         // See if client provided us with an SNI
         let sni = ch.server_name()?;
@@ -50,6 +49,10 @@ impl ResolvesServerCert for CertResolver<Arc<CertifiedKey>> {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    use arc_swap::ArcSwapOption;
+    use std::collections::HashMap;
+
     use anyhow::Error;
 
     #[test]
@@ -60,8 +63,8 @@ mod test {
         hm.insert("foo.baz".to_string(), "foo.baz".to_string());
         hm.insert("bad:hostname".to_string(), "bad".to_string());
 
-        let storage: CertStorage<String> = Arc::new(ArcSwapOption::new(Some(Arc::new(hm))));
-        let resolver = CertResolver::new(storage);
+        let storage: Storage<String> = Arc::new(ArcSwapOption::new(Some(Arc::new(hm))));
+        let resolver = Resolver::new(storage);
 
         assert_eq!(resolver.find_cert("foo.bar"), Some("foo.bar".into()));
         assert_eq!(resolver.find_cert("blah.foo.bar"), Some("*.foo.bar".into()));

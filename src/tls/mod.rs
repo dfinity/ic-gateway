@@ -11,6 +11,9 @@ use rustls::{
     RootCertStore,
 };
 
+const ALPN_H1: &[u8] = b"http/1.1";
+const ALPN_H2: &[u8] = b"h2";
+
 pub fn prepare_rustls_server_config(resolver: Arc<dyn ResolvesServerCert>) -> ServerConfig {
     let mut cfg = ServerConfig::builder_with_protocol_versions(&[&TLS13, &TLS12])
         .with_no_client_auth()
@@ -18,7 +21,7 @@ pub fn prepare_rustls_server_config(resolver: Arc<dyn ResolvesServerCert>) -> Se
 
     // Create custom session storage with higher limit to allow effective TLS session resumption
     cfg.session_storage = ServerSessionMemoryCache::new(131_072);
-    cfg.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+    cfg.alpn_protocols = vec![ALPN_H2.to_vec(), ALPN_H1.to_vec()];
 
     cfg
 }
@@ -36,7 +39,7 @@ pub fn prepare_rustls_client_config() -> ClientConfig {
     // Session resumption
     let store = ClientSessionMemoryCache::new(2048);
     cfg.resumption = Resumption::store(Arc::new(store));
-    cfg.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+    cfg.alpn_protocols = vec![ALPN_H2.to_vec(), ALPN_H1.to_vec()];
 
     cfg
 }

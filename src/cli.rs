@@ -1,17 +1,16 @@
-use std::{net::IpAddr, time::Duration};
+use std::{
+    net::{IpAddr, SocketAddr},
+    time::Duration,
+};
 
-use anyhow::{anyhow, Error};
 use clap::{Args, Parser};
-use hickory_resolver::config::{Protocol, CLOUDFLARE_IPS};
+use hickory_resolver::config::CLOUDFLARE_IPS;
 use humantime::parse_duration;
 
 use crate::{
     core::{AUTHOR_NAME, SERVICE_NAME},
     http::dns,
 };
-
-// Clap does not support prefixes due to macro limitations
-// so we have to add prefixes manually (long = "...")
 
 #[derive(Parser)]
 #[clap(name = SERVICE_NAME)]
@@ -20,9 +19,15 @@ pub struct Cli {
     #[command(flatten, next_help_heading = "HTTP Client")]
     pub http_client: HttpClient,
 
-    #[command(flatten, next_help_heading = "DNS")]
+    #[command(flatten, next_help_heading = "DNS Resolver")]
     pub dns: Dns,
+
+    #[command(flatten, next_help_heading = "HTTP Server")]
+    pub http_server: HttpServer,
 }
+
+// Clap does not support prefixes due to macro limitations
+// so we have to add them manually (long = "...")
 
 #[derive(Args)]
 pub struct HttpClient {
@@ -47,17 +52,36 @@ pub struct HttpClient {
     pub http2_keepalive_timeout: Duration,
 }
 
-#[derive(Args, Clone, Debug)]
+#[derive(Args)]
 pub struct Dns {
     /// List of DNS servers to use
     #[clap(long = "dns-servers", default_values_t = CLOUDFLARE_IPS)]
     pub servers: Vec<IpAddr>,
 
-    /// DNS protocol to use (udp/tcp/tls/https)
+    /// DNS protocol to use (clear/tls/https)
     #[clap(long = "dns-protocol", default_value = "tls")]
     pub protocol: dns::Protocol,
 
-    /// TLS name for DNS-over-TLS and DNS-over-HTTPS protocols
+    /// TLS name to expect for TLS and HTTPS protocols (e.g. "dns.google" or "cloudflare-dns.com")
     #[clap(long = "dns-tls-name", default_value = "cloudflare-dns.com")]
     pub tls_name: String,
+
+    /// Cache size for the resolver (in number of DNS records)
+    #[clap(long = "dns-cache-size", default_value = "2048")]
+    pub cache_size: usize,
+}
+
+#[derive(Args)]
+pub struct HttpServer {
+    /// Where to listen for HTTP
+    #[clap(long = "listen-http", default_value = "[::1]:8080")]
+    pub http: SocketAddr,
+
+    /// Where to listen for HTTPS
+    #[clap(long = "listen-https", default_value = "[::1]:8443")]
+    pub https: SocketAddr,
+
+    /// Backlog of incoming connections to set on the listening socket.
+    #[clap(long, default_value = "8192")]
+    pub backlog: u32,
 }

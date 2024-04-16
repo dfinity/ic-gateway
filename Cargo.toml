@@ -10,15 +10,19 @@ arc-swap = "1"
 async-scoped = { version = "0.8", features = ["use-tokio"] }
 async-trait = "0.1"
 axum = "0.7"
+axum-server = { version = "0.6", features = ["tls-rustls"] }
 candid = "0.10"
 clap = { version = "4.5", features = ["derive", "string"] }
 clap_derive = "4.5"
+ctrlc = { version = "3.4", features = [ "termination" ] }
 fqdn = "0.3"
 futures = "0.3"
-hickory-resolver = {version = "0.24", features = ["dns-over-rustls", "dns-over-https-rustls", "dnssec-ring"] }
+futures-util = "0.3"
+hickory-resolver = { version = "0.24", features = ["dns-over-https-rustls", "webpki-roots", "dnssec-ring"] }
 http = "1.1"
 humantime = "2.1"
 hyper = "1.2"
+hyper-util = "0.1"
 jemallocator = "0.5"
 jemalloc-ctl = "0.5"
 lazy_static = "1.4"
@@ -48,9 +52,10 @@ webpki-roots = "0.26"
 serde = "1.0"
 serde_json = "1.0"
 strum = "0.26"
+strum_macros = "0.26"
 thiserror = "1.0"
-tokio = "1.36"
-tokio-util = "0.7"
+tokio = { version = "1.36", features = [ "full" ] }
+tokio-util = {version = "0.7", features = [ "full" ] }
 tokio-rustls = "0.26"
 tower = "0.4"
 tower_governor = "0.3"
@@ -59,6 +64,7 @@ tower-http = { version = "0.5", features = [
     "request-id",
     "compression-full",
 ] }
+tower-service = "0.3"
 tracing = "0.1"
 tracing-core = "0.1"
 tracing-serde = "0.1"
@@ -68,3 +74,4 @@ x509-parser = "0.16"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["async_tokio"] }
+tempfile = "3.10"

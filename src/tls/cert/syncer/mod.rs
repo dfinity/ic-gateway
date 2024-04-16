@@ -7,15 +7,14 @@ use async_trait::async_trait;
 use candid::Principal;
 use mockall::automock;
 use reqwest::{Method, Request, StatusCode, Url};
-use rustls::sign::CertifiedKey;
 use serde::Deserialize;
 
 use crate::{
-    http::HttpClient,
+    http::client,
     tls::cert::{
         pem_convert_to_rustls,
         syncer::verify::{Verify, VerifyError, WithVerify},
-        ProvidesCertificates,
+        Cert, ProvidesCertificates,
     },
 };
 
@@ -48,12 +47,12 @@ pub trait Import: Sync + Send {
 }
 
 pub struct CertificatesImporter {
-    http_client: Arc<dyn HttpClient>,
+    http_client: Arc<dyn client::Client>,
     exporter_url: Url,
 }
 
 impl CertificatesImporter {
-    pub fn new(http_client: Arc<dyn HttpClient>, exporter_url: Url) -> Self {
+    pub fn new(http_client: Arc<dyn client::Client>, exporter_url: Url) -> Self {
         Self {
             http_client,
             exporter_url,
@@ -63,7 +62,7 @@ impl CertificatesImporter {
 
 #[async_trait]
 impl ProvidesCertificates for CertificatesImporter {
-    async fn get_certificates(&self) -> Result<Vec<Arc<CertifiedKey>>, anyhow::Error> {
+    async fn get_certificates(&self) -> Result<Vec<Cert>, anyhow::Error> {
         let certs = self
             .import()
             .await?
@@ -130,11 +129,11 @@ mod tests {
     use reqwest::Body;
     use std::{str::FromStr, sync::Arc};
 
-    use crate::{http::MockHttpClient, tls::cert::syncer::verify::MockVerify};
+    use crate::{http::client::MockClient, tls::cert::syncer::verify::MockVerify};
 
     #[tokio::test]
     async fn import_ok() -> Result<(), AnyhowError> {
-        let mut http_client = MockHttpClient::new();
+        let mut http_client = MockClient::new();
         http_client
             .expect_execute()
             .times(1)
