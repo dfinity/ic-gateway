@@ -79,16 +79,24 @@ pub struct Dns {
 #[derive(Args)]
 pub struct HttpServer {
     /// Where to listen for HTTP
-    #[clap(long = "listen-http", default_value = "[::1]:8080")]
+    #[clap(long = "http-server-listen-plain", default_value = "[::1]:8080")]
     pub http: SocketAddr,
 
     /// Where to listen for HTTPS
-    #[clap(long = "listen-https", default_value = "[::1]:8443")]
+    #[clap(long = "http-server-listen-tls", default_value = "[::1]:8443")]
     pub https: SocketAddr,
 
     /// Backlog of incoming connections to set on the listening socket.
-    #[clap(long, default_value = "8192")]
+    #[clap(long = "http-server-backlog", default_value = "2048")]
     pub backlog: u32,
+
+    /// Backlog of incoming connections to set on the listening socket.
+    #[clap(long = "http-server-http2-max-streams", default_value = "100")]
+    pub http2_max_streams: u32,
+
+    /// How long to wait for the existing connections to finish before shutting down
+    #[clap(long = "http-server-grace-period", default_value = "30s", value_parser = parse_duration)]
+    pub grace_period: Duration,
 }
 
 #[derive(Args)]

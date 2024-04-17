@@ -8,9 +8,10 @@ use candid::Principal;
 use mockall::automock;
 use reqwest::{Method, Request, StatusCode, Url};
 use serde::Deserialize;
+use tracing::info;
 
 use crate::{
-    http::client,
+    http,
     tls::cert::{
         pem_convert_to_rustls,
         providers::syncer::verify::{Verify, VerifyError, WithVerify},
@@ -47,12 +48,12 @@ pub trait Import: Sync + Send {
 }
 
 pub struct CertificatesImporter {
-    http_client: Arc<dyn client::Client>,
+    http_client: Arc<dyn http::Client>,
     exporter_url: Url,
 }
 
 impl CertificatesImporter {
-    pub fn new(http_client: Arc<dyn client::Client>, exporter_url: Url) -> Self {
+    pub fn new(http_client: Arc<dyn http::Client>, exporter_url: Url) -> Self {
         Self {
             http_client,
             exporter_url,
@@ -69,6 +70,12 @@ impl ProvidesCertificates for CertificatesImporter {
             .into_iter()
             .map(|x| pem_convert_to_rustls(&x.pair.0, &x.pair.1))
             .collect::<Result<Vec<_>, _>>()?;
+
+        info!(
+            "Syncer provider ({}): {} certs loaded",
+            self.exporter_url,
+            certs.len()
+        );
 
         Ok(certs)
     }

@@ -9,16 +9,13 @@ use rustls::{
     version::{TLS12, TLS13},
     RootCertStore,
 };
+use tracing::warn;
 
 use crate::{
     cli::Cli,
     core::Run,
     http,
-    tls::cert::{
-        providers::{dir, syncer},
-        storage::Storage,
-        Aggregator,
-    },
+    tls::cert::{providers, storage::Storage, Aggregator},
 };
 
 use self::cert::ProvidesCertificates;
@@ -57,25 +54,25 @@ pub fn prepare_rustls_client_config() -> ClientConfig {
 }
 
 // Prepares the stuff needed for serving TLS
-pub fn setup(
-    cli: &Cli,
-    http_client: Arc<dyn http::client::Client>,
-) -> (Arc<dyn Run>, ServerConfig) {
-    let storage = Arc::new(Storage::new());
-
+pub fn setup(cli: &Cli, http_client: Arc<dyn http::Client>) -> (Arc<dyn Run>, ServerConfig) {
     let mut providers = vec![];
 
     for v in &cli.cert.dir {
-        providers.push(Arc::new(dir::Provider::new(v.clone())) as Arc<dyn ProvidesCertificates>);
+        providers.push(Arc::new(providers::Dir::new(v.clone())) as Arc<dyn ProvidesCertificates>);
     }
 
     for v in &cli.cert.syncer_urls {
-        providers.push(Arc::new(syncer::CertificatesImporter::new(
-            http_client.clone(),
-            v.clone(),
-        )) as Arc<dyn ProvidesCertificates>);
+        providers.push(
+            Arc::new(providers::Syncer::new(http_client.clone(), v.clone()))
+                as Arc<dyn ProvidesCertificates>,
+        );
     }
 
+    if providers.is_empty() {
+        warn!("No certificate providers specified - HTTPS will not be functional");
+    }
+
+    let storage = Arc::new(Storage::new());
     let aggregator = Arc::new(Aggregator::new(providers, storage.clone()));
     let config = prepare_rustls_server_config(storage);
 

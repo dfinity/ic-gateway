@@ -6,7 +6,7 @@ use tracing::{error, warn};
 
 use crate::{
     cli::Cli,
-    http::{client::ReqwestClient, server::Server},
+    http::{ReqwestClient, Server},
     tls,
 };
 
@@ -39,6 +39,7 @@ pub async fn main(cli: Cli) -> Result<(), Error> {
         cli.http_server.http,
         cli.http_server.backlog,
         router.clone(),
+        cli.http_server.grace_period,
         None,
     )) as Arc<dyn Run>;
     runners.push(("http_server".into(), http_server));
@@ -51,6 +52,7 @@ pub async fn main(cli: Cli) -> Result<(), Error> {
         cli.http_server.https,
         cli.http_server.backlog,
         router,
+        cli.http_server.grace_period,
         Some(rustls_cfg),
     )) as Arc<dyn Run>;
     runners.push(("https_server".into(), https_server));
@@ -60,7 +62,7 @@ pub async fn main(cli: Cli) -> Result<(), Error> {
         let token = token.child_token();
         tracker.spawn(async move {
             if let Err(e) = obj.run(token).await {
-                error!("Runner {name} exited with an error: {e}");
+                error!("Runner '{name}' exited with an error: {e}");
             }
         });
     }

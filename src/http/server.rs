@@ -9,9 +9,11 @@ use hyper_util::{
     rt::{TokioExecutor, TokioIo},
     server::conn::auto::Builder,
 };
-use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::net::{TcpListener, TcpSocket, TcpStream};
-use tokio::select;
+use tokio::{
+    io::{AsyncRead, AsyncWrite},
+    net::{TcpListener, TcpSocket, TcpStream},
+    select,
+};
 use tokio_rustls::TlsAcceptor;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tower_service::Service;
@@ -23,10 +25,11 @@ use crate::core::Run;
 trait AsyncReadWrite: AsyncRead + AsyncWrite + Send + Sync + Unpin {}
 impl<T: AsyncRead + AsyncWrite + Send + Sync + Unpin> AsyncReadWrite for T {}
 
-pub struct Conn {
+struct Conn {
     addr: SocketAddr,
     remote_addr: SocketAddr,
     router: Router,
+    token: CancellationToken,
     tls_acceptor: Option<TlsAcceptor>,
 }
 
@@ -57,11 +60,35 @@ impl Conn {
         });
 
         // Call the service
-        Builder::new(TokioExecutor::new())
-            .serve_connection(stream, service)
-            .await
-            // It shouldn't really fail since Axum routers are infallible
-            .map_err(|e| anyhow!("unable to call service: {e}"))?;
+        let mut builder = Builder::new(TokioExecutor::new());
+
+        // Some sensible defaults
+        // TODO make configurable?
+        builder
+            .http2()
+            .adaptive_window(true)
+            .max_concurrent_streams(Some(100))
+            .keep_alive_interval(Some(Duration::from_secs(20)))
+            .keep_alive_timeout(Duration::from_secs(10));
+
+        let conn = builder.serve_connection(stream, service);
+        pin_mut!(conn);
+
+        loop {
+            select! {
+                v = conn.as_mut() => {
+                    if let Err(e) = v {
+                        return Err(anyhow!("Unable to serve connection: {e}"));
+                    }
+
+                    break;
+                },
+
+                () = self.token.cancelled() => {
+                    conn.as_mut().graceful_shutdown();
+                }
+            }
+        }
 
         debug!(
             "Server {}: {}: connection finished",
@@ -77,6 +104,7 @@ pub struct Server {
     addr: SocketAddr,
     backlog: u32,
     router: Router,
+    grace_period: Duration,
     tracker: TaskTracker,
     tls_acceptor: Option<TlsAcceptor>,
 }
@@ -86,12 +114,14 @@ impl Server {
         addr: SocketAddr,
         backlog: u32,
         router: Router,
+        grace_period: Duration,
         rustls_cfg: Option<rustls::ServerConfig>,
     ) -> Self {
         Self {
             addr,
             backlog,
             router,
+            grace_period,
             tracker: TaskTracker::new(),
             tls_acceptor: rustls_cfg.map(|x| TlsAcceptor::from(Arc::new(x))),
         }
@@ -104,14 +134,20 @@ impl Run for Server {
         let listener = listen_tcp_backlog(self.addr, self.backlog)?;
         pin_mut!(listener);
 
+        warn!(
+            "Server {}: running (TLS: {})",
+            self.addr,
+            self.tls_acceptor.is_some()
+        );
+
         loop {
             select! {
                 () = token.cancelled() => {
-                    warn!("Server {}: shutting down, waiting for the active connections to close for 30s", self.addr);
+                    warn!("Server {}: shutting down, waiting for the active connections to close for {}s", self.addr, self.grace_period.as_secs());
                     self.tracker.close();
                     select! {
                         () = self.tracker.wait() => {},
-                        () = tokio::time::sleep(Duration::from_secs(30)) => {},
+                        () = tokio::time::sleep(self.grace_period) => {},
                     }
                     warn!("Server {}: shut down", self.addr);
                     return Ok(());
@@ -120,7 +156,7 @@ impl Run for Server {
                 // Try to accept the connection
                 v = listener.accept() => {
                     let (stream, remote_addr) = match v {
-                        Ok((a, b)) => (a, b),
+                        Ok(v) => v,
                         Err(e) => {
                             warn!("Unable to accept connection: {e}");
                             continue;
@@ -133,14 +169,14 @@ impl Run for Server {
                         addr: self.addr,
                         remote_addr,
                         router: self.router.clone(),
+                        token: token.child_token(),
                         tls_acceptor: self.tls_acceptor.clone(),
                     };
 
                     // Spawn a task to handle connection
                     self.tracker.spawn(async move {
-                        match conn.handle(stream).await {
-                            Ok(()) => {},
-                            Err(e) => warn!("Server {}: {}: failed to handle connection: {e}", conn.addr, remote_addr),
+                        if let Err(e) = conn.handle(stream).await {
+                            warn!("Server {}: {}: failed to handle connection: {e}", conn.addr, remote_addr);
                         }
                     });
                 }

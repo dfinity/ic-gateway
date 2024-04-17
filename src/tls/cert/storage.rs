@@ -10,11 +10,13 @@ use rustls::{
 
 use super::Cert;
 
-// Shared certificate storage
+// Generic shared certificate storage
 #[derive(Clone, Debug)]
 pub struct Storage<T: Clone> {
     inner: Arc<ArcSwapOption<HashMap<String, T>>>,
 }
+
+pub type StorageKey = Storage<Arc<CertifiedKey>>;
 
 impl<T: Clone> Storage<T> {
     pub fn new() -> Self {
@@ -58,7 +60,7 @@ impl<T: Clone> Storage<T> {
 }
 
 // Implement certificate resolving for Rustls
-impl ResolvesServerCert for Storage<Arc<CertifiedKey>> {
+impl ResolvesServerCert for StorageKey {
     fn resolve(&self, ch: ClientHello) -> Option<Arc<CertifiedKey>> {
         // See if client provided us with an SNI
         let sni = ch.server_name()?;

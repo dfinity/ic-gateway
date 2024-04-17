@@ -1,11 +1,10 @@
 use std::path::PathBuf;
 
+use crate::tls::cert::{pem_convert_to_rustls, CertKey, ProvidesCertificates};
 use anyhow::{Context, Error};
 use async_trait::async_trait;
 use tokio::fs::read_dir;
 use tracing::info;
-
-use crate::tls::cert::{pem_convert_to_rustls, CertKey, ProvidesCertificates};
 
 pub struct Provider {
     path: PathBuf,
@@ -73,17 +72,17 @@ impl ProvidesCertificates for Provider {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::tls::cert::test::{CERT, KEY};
+    use crate::tls::cert::test::{CERT_1, KEY_1};
 
     #[tokio::test]
     async fn test() -> Result<(), Error> {
         let dir = tempfile::tempdir()?;
 
         let keyfile = dir.path().join("foobar.key");
-        std::fs::write(keyfile, KEY)?;
+        std::fs::write(keyfile, KEY_1)?;
 
         let certfile = dir.path().join("foobar.pem");
-        std::fs::write(certfile, CERT)?;
+        std::fs::write(certfile, CERT_1)?;
 
         // Some junk to be ignored
         std::fs::write(dir.path().join("foobar.baz"), b"foobar")?;

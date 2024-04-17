@@ -13,13 +13,14 @@ use futures::future::join_all;
 use rustls::{crypto::aws_lc_rs, sign::CertifiedKey};
 use tokio::select;
 use tokio_util::sync::CancellationToken;
-use tracing::warn;
+use tracing::{debug, info, warn};
 use x509_parser::prelude::*;
 
-use crate::{core::Run, tls::cert::storage::Storage};
+use crate::{core::Run, tls::cert::storage::StorageKey};
 
 // Generic certificate and a list of its SANs
-pub struct Cert<T> {
+#[derive(Clone)]
+pub struct Cert<T: Clone> {
     san: Vec<String>,
     cert: T,
 }
@@ -83,7 +84,7 @@ fn extract_san_from_der(cert: &[u8]) -> Result<Vec<String>, Error> {
 }
 
 // Converts raw PEM certificate chain & private key to a CertifiedKey ready to be consumed by Rustls
-pub fn pem_convert_to_rustls(key: &[u8], certs: &[u8]) -> Result<Cert<Arc<CertifiedKey>>, Error> {
+pub fn pem_convert_to_rustls(key: &[u8], certs: &[u8]) -> Result<CertKey, Error> {
     let (key, certs) = (key.to_vec(), certs.to_vec());
 
     let key = rustls_pemfile::private_key(&mut key.as_ref())?
@@ -109,14 +110,11 @@ pub fn pem_convert_to_rustls(key: &[u8], certs: &[u8]) -> Result<Cert<Arc<Certif
 // Collects certificates from providers and stores them in a given storage
 pub struct Aggregator {
     providers: Vec<Arc<dyn ProvidesCertificates>>,
-    storage: Arc<Storage<Arc<CertifiedKey>>>,
+    storage: Arc<StorageKey>,
 }
 
 impl Aggregator {
-    pub fn new(
-        providers: Vec<Arc<dyn ProvidesCertificates>>,
-        storage: Arc<Storage<Arc<CertifiedKey>>>,
-    ) -> Self {
+    pub fn new(providers: Vec<Arc<dyn ProvidesCertificates>>, storage: Arc<StorageKey>) -> Self {
         Self { providers, storage }
     }
 
@@ -159,9 +157,13 @@ impl Run for Aggregator {
                             warn!("Unable to fetch certificates: {e}");
                             continue;
                         }
-
                         Ok(v) => v,
                     };
+
+                    info!("Aggregator: {} certs fetched", certs.len());
+                    for v in &certs {
+                        debug!("Aggregator: cert loaded: {:?}", v.san);
+                    }
 
                     if let Err(e) = self.storage.store(certs) {
                         warn!("Error storing certificates: {e}");
@@ -176,9 +178,9 @@ impl Run for Aggregator {
 pub mod test {
     use super::*;
 
-    // Some snakeoil cert+key from one of the hosts
+    // Some snakeoil certs
 
-    pub const CERT: &[u8] = b"-----BEGIN CERTIFICATE-----\n\
+    pub const CERT_1: &[u8] = b"-----BEGIN CERTIFICATE-----\n\
     MIIC6TCCAdGgAwIBAgIUK60AjMl8YTJ5nWViMweY043y6/EwDQYJKoZIhvcNAQEL\n\
     BQAwDzENMAsGA1UEAwwEbm92ZzAeFw0yMzAxMDkyMTM5NTZaFw0zMzAxMDYyMTM5\n\
     NTZaMA8xDTALBgNVBAMMBG5vdmcwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEK\n\
@@ -198,7 +200,7 @@ pub mod test {
     -----END CERTIFICATE-----\n\
     ";
 
-    pub const KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\n\
+    pub const KEY_1: &[u8] = b"-----BEGIN PRIVATE KEY-----\n\
     MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCd/7NXWeENaITm\n\
     YU+eWMJEJMZa6v74g70RpZlprQzx148U0QOKEw/r6mmdSlbN4wsbb9lUu3zmXXpv\n\
     YDAHYuOTYsDWcuNJXP/gCnPrD2wU8lJt3C5blmeU/9+0U6/ppRmu6kf/jmm7CMBn\n\
@@ -228,22 +230,86 @@ pub mod test {
     -----END PRIVATE KEY-----\n\
     ";
 
-    #[test]
-    fn test_pem_convert_to_rustls() -> Result<(), Error> {
-        let cert = pem_convert_to_rustls(KEY, CERT)?;
-        assert_eq!(cert.san, vec!["novg"]);
-        Ok(())
+    pub const CERT_2: &[u8] = b"-----BEGIN CERTIFICATE-----\n\
+    MIIC4jCCAcqgAwIBAgIUDAdBS7aRT7YfKgt/H2VQ1b8u80kwDQYJKoZIhvcNAQEL\n\
+    BQAwFzEVMBMGA1UEAwwMMzY1ODE1M2YyN2UwMB4XDTI0MDMwNzIyNTMwOVoXDTM0\n\
+    MDMwNTIyNTMwOVowFzEVMBMGA1UEAwwMMzY1ODE1M2YyN2UwMIIBIjANBgkqhkiG\n\
+    9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyITGTjnOLGCiW51EuDl5Us7YJk6gkLWeQ+A5\n\
+    FQtUaVqjaLKHVZlNnuqFsQ7Y58GKOPzlO1nECfTgv6xUr0i8bhQhoB8GjWdKvhA6\n\
+    zxPXOMCDIIW8JuYKCbG67ygVxBx5ER5fNq2GMmyMfmLoLfejPVqWyoV9e9RIY7Vi\n\
+    wmiToXXI6vFETom3w7rMhKjJGXR+3/om7i531zmzOFY0jDS0lPMsaNwNQhL3GFfA\n\
+    bXjNyBJLYakHsga8VDZcsM5uoS7Zf4ogpFiLczk5DlYvnSdCDhO2KVUe4XwY5oqJ\n\
+    IPLL97/uL1tpB9v7D6EX6gGWBMjJpExnggeKDDjXSc16DOUT9wIDAQABoyYwJDAJ\n\
+    BgNVHRMEAjAAMBcGA1UdEQQQMA6CDDM2NTgxNTNmMjdlMDANBgkqhkiG9w0BAQsF\n\
+    AAOCAQEAPzgUej2SaXnR+0tCFygFALkU33DJMBFU/8JF8HYrm3pgaa4y+okVt6zq\n\
+    y1wUCeFejlLB2/AlajPshLJzsmHy6HRH/VKpkL5WkcGSqiFiKr3K+FEpsXtgemiF\n\
+    sJP7g0zi8qHPDDUHyHA5idDJzBt0E7UvFO9Dtx4IPkLm1rF7xSQiRl/SzNI9U4py\n\
+    7DnY8dtqYhUa2gaYMkZ1Y2BTzzBy6hjl3PnDfCPzTlzMT63Jxj3jFgqO3TGtkj0F\n\
+    mrym8qHmCWHHsBdqr0LuD1kzmHoW13PtLzKixzDfyaPsx53ChxJmw7w3K5paFpVU\n\
+    PNTlQReyX3nOvb85CynvGgZ3/FQxnw==\n\
+    -----END CERTIFICATE-----\n\
+    ";
+
+    pub const KEY_2: &[u8] = b"-----BEGIN PRIVATE KEY-----\n\
+    MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDIhMZOOc4sYKJb\n\
+    nUS4OXlSztgmTqCQtZ5D4DkVC1RpWqNosodVmU2e6oWxDtjnwYo4/OU7WcQJ9OC/\n\
+    rFSvSLxuFCGgHwaNZ0q+EDrPE9c4wIMghbwm5goJsbrvKBXEHHkRHl82rYYybIx+\n\
+    Yugt96M9WpbKhX171EhjtWLCaJOhdcjq8UROibfDusyEqMkZdH7f+ibuLnfXObM4\n\
+    VjSMNLSU8yxo3A1CEvcYV8BteM3IEkthqQeyBrxUNlywzm6hLtl/iiCkWItzOTkO\n\
+    Vi+dJ0IOE7YpVR7hfBjmiokg8sv3v+4vW2kH2/sPoRfqAZYEyMmkTGeCB4oMONdJ\n\
+    zXoM5RP3AgMBAAECggEADB25vdBQXO4Z4V9HX7pZUl+dP/NQUG4o+gD6cgMVPqhz\n\
+    Z0giVVHGFuwk1+YFxTs0luzxDP0Hk3JwgiRvmYfTmvMsdPhq9PBg28svQoP4ZT18\n\
+    ruJl1BPiV2Od4AWUCx2NUzN6nVsu2K0mcByZ2u0zt+lZYzNdubXCCgRTy1t2UDMq\n\
+    QYhpJAm+yE3TwaAucxV+7T3aD4S23RVcz4N1hnLu90EmPQ6TBHGFC4eproSd8TJ0\n\
+    rj2caRPlSast/j1oBwyCfwX6VC/jQU7zv9RaVHK3Y0LN9rlfBCCjWzH1cCjvUpkH\n\
+    q7fklHM+BzEB3pZzUAjB7aamDe3eR3xCrbO7QHUiwQKBgQD7W429aXLUQ60pXOpg\n\
+    k/56lkW7K9g/SFZJs0lXpyVLNImRcu4NQOl/upm1ADaaI15PPO165UjMjm7N6Tfc\n\
+    IZe6tXaGlRIyzURjz4T5f7oko75hJWCW4jCV/6N6e00Y8bldnWkoNdVUSWVOF79c\n\
+    ouT4rMn5td9ZAELfqA1c8WhNywKBgQDMONlE7S12Ppd1rfQwdKgNa4d428Hlschl\n\
+    lZUSCkRUjF1a8oP5mnf66ySf+QFEVYzRLFeQgTcPej4DDS/EYERF3bLNowroWDzo\n\
+    +gbbjuC2oQMFyhMwwcYdSdsfD0FmxVs79tKvu0gsDB005uzEmXs4gQo0nNc9oUJe\n\
+    bBE/fLDNBQKBgHXiKkd6/O+wDbYobYN95Qt5DpsJpRGIy28lNnB1Y3gx25LrY9mz\n\
+    Z88PpKbOwsznaYOf/4BzqADHjA/mINyMpKxcDopvv2kz+68T1DlvPc2RPegxr2sU\n\
+    CdVPX0xCJ5ZbR6Qv/vFszfAJvAkz+ftoKhq2bsM+GNGU3cgm+J1uWoyhAoGAP06w\n\
+    K6nKmgk1MonGVO8U2XQn/tNA/E9sa/E+0OTV4c/RcMwVFV9JKkOSivTJ68EJch5o\n\
+    1qb3xpiCeLexwxKEl5PuRcjxLK2N1DsNvSpBhtvK8BSAdnDbVWD7yFkWUSGE8sXE\n\
+    8i0AZocq1qdvZlKd3BpEa6LjJnvC8zpU7nVc6XECgYEAner1t7zPWvu3L3YiddCZ\n\
+    RZw1UnyRTs+OVmmDfWVkkWHpdEQWMHmtJvESp0l7mvOQKtWrco/FT4fOYHrDp0mz\n\
+    /xbEEBoYlUOLQPLMqcdP056Qh5BLq8dw/yv9v2KdfVd/yfu97ekQULHQcMetlIed\n\
+    v1tiHPlW4461iUonC6zsOVI=\n\
+    -----END PRIVATE KEY-----\n\
+    ";
+
+    struct TestProvider(CertKey);
+
+    #[async_trait]
+    impl ProvidesCertificates for TestProvider {
+        async fn get_certificates(&self) -> Result<Vec<CertKey>, Error> {
+            Ok(vec![self.0.clone()])
+        }
     }
 
     #[test]
-    fn test_aggregator() -> Result<(), Error> {
-        let dir = tempfile::tempdir()?;
+    fn test_pem_convert_to_rustls() -> Result<(), Error> {
+        let cert = pem_convert_to_rustls(KEY_1, CERT_1)?;
+        assert_eq!(cert.san, vec!["novg"]);
+        let cert = pem_convert_to_rustls(KEY_2, CERT_2)?;
+        assert_eq!(cert.san, vec!["3658153f27e0"]);
+        Ok(())
+    }
 
-        let keyfile = dir.path().join("foobar.key");
-        std::fs::write(keyfile, KEY)?;
+    #[tokio::test]
+    async fn test_aggregator() -> Result<(), Error> {
+        let prov1 = TestProvider(pem_convert_to_rustls(KEY_1, CERT_1)?);
+        let prov2 = TestProvider(pem_convert_to_rustls(KEY_2, CERT_2)?);
 
-        let certfile = dir.path().join("foobar.pem");
-        std::fs::write(certfile, CERT)?;
+        let storage = Arc::new(StorageKey::new());
+        let aggregator = Aggregator::new(vec![Arc::new(prov1), Arc::new(prov2)], storage);
+        let certs = aggregator.fetch().await?;
+
+        assert_eq!(certs.len(), 2);
+        assert_eq!(certs[0].san, vec!["novg"]);
+        assert_eq!(certs[1].san, vec!["3658153f27e0"]);
 
         Ok(())
     }
