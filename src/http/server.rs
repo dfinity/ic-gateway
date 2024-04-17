@@ -1,6 +1,7 @@
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Error};
+use async_trait::async_trait;
 use axum::{extract::Request, Router};
 use futures_util::pin_mut;
 use hyper::body::Incoming;
@@ -15,6 +16,8 @@ use tokio_rustls::TlsAcceptor;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tower_service::Service;
 use tracing::{debug, warn};
+
+use crate::core::Run;
 
 // Blanket async read+write trait to box streams
 trait AsyncReadWrite: AsyncRead + AsyncWrite + Send + Sync + Unpin {}
@@ -74,7 +77,6 @@ pub struct Server {
     addr: SocketAddr,
     backlog: u32,
     router: Router,
-    token: CancellationToken,
     tracker: TaskTracker,
     tls_acceptor: Option<TlsAcceptor>,
 }
@@ -84,26 +86,27 @@ impl Server {
         addr: SocketAddr,
         backlog: u32,
         router: Router,
-        token: CancellationToken,
         rustls_cfg: Option<rustls::ServerConfig>,
     ) -> Self {
         Self {
             addr,
             backlog,
             router,
-            token,
             tracker: TaskTracker::new(),
             tls_acceptor: rustls_cfg.map(|x| TlsAcceptor::from(Arc::new(x))),
         }
     }
+}
 
-    pub async fn start(&self) -> Result<(), Error> {
+#[async_trait]
+impl Run for Server {
+    async fn run(&self, token: CancellationToken) -> Result<(), Error> {
         let listener = listen_tcp_backlog(self.addr, self.backlog)?;
         pin_mut!(listener);
 
         loop {
             select! {
-                () = self.token.cancelled() => {
+                () = token.cancelled() => {
                     warn!("Server {}: shutting down, waiting for the active connections to close for 30s", self.addr);
                     self.tracker.close();
                     select! {

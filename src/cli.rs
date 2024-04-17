@@ -1,11 +1,13 @@
 use std::{
     net::{IpAddr, SocketAddr},
+    path::PathBuf,
     time::Duration,
 };
 
 use clap::{Args, Parser};
 use hickory_resolver::config::CLOUDFLARE_IPS;
 use humantime::parse_duration;
+use reqwest::Url;
 
 use crate::{
     core::{AUTHOR_NAME, SERVICE_NAME},
@@ -24,6 +26,9 @@ pub struct Cli {
 
     #[command(flatten, next_help_heading = "HTTP Server")]
     pub http_server: HttpServer,
+
+    #[command(flatten, next_help_heading = "Certificates")]
+    pub cert: Cert,
 }
 
 // Clap does not support prefixes due to macro limitations
@@ -84,4 +89,15 @@ pub struct HttpServer {
     /// Backlog of incoming connections to set on the listening socket.
     #[clap(long, default_value = "8192")]
     pub backlog: u32,
+}
+
+#[derive(Args)]
+pub struct Cert {
+    /// Read certificates from given directories, each certificate should be a pair .pem + .key files with the same base name
+    #[clap(long = "cert-dir")]
+    pub dir: Vec<PathBuf>,
+
+    /// Request certificates from the 'certificate-issuer' instances reachable over given URLs
+    #[clap(long = "cert-syncer-url")]
+    pub syncer_urls: Vec<Url>,
 }

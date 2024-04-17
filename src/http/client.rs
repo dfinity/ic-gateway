@@ -11,6 +11,7 @@ pub trait Client: Send + Sync {
     async fn execute(&self, req: reqwest::Request) -> Result<reqwest::Response, reqwest::Error>;
 }
 
+#[derive(Clone)]
 pub struct ReqwestClient(reqwest::Client);
 
 impl ReqwestClient {

@@ -1,42 +1,41 @@
-mod dir;
-mod syncer;
+pub mod providers;
+pub mod storage;
 
 use std::{
-    any,
-    collections::HashMap,
-    convert::TryFrom,
     net::{Ipv4Addr, Ipv6Addr},
     sync::Arc,
+    time::Duration,
 };
 
 use anyhow::{anyhow, Context, Error};
-use arc_swap::ArcSwapOption;
 use async_trait::async_trait;
 use futures::future::join_all;
 use rustls::{crypto::aws_lc_rs, sign::CertifiedKey};
+use tokio::select;
+use tokio_util::sync::CancellationToken;
+use tracing::warn;
 use x509_parser::prelude::*;
 
-// Trait that the certificate sources should implement
-// It should return a vector of Rustls-compatible CertifiedKeys
+use crate::{core::Run, tls::cert::storage::Storage};
+
+// Generic certificate and a list of its SANs
+pub struct Cert<T> {
+    san: Vec<String>,
+    cert: T,
+}
+
+// Commonly used concrete type of the above for Rustls
+pub type CertKey = Cert<Arc<CertifiedKey>>;
+
+// Trait that the certificate providers should implement
+// It should return a vector of Rustls-compatible keys
 #[async_trait]
 pub trait ProvidesCertificates: Sync + Send {
-    async fn get_certificates(&self) -> Result<Vec<Cert>, Error>;
+    async fn get_certificates(&self) -> Result<Vec<CertKey>, Error>;
 }
-
-// Certificate and its SANs
-pub struct Cert {
-    // List of SubjectAlternativeNames
-    san: Vec<String>,
-    key: Arc<CertifiedKey>,
-}
-
-// Shared certificate storage
-// It's intended to hold CertifiedKey but since we can't create it easily - we use generics
-// to be able to do tests using other types
-pub type Storage<T> = Arc<ArcSwapOption<HashMap<String, T>>>;
 
 // Extracts a list of SubjectAlternativeName from a single certificate, formatted as strings.
-// Fails for everything except DNSName and IPAddress
+// Skips everything except DNSName and IPAddress
 fn extract_san_from_der(cert: &[u8]) -> Result<Vec<String>, Error> {
     let cert = X509Certificate::from_der(cert)
         .context("Unable to parse DER-encoded certificate")?
@@ -61,10 +60,10 @@ fn extract_san_from_der(cert: &[u8]) -> Result<Vec<String>, Error> {
                             ip.to_string()
                         }
 
-                        _ => return Err(anyhow!("Invalid IP address length")),
+                        _ => return Err(anyhow!("Invalid IP address length {}", v.len())),
                     },
 
-                    _ => return Err(anyhow!("Unsupported SubjectAlternativeName type")),
+                    _ => continue,
                 };
 
                 names.push(name);
@@ -84,7 +83,7 @@ fn extract_san_from_der(cert: &[u8]) -> Result<Vec<String>, Error> {
 }
 
 // Converts raw PEM certificate chain & private key to a CertifiedKey ready to be consumed by Rustls
-pub fn pem_convert_to_rustls(key: &[u8], certs: &[u8]) -> Result<Cert, Error> {
+pub fn pem_convert_to_rustls(key: &[u8], certs: &[u8]) -> Result<Cert<Arc<CertifiedKey>>, Error> {
     let (key, certs) = (key.to_vec(), certs.to_vec());
 
     let key = rustls_pemfile::private_key(&mut key.as_ref())?
@@ -103,24 +102,26 @@ pub fn pem_convert_to_rustls(key: &[u8], certs: &[u8]) -> Result<Cert, Error> {
 
     Ok(Cert {
         san,
-        key: Arc::new(CertifiedKey::new(certs, key)),
+        cert: Arc::new(CertifiedKey::new(certs, key)),
     })
 }
 
-// Provider that aggregates other providers' output
-pub struct AggregatingProvider {
+// Collects certificates from providers and stores them in a given storage
+pub struct Aggregator {
     providers: Vec<Arc<dyn ProvidesCertificates>>,
+    storage: Arc<Storage<Arc<CertifiedKey>>>,
 }
 
-impl AggregatingProvider {
-    pub fn new(providers: Vec<Arc<dyn ProvidesCertificates>>) -> Self {
-        Self { providers }
+impl Aggregator {
+    pub fn new(
+        providers: Vec<Arc<dyn ProvidesCertificates>>,
+        storage: Arc<Storage<Arc<CertifiedKey>>>,
+    ) -> Self {
+        Self { providers, storage }
     }
-}
 
-#[async_trait]
-impl ProvidesCertificates for AggregatingProvider {
-    async fn get_certificates(&self) -> Result<Vec<Cert>, Error> {
+    // Fetches certificates concurrently from all providers
+    async fn fetch(&self) -> Result<Vec<CertKey>, Error> {
         let certs = join_all(
             self.providers
                 .iter()
@@ -128,6 +129,7 @@ impl ProvidesCertificates for AggregatingProvider {
         )
         .await;
 
+        // Flatten them into a single vector
         let certs = certs
             .into_iter()
             .collect::<Result<Vec<_>, _>>()?
@@ -139,9 +141,42 @@ impl ProvidesCertificates for AggregatingProvider {
     }
 }
 
+#[async_trait]
+impl Run for Aggregator {
+    async fn run(&self, token: CancellationToken) -> Result<(), Error> {
+        let mut interval = tokio::time::interval(Duration::from_secs(10));
+
+        loop {
+            select! {
+                () = token.cancelled() => {
+                    warn!("Aggregator exiting");
+                    return Ok(());
+                },
+
+                _ = interval.tick() => {
+                    let certs = match self.fetch().await {
+                        Err(e) => {
+                            warn!("Unable to fetch certificates: {e}");
+                            continue;
+                        }
+
+                        Ok(v) => v,
+                    };
+
+                    if let Err(e) = self.storage.store(certs) {
+                        warn!("Error storing certificates: {e}");
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 pub mod test {
     use super::*;
+
+    // Some snakeoil cert+key from one of the hosts
 
     pub const CERT: &[u8] = b"-----BEGIN CERTIFICATE-----\n\
     MIIC6TCCAdGgAwIBAgIUK60AjMl8YTJ5nWViMweY043y6/EwDQYJKoZIhvcNAQEL\n\
@@ -197,6 +232,19 @@ pub mod test {
     fn test_pem_convert_to_rustls() -> Result<(), Error> {
         let cert = pem_convert_to_rustls(KEY, CERT)?;
         assert_eq!(cert.san, vec!["novg"]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_aggregator() -> Result<(), Error> {
+        let dir = tempfile::tempdir()?;
+
+        let keyfile = dir.path().join("foobar.key");
+        std::fs::write(keyfile, KEY)?;
+
+        let certfile = dir.path().join("foobar.pem");
+        std::fs::write(certfile, CERT)?;
+
         Ok(())
     }
 }

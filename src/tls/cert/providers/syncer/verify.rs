@@ -2,7 +2,7 @@ use anyhow::Context;
 use mockall::automock;
 use x509_parser::pem::parse_x509_pem;
 
-use crate::tls::cert::syncer::Package;
+use super::Package;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ParseError {
@@ -97,7 +97,7 @@ mod tests {
     use candid::Principal;
 
     use super::{MockParse, Verifier, Verify, VerifyError};
-    use crate::tls::cert::syncer::{Package, Pair};
+    use crate::tls::cert::providers::syncer::{Package, Pair};
 
     #[test]
     fn verify_ok() {

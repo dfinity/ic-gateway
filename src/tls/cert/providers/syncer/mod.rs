@@ -13,8 +13,8 @@ use crate::{
     http::client,
     tls::cert::{
         pem_convert_to_rustls,
-        syncer::verify::{Verify, VerifyError, WithVerify},
-        Cert, ProvidesCertificates,
+        providers::syncer::verify::{Verify, VerifyError, WithVerify},
+        CertKey, ProvidesCertificates,
     },
 };
 
@@ -62,7 +62,7 @@ impl CertificatesImporter {
 
 #[async_trait]
 impl ProvidesCertificates for CertificatesImporter {
-    async fn get_certificates(&self) -> Result<Vec<Cert>, anyhow::Error> {
+    async fn get_certificates(&self) -> Result<Vec<CertKey>, anyhow::Error> {
         let certs = self
             .import()
             .await?
@@ -129,7 +129,7 @@ mod tests {
     use reqwest::Body;
     use std::{str::FromStr, sync::Arc};
 
-    use crate::{http::client::MockClient, tls::cert::syncer::verify::MockVerify};
+    use crate::{http::client::MockClient, tls::cert::providers::syncer::verify::MockVerify};
 
     #[tokio::test]
     async fn import_ok() -> Result<(), AnyhowError> {
