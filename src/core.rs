@@ -30,7 +30,13 @@ pub async fn main(cli: Cli) -> Result<(), Error> {
     let handler_token = token.clone();
     ctrlc::set_handler(move || handler_token.cancel())?;
 
-    let router = axum::Router::new().route("/", axum::routing::get(|| async { "Hello, World!" }));
+    let router = axum::Router::new().route(
+        "/",
+        axum::routing::get(|| async {
+            tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+            "Hello, World!"
+        }),
+    );
 
     let mut runners: Vec<(String, Arc<dyn Run>)> = vec![];
 
@@ -45,7 +51,7 @@ pub async fn main(cli: Cli) -> Result<(), Error> {
     runners.push(("http_server".into(), http_server));
 
     // Set up HTTPS
-    let (aggregator, rustls_cfg) = tls::setup(&cli, http_client.clone());
+    let (aggregator, rustls_cfg) = tls::setup(&cli, http_client.clone())?;
     runners.push(("aggregator".into(), aggregator));
 
     let https_server = Arc::new(Server::new(

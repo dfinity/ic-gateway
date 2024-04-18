@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::tls::cert::{pem_convert_to_rustls, CertKey, ProvidesCertificates};
+use crate::tls::cert::{pem_convert_to_rustls, providers::ProvidesCertificates, CertKey};
 use anyhow::{Context, Error};
 use async_trait::async_trait;
 use tokio::fs::read_dir;

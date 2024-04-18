@@ -1,14 +1,19 @@
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::{
+    net::SocketAddr,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
+use crate::core::Run;
 use anyhow::{anyhow, Error};
 use async_trait::async_trait;
 use axum::{extract::Request, Router};
-use futures_util::pin_mut;
 use hyper::body::Incoming;
 use hyper_util::{
-    rt::{TokioExecutor, TokioIo},
+    rt::{TokioExecutor, TokioIo, TokioTimer},
     server::conn::auto::Builder,
 };
+use rustls::{server::ServerConnection, CipherSuite, ProtocolVersion};
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     net::{TcpListener, TcpSocket, TcpStream},
@@ -19,17 +24,43 @@ use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tower_service::Service;
 use tracing::{debug, warn};
 
-use crate::core::Run;
-
 // Blanket async read+write trait to box streams
 trait AsyncReadWrite: AsyncRead + AsyncWrite + Send + Sync + Unpin {}
 impl<T: AsyncRead + AsyncWrite + Send + Sync + Unpin> AsyncReadWrite for T {}
+
+// TLS information about the connection
+// To be injected into the request as an extension
+#[derive(Clone)]
+struct TlsInfo {
+    sni: String,
+    alpn: String,
+    protocol: ProtocolVersion,
+    cipher: CipherSuite,
+}
+
+impl From<&ServerConnection> for TlsInfo {
+    fn from(c: &ServerConnection) -> Self {
+        Self {
+            sni: c.server_name().unwrap_or("unknown").into(),
+            alpn: c
+                .alpn_protocol()
+                .map_or("unknown".into(), |x| String::from_utf8_lossy(x).to_string()),
+            protocol: c.protocol_version().unwrap_or(ProtocolVersion::Unknown(0)),
+            cipher: c
+                .negotiated_cipher_suite()
+                // Some default cipher, it should never be None in fact, but just in case we don't use unwrap()
+                .map_or(rustls::CipherSuite::TLS13_AES_128_CCM_SHA256, |x| x.suite()),
+        }
+    }
+}
 
 struct Conn {
     addr: SocketAddr,
     remote_addr: SocketAddr,
     router: Router,
+    builder: Builder<TokioExecutor>,
     token: CancellationToken,
+    grace_period: Duration,
     tls_acceptor: Option<TlsAcceptor>,
 }
 
@@ -44,50 +75,77 @@ impl Conn {
         stream.set_nodelay(true)?;
 
         // Perform TLS handshake if we're in TLS mode
-        let stream: Box<dyn AsyncReadWrite> = if let Some(v) = &self.tls_acceptor {
-            debug!("{}: performing TLS handshake", self.remote_addr);
-            Box::new(v.accept(stream).await?)
+        let (stream, tls_info): (Box<dyn AsyncReadWrite>, _) = if let Some(v) = &self.tls_acceptor {
+            debug!(
+                "Server {}: {}: performing TLS handshake",
+                self.addr, self.remote_addr
+            );
+
+            let start = Instant::now();
+            let stream = v.accept(stream).await?;
+            let latency = start.elapsed();
+
+            let conn = stream.get_ref().1;
+            let tls_info = TlsInfo::from(conn);
+
+            debug!(
+                "Server {}: {}: handshake finished in {}ms (server: {}, proto: {:?}, cipher: {:?}, ALPN: {})",
+                self.addr,
+                self.remote_addr,
+                latency.as_millis(),
+                tls_info.sni,
+                tls_info.protocol,
+                tls_info.cipher,
+                tls_info.alpn,
+            );
+
+            (Box::new(stream), Some(tls_info))
         } else {
-            Box::new(stream)
+            (Box::new(stream), None)
         };
 
         // Convert stream from Tokio to Hyper
         let stream = TokioIo::new(stream);
 
         // Convert router to Hyper service
-        let service = hyper::service::service_fn(move |request: Request<Incoming>| {
+        let service = hyper::service::service_fn(move |mut request: Request<Incoming>| {
+            // Inject TLS information if it's a TLS session
+            // TODO avoid cloning due to Fn() somehow?
+            if let Some(v) = tls_info.clone() {
+                request.extensions_mut().insert(v);
+            }
+
             self.router.clone().call(request)
         });
 
         // Call the service
-        let mut builder = Builder::new(TokioExecutor::new());
+        let conn = self.builder.serve_connection(stream, service);
+        // Using mutable future reference requires pinning, otherwise .await consumes it
+        tokio::pin!(conn);
 
-        // Some sensible defaults
-        // TODO make configurable?
-        builder
-            .http2()
-            .adaptive_window(true)
-            .max_concurrent_streams(Some(100))
-            .keep_alive_interval(Some(Duration::from_secs(20)))
-            .keep_alive_timeout(Duration::from_secs(10));
+        select! {
+            biased; // Poll top-down
 
-        let conn = builder.serve_connection(stream, service);
-        pin_mut!(conn);
+            () = self.token.cancelled() => {
+                // Start graceful shutdown of the connection
+                // For H2: sends GOAWAY frames to the client
+                // For H1: disables keepalives
+                conn.as_mut().graceful_shutdown();
 
-        loop {
-            select! {
-                v = conn.as_mut() => {
-                    if let Err(e) = v {
-                        return Err(anyhow!("Unable to serve connection: {e}"));
-                    }
-
-                    break;
-                },
-
-                () = self.token.cancelled() => {
-                    conn.as_mut().graceful_shutdown();
+                // Wait for the grace period to finish or connection to complete.
+                // Connection must still be polled for shutdown to proceed.
+                select! {
+                    biased;
+                    () = tokio::time::sleep(self.grace_period) => {},
+                    _ = conn.as_mut() => {},
                 }
             }
+
+            v = conn.as_mut() => {
+                if let Err(e) = v {
+                    return Err(anyhow!("Unable to serve connection: {e}"));
+                }
+            },
         }
 
         debug!(
@@ -132,7 +190,19 @@ impl Server {
 impl Run for Server {
     async fn run(&self, token: CancellationToken) -> Result<(), Error> {
         let listener = listen_tcp_backlog(self.addr, self.backlog)?;
-        pin_mut!(listener);
+
+        // Setup Hyper connection builder with some defaults
+        // TODO make configurable?
+        let mut builder = Builder::new(TokioExecutor::new());
+        builder
+            .http1()
+            .keep_alive(true)
+            .http2()
+            .adaptive_window(true)
+            .max_concurrent_streams(Some(100))
+            .timer(TokioTimer::new()) // Needed for the keepalives below
+            .keep_alive_interval(Some(Duration::from_secs(20)))
+            .keep_alive_timeout(Duration::from_secs(10));
 
         warn!(
             "Server {}: running (TLS: {})",
@@ -142,13 +212,20 @@ impl Run for Server {
 
         loop {
             select! {
+                biased; // Poll top-down
+
                 () = token.cancelled() => {
+                    // Stop accepting new connections
+                    drop(listener);
+
                     warn!("Server {}: shutting down, waiting for the active connections to close for {}s", self.addr, self.grace_period.as_secs());
                     self.tracker.close();
-                    select! {
-                        () = self.tracker.wait() => {},
-                        () = tokio::time::sleep(self.grace_period) => {},
-                    }
+                    self.tracker.wait().await;
+
+                    // select! {
+                    //     () = self.tracker.wait() => {},
+                    //     () = tokio::time::sleep(self.grace_period) => {},
+                    // }
                     warn!("Server {}: shut down", self.addr);
                     return Ok(());
                 },
@@ -165,11 +242,14 @@ impl Run for Server {
 
                     // Create a new connection
                     // Router & TlsAcceptor are both Arc<> inside so it's cheap to clone
+                    // Builder is a bit more complex, but cloning is better than to create it again
                     let conn = Conn {
                         addr: self.addr,
                         remote_addr,
                         router: self.router.clone(),
+                        builder: builder.clone(),
                         token: token.child_token(),
+                        grace_period: self.grace_period,
                         tls_acceptor: self.tls_acceptor.clone(),
                     };
 

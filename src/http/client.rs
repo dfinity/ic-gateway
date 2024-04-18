@@ -3,7 +3,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use mockall::automock;
 
-use crate::{cli, core::SERVICE_NAME, http::dns::Resolver, tls::prepare_rustls_client_config};
+use crate::{cli, core::SERVICE_NAME, http::dns::Resolver, tls::prepare_client_config};
 
 #[automock]
 #[async_trait]
@@ -19,7 +19,7 @@ impl ReqwestClient {
         let http = &cli.http_client;
 
         let client = reqwest::Client::builder()
-            .use_preconfigured_tls(prepare_rustls_client_config())
+            .use_preconfigured_tls(prepare_client_config())
             .dns_resolver(Arc::new(Resolver::new(&cli.dns)))
             .connect_timeout(http.timeout_connect)
             .timeout(http.timeout)

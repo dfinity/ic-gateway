@@ -9,6 +9,7 @@ use std::{
 
 use anyhow::{anyhow, Context, Error};
 use async_trait::async_trait;
+use candid::Principal;
 use futures::future::join_all;
 use rustls::{crypto::aws_lc_rs, sign::CertifiedKey};
 use tokio::select;
@@ -16,23 +17,30 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 use x509_parser::prelude::*;
 
-use crate::{core::Run, tls::cert::storage::StorageKey};
+use crate::core::Run;
+use providers::ProvidesCertificates;
+use storage::StorageKey;
+
+#[derive(Clone, Debug)]
+pub struct CustomDomain {
+    name: String,
+    canister_id: Principal,
+}
 
 // Generic certificate and a list of its SANs
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Cert<T: Clone> {
     san: Vec<String>,
     cert: T,
+    pub custom: Option<CustomDomain>,
 }
 
 // Commonly used concrete type of the above for Rustls
 pub type CertKey = Cert<Arc<CertifiedKey>>;
 
-// Trait that the certificate providers should implement
-// It should return a vector of Rustls-compatible keys
-#[async_trait]
-pub trait ProvidesCertificates: Sync + Send {
-    async fn get_certificates(&self) -> Result<Vec<CertKey>, Error>;
+// Looks up custom domain canister id by hostname
+pub trait LookupCanister: Sync + Send {
+    fn lookup_canister(&self, hostname: &str) -> Option<Principal>;
 }
 
 // Extracts a list of SubjectAlternativeName from a single certificate, formatted as strings.
@@ -104,6 +112,7 @@ pub fn pem_convert_to_rustls(key: &[u8], certs: &[u8]) -> Result<CertKey, Error>
     Ok(Cert {
         san,
         cert: Arc::new(CertifiedKey::new(certs, key)),
+        custom: None,
     })
 }
 

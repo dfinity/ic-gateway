@@ -3,13 +3,13 @@ mod test;
 
 use std::sync::Arc;
 
+use anyhow::{anyhow, Error};
 use rustls::{
     client::{ClientConfig, ClientSessionMemoryCache, Resumption},
     server::{ResolvesServerCert, ServerConfig, ServerSessionMemoryCache},
     version::{TLS12, TLS13},
     RootCertStore,
 };
-use tracing::warn;
 
 use crate::{
     cli::Cli,
@@ -18,12 +18,12 @@ use crate::{
     tls::cert::{providers, storage::Storage, Aggregator},
 };
 
-use self::cert::ProvidesCertificates;
+use cert::providers::ProvidesCertificates;
 
 const ALPN_H1: &[u8] = b"http/1.1";
 const ALPN_H2: &[u8] = b"h2";
 
-pub fn prepare_rustls_server_config(resolver: Arc<dyn ResolvesServerCert>) -> ServerConfig {
+pub fn prepare_server_config(resolver: Arc<dyn ResolvesServerCert>) -> ServerConfig {
     let mut cfg = ServerConfig::builder_with_protocol_versions(&[&TLS13, &TLS12])
         .with_no_client_auth()
         .with_cert_resolver(resolver);
@@ -35,7 +35,7 @@ pub fn prepare_rustls_server_config(resolver: Arc<dyn ResolvesServerCert>) -> Se
     cfg
 }
 
-pub fn prepare_rustls_client_config() -> ClientConfig {
+pub fn prepare_client_config() -> ClientConfig {
     let root_store = RootCertStore {
         roots: webpki_roots::TLS_SERVER_ROOTS.into(),
     };
@@ -54,7 +54,10 @@ pub fn prepare_rustls_client_config() -> ClientConfig {
 }
 
 // Prepares the stuff needed for serving TLS
-pub fn setup(cli: &Cli, http_client: Arc<dyn http::Client>) -> (Arc<dyn Run>, ServerConfig) {
+pub fn setup(
+    cli: &Cli,
+    http_client: Arc<dyn http::Client>,
+) -> Result<(Arc<dyn Run>, ServerConfig), Error> {
     let mut providers = vec![];
 
     for v in &cli.cert.dir {
@@ -69,12 +72,14 @@ pub fn setup(cli: &Cli, http_client: Arc<dyn http::Client>) -> (Arc<dyn Run>, Se
     }
 
     if providers.is_empty() {
-        warn!("No certificate providers specified - HTTPS will not be functional");
+        return Err(anyhow!(
+            "No certificate providers specified - HTTPS cannot be used"
+        ));
     }
 
     let storage = Arc::new(Storage::new());
     let aggregator = Arc::new(Aggregator::new(providers, storage.clone()));
-    let config = prepare_rustls_server_config(storage);
+    let config = prepare_server_config(storage);
 
-    (aggregator, config)
+    Ok((aggregator, config))
 }

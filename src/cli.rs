@@ -95,17 +95,17 @@ pub struct HttpServer {
     pub http2_max_streams: u32,
 
     /// How long to wait for the existing connections to finish before shutting down
-    #[clap(long = "http-server-grace-period", default_value = "30s", value_parser = parse_duration)]
+    #[clap(long = "http-server-grace-period", default_value = "10s", value_parser = parse_duration)]
     pub grace_period: Duration,
 }
 
 #[derive(Args)]
 pub struct Cert {
     /// Read certificates from given directories, each certificate should be a pair .pem + .key files with the same base name
-    #[clap(long = "cert-dir")]
+    #[clap(long = "cert-provider-dir")]
     pub dir: Vec<PathBuf>,
 
     /// Request certificates from the 'certificate-issuer' instances reachable over given URLs
-    #[clap(long = "cert-syncer-url")]
+    #[clap(long = "cert-provider-syncer-url")]
     pub syncer_urls: Vec<Url>,
 }

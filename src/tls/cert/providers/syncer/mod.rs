@@ -12,12 +12,11 @@ use tracing::info;
 
 use crate::{
     http,
-    tls::cert::{
-        pem_convert_to_rustls,
-        providers::syncer::verify::{Verify, VerifyError, WithVerify},
-        CertKey, ProvidesCertificates,
-    },
+    tls::cert::{pem_convert_to_rustls, CertKey, CustomDomain},
 };
+use verify::{Verify, VerifyError, WithVerify};
+
+use super::ProvidesCertificates;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -68,7 +67,15 @@ impl ProvidesCertificates for CertificatesImporter {
             .import()
             .await?
             .into_iter()
-            .map(|x| pem_convert_to_rustls(&x.pair.0, &x.pair.1))
+            .map(|x| -> Result<CertKey, anyhow::Error> {
+                let mut cert = pem_convert_to_rustls(&x.pair.0, &x.pair.1)?;
+                // Fill the custom domain info
+                cert.custom = Some(CustomDomain {
+                    name: x.name,
+                    canister_id: x.canister,
+                });
+                Ok(cert)
+            })
             .collect::<Result<Vec<_>, _>>()?;
 
         info!(
