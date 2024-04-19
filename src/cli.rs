@@ -33,6 +33,9 @@ pub struct Cli {
 
 // Clap does not support prefixes due to macro limitations
 // so we have to add them manually (long = "...")
+//
+// Also 'id = ...' in some fields below is needed because clap requires unique field names
+// https://github.com/clap-rs/clap/issues/4556
 
 #[derive(Args)]
 pub struct HttpClient {
@@ -90,9 +93,17 @@ pub struct HttpServer {
     #[clap(long = "http-server-backlog", default_value = "2048")]
     pub backlog: u32,
 
-    /// Backlog of incoming connections to set on the listening socket.
-    #[clap(long = "http-server-http2-max-streams", default_value = "100")]
+    /// Maximum number of HTTP2 streams that the client is allowed to create in a single connection
+    #[clap(long = "http-server-http2-max-streams", default_value = "128")]
     pub http2_max_streams: u32,
+
+    /// Keepalive interval for HTTP2 connections
+    #[clap(long = "http-server-http2-keepalive-interval", id = "HTTP_SERVER_HTTP2_KEEPALIVE_INTERVAL", default_value = "20s", value_parser = parse_duration)]
+    pub http2_keepalive_interval: Duration,
+
+    /// Keepalive timeout for HTTP2 connections
+    #[clap(long = "http-server-http2-keepalive-timeout", id = "HTTP_SERVER_HTTP2_KEEPALIVE_TIMEOUT", default_value = "10s", value_parser = parse_duration)]
+    pub http2_keepalive_timeout: Duration,
 
     /// How long to wait for the existing connections to finish before shutting down
     #[clap(long = "http-server-grace-period", default_value = "10s", value_parser = parse_duration)]

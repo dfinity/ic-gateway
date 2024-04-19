@@ -20,8 +20,9 @@ use crate::{
 
 use cert::providers::ProvidesCertificates;
 
-const ALPN_H1: &[u8] = b"http/1.1";
-const ALPN_H2: &[u8] = b"h2";
+pub const ALPN_H1: &[u8] = b"http/1.1";
+pub const ALPN_H2: &[u8] = b"h2";
+pub const ALPN_HTTP: &[&[u8]] = &[ALPN_H1, ALPN_H2];
 
 pub fn prepare_server_config(resolver: Arc<dyn ResolvesServerCert>) -> ServerConfig {
     let mut cfg = ServerConfig::builder_with_protocol_versions(&[&TLS13, &TLS12])

@@ -10,6 +10,7 @@ use rustls::{
 };
 
 use super::{Cert, LookupCanister};
+use crate::tls;
 
 #[derive(Debug)]
 struct StorageInner<T: Clone> {
@@ -80,14 +81,20 @@ impl<T: Clone> Storage<T> {
 // Implement certificate resolving for Rustls
 impl ResolvesServerCert for StorageKey {
     fn resolve(&self, ch: ClientHello) -> Option<Arc<CertifiedKey>> {
+        // Make sure we've got an ALPN list and they're all HTTP, otherwise refuse resolving
+        // This is to make sure we don't answer to e.g. ACME challenges here
+        if !ch.alpn()?.all(|x| tls::ALPN_HTTP.contains(&x)) {
+            return None;
+        }
+
         // See if client provided us with an SNI
         let sni = ch.server_name()?;
         self.lookup_cert(sni)
     }
 }
 
+// Implement looking up custom domain canister id by hostname
 impl<T: Clone + Sync + Send> LookupCanister for Storage<T> {
-    // Looks up custom domain canister id by hostname
     fn lookup_canister(&self, hostname: &str) -> Option<Principal> {
         self.inner.load_full()?.canisters.get(hostname).copied()
     }

@@ -1,12 +1,13 @@
 use anyhow::Error;
 use async_trait::async_trait;
+use axum::response::IntoResponse;
 use std::sync::Arc;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::{error, warn};
 
 use crate::{
     cli::Cli,
-    http::{ReqwestClient, Server},
+    http::{server, ConnInfo, ReqwestClient, Server},
     tls,
 };
 
@@ -17,6 +18,11 @@ pub const AUTHOR_NAME: &str = "Boundary Node Team <boundary-nodes@dfinity.org>";
 #[async_trait]
 pub trait Run: Send + Sync {
     async fn run(&self, token: CancellationToken) -> Result<(), Error>;
+}
+
+async fn handle(request: axum::extract::Request) -> impl IntoResponse {
+    warn!("{:?}", request.extensions().get::<Arc<ConnInfo>>());
+    "Hello"
 }
 
 pub async fn main(cli: Cli) -> Result<(), Error> {
@@ -30,22 +36,16 @@ pub async fn main(cli: Cli) -> Result<(), Error> {
     let handler_token = token.clone();
     ctrlc::set_handler(move || handler_token.cancel())?;
 
-    let router = axum::Router::new().route(
-        "/",
-        axum::routing::get(|| async {
-            tokio::time::sleep(std::time::Duration::from_secs(15)).await;
-            "Hello, World!"
-        }),
-    );
+    let router = axum::Router::new().route("/", axum::routing::get(handle));
 
     let mut runners: Vec<(String, Arc<dyn Run>)> = vec![];
 
+    let server_options = server::Options::from(&cli.http_server);
     // Set up HTTP
     let http_server = Arc::new(Server::new(
         cli.http_server.http,
-        cli.http_server.backlog,
         router.clone(),
-        cli.http_server.grace_period,
+        server_options,
         None,
     )) as Arc<dyn Run>;
     runners.push(("http_server".into(), http_server));
@@ -56,9 +56,8 @@ pub async fn main(cli: Cli) -> Result<(), Error> {
 
     let https_server = Arc::new(Server::new(
         cli.http_server.https,
-        cli.http_server.backlog,
         router,
-        cli.http_server.grace_period,
+        server_options,
         Some(rustls_cfg),
     )) as Arc<dyn Run>;
     runners.push(("https_server".into(), https_server));
