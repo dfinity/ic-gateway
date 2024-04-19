@@ -117,16 +117,13 @@ pub fn pem_convert_to_rustls(key: &[u8], certs: &[u8]) -> Result<CertKey, Error>
 }
 
 // Collects certificates from providers and stores them in a given storage
+#[derive(derive_new::new)]
 pub struct Aggregator {
     providers: Vec<Arc<dyn ProvidesCertificates>>,
     storage: Arc<StorageKey>,
 }
 
 impl Aggregator {
-    pub fn new(providers: Vec<Arc<dyn ProvidesCertificates>>, storage: Arc<StorageKey>) -> Self {
-        Self { providers, storage }
-    }
-
     // Fetches certificates concurrently from all providers
     async fn fetch(&self) -> Result<Vec<CertKey>, Error> {
         let certs = join_all(

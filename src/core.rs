@@ -21,6 +21,7 @@ pub trait Run: Send + Sync {
 }
 
 async fn handle(request: axum::extract::Request) -> impl IntoResponse {
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
     warn!("{:?}", request.extensions().get::<Arc<ConnInfo>>());
     "Hello"
 }

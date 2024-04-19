@@ -1,4 +1,5 @@
 mod cert;
+pub mod resolver;
 mod test;
 
 use std::sync::Arc;
@@ -10,19 +11,27 @@ use rustls::{
     version::{TLS12, TLS13},
     RootCertStore,
 };
+use rustls_acme::acme::ACME_TLS_ALPN_NAME;
 
 use crate::{
     cli::Cli,
     core::Run,
     http,
-    tls::cert::{providers, storage::Storage, Aggregator},
+    tls::{
+        cert::{providers, storage::Storage, Aggregator},
+        resolver::AggregatingResolver,
+    },
 };
 
 use cert::providers::ProvidesCertificates;
 
-pub const ALPN_H1: &[u8] = b"http/1.1";
-pub const ALPN_H2: &[u8] = b"h2";
-pub const ALPN_HTTP: &[&[u8]] = &[ALPN_H1, ALPN_H2];
+const ALPN_H1: &[u8] = b"http/1.1";
+const ALPN_H2: &[u8] = b"h2";
+const ALPN_HTTP: &[&[u8]] = &[ALPN_H1, ALPN_H2];
+
+pub fn is_http_alpn(alpn: &[u8]) -> bool {
+    ALPN_HTTP.contains(&alpn)
+}
 
 pub fn prepare_server_config(resolver: Arc<dyn ResolvesServerCert>) -> ServerConfig {
     let mut cfg = ServerConfig::builder_with_protocol_versions(&[&TLS13, &TLS12])
@@ -31,7 +40,12 @@ pub fn prepare_server_config(resolver: Arc<dyn ResolvesServerCert>) -> ServerCon
 
     // Create custom session storage with higher limit to allow effective TLS session resumption
     cfg.session_storage = ServerSessionMemoryCache::new(131_072);
-    cfg.alpn_protocols = vec![ALPN_H2.to_vec(), ALPN_H1.to_vec()];
+    cfg.alpn_protocols = vec![
+        ALPN_H2.to_vec(),
+        ALPN_H1.to_vec(),
+        // Support ACME challenge ALPN too
+        ACME_TLS_ALPN_NAME.to_vec(),
+    ];
 
     cfg
 }
@@ -79,8 +93,9 @@ pub fn setup(
     }
 
     let storage = Arc::new(Storage::new());
-    let aggregator = Arc::new(Aggregator::new(providers, storage.clone()));
-    let config = prepare_server_config(storage);
+    let cert_aggregator = Arc::new(Aggregator::new(providers, storage.clone()));
+    let resolve_aggregator = Arc::new(AggregatingResolver::new(None, vec![storage]));
+    let config = prepare_server_config(resolve_aggregator);
 
-    Ok((aggregator, config))
+    Ok((cert_aggregator, config))
 }

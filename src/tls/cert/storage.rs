@@ -4,13 +4,10 @@ use anyhow::{anyhow, Error};
 use arc_swap::ArcSwapOption;
 use candid::Principal;
 use fqdn::FQDN;
-use rustls::{
-    server::{ClientHello, ResolvesServerCert},
-    sign::CertifiedKey,
-};
+use rustls::{server::ClientHello, sign::CertifiedKey};
 
 use super::{Cert, LookupCanister};
-use crate::tls;
+use crate::tls::{self, resolver};
 
 #[derive(Debug)]
 struct StorageInner<T: Clone> {
@@ -58,6 +55,7 @@ impl<T: Clone> Storage<T> {
         let mut canisters = HashMap::new();
 
         for c in cert_list {
+            // Take note of the canister ID
             if let Some(v) = c.custom {
                 if canisters.insert(v.name.clone(), v.canister_id).is_some() {
                     return Err(anyhow!("Duplicate name detected: {}", v.name));
@@ -79,11 +77,11 @@ impl<T: Clone> Storage<T> {
 }
 
 // Implement certificate resolving for Rustls
-impl ResolvesServerCert for StorageKey {
-    fn resolve(&self, ch: ClientHello) -> Option<Arc<CertifiedKey>> {
-        // Make sure we've got an ALPN list and they're all HTTP, otherwise refuse resolving
+impl resolver::ResolvesServerCert for StorageKey {
+    fn resolve(&self, ch: &ClientHello) -> Option<Arc<CertifiedKey>> {
+        // Make sure we've got an ALPN list and they're all HTTP, otherwise refuse resolving.
         // This is to make sure we don't answer to e.g. ACME challenges here
-        if !ch.alpn()?.all(|x| tls::ALPN_HTTP.contains(&x)) {
+        if !ch.alpn()?.all(tls::is_http_alpn) {
             return None;
         }
 

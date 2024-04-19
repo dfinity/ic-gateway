@@ -6,17 +6,12 @@ use async_trait::async_trait;
 use tokio::fs::read_dir;
 use tracing::info;
 
-pub struct Provider {
-    path: PathBuf,
-}
-
 // It searches for .pem files in the given directory and tries to find the
 // corresponding .key files with the same base name.
 // After that it loads & parses each pair.
-impl Provider {
-    pub const fn new(path: PathBuf) -> Self {
-        Self { path }
-    }
+#[derive(derive_new::new)]
+pub struct Provider {
+    path: PathBuf,
 }
 
 #[async_trait]

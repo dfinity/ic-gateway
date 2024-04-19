@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::core::Run;
-use anyhow::{anyhow, Error};
+use anyhow::{anyhow, Context, Error};
 use async_trait::async_trait;
 use axum::{extract::Request, Router};
 use hyper::body::Incoming;
@@ -15,7 +15,7 @@ use hyper_util::{
 };
 use rustls::{server::ServerConnection, CipherSuite, ProtocolVersion};
 use tokio::{
-    io::{AsyncRead, AsyncWrite},
+    io::{AsyncRead, AsyncWrite, AsyncWriteExt},
     net::{TcpListener, TcpSocket, TcpStream},
     select,
 };
@@ -24,7 +24,7 @@ use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tower_service::Service;
 use tracing::{debug, warn};
 
-use crate::{cli, tls};
+use crate::{cli, tls::is_http_alpn};
 
 // Blanket async read+write trait to box streams
 trait AsyncReadWrite: AsyncRead + AsyncWrite + Send + Sync + Unpin {}
@@ -134,7 +134,15 @@ impl Conn {
 
         // Perform TLS handshake if we're in TLS mode
         let (stream, tls_info): (Box<dyn AsyncReadWrite>, _) = if self.tls_acceptor.is_some() {
-            let (stream, tls_info) = self.tls_handshake(stream).await?;
+            let (mut stream, tls_info) = self.tls_handshake(stream).await?;
+
+            // Close the connection if agreed ALPN is not HTTP - probably it was an ACME challenge
+            if !is_http_alpn(tls_info.alpn.as_bytes()) {
+                debug!("Not HTTP ALPN ('{}') - closing connection", tls_info.alpn);
+                stream.shutdown().await.context("error in shutdown()")?;
+                return Ok(());
+            }
+
             (Box::new(stream), Some(tls_info))
         } else {
             (Box::new(stream), None)
@@ -188,11 +196,6 @@ impl Conn {
                 }
             },
         }
-
-        debug!(
-            "Server {}: {}: connection finished",
-            self.addr, self.remote_addr
-        );
 
         Ok(())
     }
@@ -295,6 +298,11 @@ impl Run for Server {
                         if let Err(e) = conn.handle(stream).await {
                             warn!("Server {}: {}: failed to handle connection: {e}", conn.addr, remote_addr);
                         }
+
+                        debug!(
+                            "Server {}: {}: connection finished",
+                            conn.addr, remote_addr
+                        );
                     });
                 }
             }
