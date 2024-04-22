@@ -1,14 +1,19 @@
 use anyhow::Error;
 use async_trait::async_trait;
-use axum::response::IntoResponse;
+use rustls::sign::CertifiedKey;
 use std::sync::Arc;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::{error, warn};
 
 use crate::{
     cli::Cli,
-    http::{server, ConnInfo, ReqwestClient, Server},
-    tls,
+    http::{server, ReqwestClient, Server},
+    routing,
+    tls::{
+        self,
+        cert::{storage::StoresCertificates, Storage},
+        resolver::ResolvesServerCert,
+    },
 };
 
 pub const SERVICE_NAME: &str = "ic_gateway";
@@ -18,12 +23,6 @@ pub const AUTHOR_NAME: &str = "Boundary Node Team <boundary-nodes@dfinity.org>";
 #[async_trait]
 pub trait Run: Send + Sync {
     async fn run(&self, token: CancellationToken) -> Result<(), Error>;
-}
-
-async fn handle(request: axum::extract::Request) -> impl IntoResponse {
-    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-    warn!("{:?}", request.extensions().get::<Arc<ConnInfo>>());
-    "Hello"
 }
 
 pub async fn main(cli: Cli) -> Result<(), Error> {
@@ -37,7 +36,7 @@ pub async fn main(cli: Cli) -> Result<(), Error> {
     let handler_token = token.clone();
     ctrlc::set_handler(move || handler_token.cancel())?;
 
-    let router = axum::Router::new().route("/", axum::routing::get(handle));
+    let router = routing::setup_router();
 
     let mut runners: Vec<(String, Arc<dyn Run>)> = vec![];
 
@@ -52,7 +51,13 @@ pub async fn main(cli: Cli) -> Result<(), Error> {
     runners.push(("http_server".into(), http_server));
 
     // Set up HTTPS
-    let (aggregator, rustls_cfg) = tls::setup(&cli, http_client.clone())?;
+    let storage = Arc::new(Storage::new());
+    let (aggregator, rustls_cfg) = tls::setup(
+        &cli,
+        http_client.clone(),
+        storage.clone() as Arc<dyn StoresCertificates<Arc<CertifiedKey>>>,
+        storage.clone() as Arc<dyn ResolvesServerCert>,
+    )?;
     runners.push(("aggregator".into(), aggregator));
 
     let https_server = Arc::new(Server::new(

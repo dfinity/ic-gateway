@@ -1,4 +1,4 @@
-mod cert;
+pub mod cert;
 pub mod resolver;
 mod test;
 
@@ -7,7 +7,8 @@ use std::sync::Arc;
 use anyhow::{anyhow, Error};
 use rustls::{
     client::{ClientConfig, ClientSessionMemoryCache, Resumption},
-    server::{ResolvesServerCert, ServerConfig, ServerSessionMemoryCache},
+    server::{ServerConfig, ServerSessionMemoryCache},
+    sign::CertifiedKey,
     version::{TLS12, TLS13},
     RootCertStore,
 };
@@ -18,12 +19,12 @@ use crate::{
     core::Run,
     http,
     tls::{
-        cert::{providers, storage::Storage, Aggregator},
-        resolver::AggregatingResolver,
+        cert::{providers, Aggregator},
+        resolver::{AggregatingResolver, ResolvesServerCert},
     },
 };
 
-use cert::providers::ProvidesCertificates;
+use cert::{providers::ProvidesCertificates, storage::StoresCertificates};
 
 const ALPN_H1: &[u8] = b"http/1.1";
 const ALPN_H2: &[u8] = b"h2";
@@ -33,7 +34,9 @@ pub fn is_http_alpn(alpn: &[u8]) -> bool {
     ALPN_HTTP.contains(&alpn)
 }
 
-pub fn prepare_server_config(resolver: Arc<dyn ResolvesServerCert>) -> ServerConfig {
+pub fn prepare_server_config(
+    resolver: Arc<dyn rustls::server::ResolvesServerCert>,
+) -> ServerConfig {
     let mut cfg = ServerConfig::builder_with_protocol_versions(&[&TLS13, &TLS12])
         .with_no_client_auth()
         .with_cert_resolver(resolver);
@@ -72,6 +75,8 @@ pub fn prepare_client_config() -> ClientConfig {
 pub fn setup(
     cli: &Cli,
     http_client: Arc<dyn http::Client>,
+    storage: Arc<dyn StoresCertificates<Arc<CertifiedKey>>>,
+    cert_resolver: Arc<dyn ResolvesServerCert>,
 ) -> Result<(Arc<dyn Run>, ServerConfig), Error> {
     let mut providers = vec![];
 
@@ -79,7 +84,7 @@ pub fn setup(
         providers.push(Arc::new(providers::Dir::new(v.clone())) as Arc<dyn ProvidesCertificates>);
     }
 
-    for v in &cli.cert.syncer_urls {
+    for v in &cli.cert.issuer_urls {
         providers.push(
             Arc::new(providers::Syncer::new(http_client.clone(), v.clone()))
                 as Arc<dyn ProvidesCertificates>,
@@ -92,9 +97,8 @@ pub fn setup(
         ));
     }
 
-    let storage = Arc::new(Storage::new());
-    let cert_aggregator = Arc::new(Aggregator::new(providers, storage.clone()));
-    let resolve_aggregator = Arc::new(AggregatingResolver::new(None, vec![storage]));
+    let cert_aggregator = Arc::new(Aggregator::new(providers, storage, cli.cert.poll_interval));
+    let resolve_aggregator = Arc::new(AggregatingResolver::new(None, vec![cert_resolver]));
     let config = prepare_server_config(resolve_aggregator);
 
     Ok((cert_aggregator, config))

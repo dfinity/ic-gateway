@@ -53,6 +53,8 @@ pub struct CertificatesImporter {
 
 impl CertificatesImporter {
     pub fn new(http_client: Arc<dyn http::Client>, exporter_url: Url) -> Self {
+        let exporter_url = exporter_url.join("/certificates").unwrap();
+
         Self {
             http_client,
             exporter_url,

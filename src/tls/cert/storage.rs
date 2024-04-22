@@ -9,6 +9,10 @@ use rustls::{server::ClientHello, sign::CertifiedKey};
 use super::{Cert, LookupCanister};
 use crate::tls::{self, resolver};
 
+pub trait StoresCertificates<T: Clone + Send + Sync>: Send + Sync {
+    fn store(&self, cert_list: Vec<Cert<T>>) -> Result<(), Error>;
+}
+
 #[derive(Debug)]
 struct StorageInner<T: Clone> {
     certs: HashMap<String, T>,
@@ -48,9 +52,11 @@ impl<T: Clone> Storage<T> {
         let wildcard = format!("*.{parent}");
         inner.certs.get(&wildcard).cloned()
     }
+}
 
+impl<T: Clone + Send + Sync> StoresCertificates<T> for Storage<T> {
     // Update storage contents with a new list of Certs
-    pub fn store(&self, cert_list: Vec<Cert<T>>) -> Result<(), Error> {
+    fn store(&self, cert_list: Vec<Cert<T>>) -> Result<(), Error> {
         let mut certs = HashMap::new();
         let mut canisters = HashMap::new();
 
@@ -79,14 +85,15 @@ impl<T: Clone> Storage<T> {
 // Implement certificate resolving for Rustls
 impl resolver::ResolvesServerCert for StorageKey {
     fn resolve(&self, ch: &ClientHello) -> Option<Arc<CertifiedKey>> {
+        // See if client provided us with an SNI
+        let sni = ch.server_name()?;
+
         // Make sure we've got an ALPN list and they're all HTTP, otherwise refuse resolving.
         // This is to make sure we don't answer to e.g. ACME challenges here
         if !ch.alpn()?.all(tls::is_http_alpn) {
             return None;
         }
 
-        // See if client provided us with an SNI
-        let sni = ch.server_name()?;
         self.lookup_cert(sni)
     }
 }

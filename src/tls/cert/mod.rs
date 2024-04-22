@@ -19,7 +19,8 @@ use x509_parser::prelude::*;
 
 use crate::core::Run;
 use providers::ProvidesCertificates;
-use storage::StorageKey;
+pub use storage::Storage;
+use storage::StoresCertificates;
 
 #[derive(Clone, Debug)]
 pub struct CustomDomain {
@@ -29,7 +30,7 @@ pub struct CustomDomain {
 
 // Generic certificate and a list of its SANs
 #[derive(Clone, Debug)]
-pub struct Cert<T: Clone> {
+pub struct Cert<T: Clone + Send + Sync> {
     san: Vec<String>,
     cert: T,
     pub custom: Option<CustomDomain>,
@@ -120,7 +121,8 @@ pub fn pem_convert_to_rustls(key: &[u8], certs: &[u8]) -> Result<CertKey, Error>
 #[derive(derive_new::new)]
 pub struct Aggregator {
     providers: Vec<Arc<dyn ProvidesCertificates>>,
-    storage: Arc<StorageKey>,
+    storage: Arc<dyn StoresCertificates<Arc<CertifiedKey>>>,
+    poll_interval: Duration,
 }
 
 impl Aggregator {
@@ -148,7 +150,7 @@ impl Aggregator {
 #[async_trait]
 impl Run for Aggregator {
     async fn run(&self, token: CancellationToken) -> Result<(), Error> {
-        let mut interval = tokio::time::interval(Duration::from_secs(10));
+        let mut interval = tokio::time::interval(self.poll_interval);
 
         loop {
             select! {
@@ -309,8 +311,12 @@ pub mod test {
         let prov1 = TestProvider(pem_convert_to_rustls(KEY_1, CERT_1)?);
         let prov2 = TestProvider(pem_convert_to_rustls(KEY_2, CERT_2)?);
 
-        let storage = Arc::new(StorageKey::new());
-        let aggregator = Aggregator::new(vec![Arc::new(prov1), Arc::new(prov2)], storage);
+        let storage = Arc::new(storage::StorageKey::new());
+        let aggregator = Aggregator::new(
+            vec![Arc::new(prov1), Arc::new(prov2)],
+            storage,
+            Duration::from_secs(1),
+        );
         let certs = aggregator.fetch().await?;
 
         assert_eq!(certs.len(), 2);

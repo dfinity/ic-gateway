@@ -1,5 +1,5 @@
 #![deny(clippy::all)]
-#![warn(clippy::pedantic)]
+//#![warn(clippy::pedantic)]
 #![warn(clippy::nursery)]
 
 use anyhow::Error;
@@ -13,6 +13,7 @@ mod cli;
 mod core;
 mod http;
 mod policy;
+mod routing;
 mod tls;
 
 #[global_allocator]

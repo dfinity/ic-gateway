@@ -116,7 +116,12 @@ pub struct Cert {
     #[clap(long = "cert-provider-dir")]
     pub dir: Vec<PathBuf>,
 
-    /// Request certificates from the 'certificate-issuer' instances reachable over given URLs
-    #[clap(long = "cert-provider-syncer-url")]
-    pub syncer_urls: Vec<Url>,
+    /// Request certificates from the 'certificate-issuer' instances reachable over given URLs.
+    /// Also proxies the `/registrations` path to those issuers.
+    #[clap(long = "cert-provider-issuer-url")]
+    pub issuer_urls: Vec<Url>,
+
+    /// How frequently to poll providers for certificates
+    #[clap(long = "cert-poll-interval", default_value = "10s", value_parser = parse_duration)]
+    pub poll_interval: Duration,
 }
