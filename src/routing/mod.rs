@@ -1,12 +1,14 @@
+pub mod canister;
 pub mod middleware;
 
 use std::{fmt, sync::Arc};
 
 use axum::{
-    middleware::from_fn,
+    middleware::from_fn_with_state,
     response::{IntoResponse, Response},
     Router,
 };
+use fqdn::FQDN;
 use http::StatusCode;
 use strum_macros::Display;
 use tower::ServiceBuilder;
@@ -14,8 +16,11 @@ use tracing::warn;
 
 use crate::{http::ConnInfo, routing::middleware::validate_request};
 
+use self::canister::ResolvesCanister;
+
 pub struct RequestCtx {
-    authority: String,
+    // HTTP2 authority or HTTP1 Host header
+    authority: FQDN,
 }
 
 #[derive(Debug, Clone, Display)]
@@ -36,6 +41,7 @@ pub enum ErrorCause {
     LoadShed,
     MalformedRequest(String),
     MalformedResponse(String),
+    CanisterIdNotFound,
     NoRoutingTable,
     SubnetNotFound,
     NoHealthyNodes,
@@ -60,6 +66,7 @@ impl ErrorCause {
             Self::LoadShed => StatusCode::TOO_MANY_REQUESTS,
             Self::MalformedRequest(_) => StatusCode::BAD_REQUEST,
             Self::MalformedResponse(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::CanisterIdNotFound => StatusCode::BAD_REQUEST,
             Self::NoRoutingTable => StatusCode::SERVICE_UNAVAILABLE,
             Self::SubnetNotFound => StatusCode::BAD_REQUEST, // TODO change to 404?
             Self::NoHealthyNodes => StatusCode::SERVICE_UNAVAILABLE,
@@ -113,6 +120,7 @@ impl fmt::Display for ErrorCause {
             Self::LoadShed => write!(f, "load_shed"),
             Self::MalformedRequest(_) => write!(f, "malformed_request"),
             Self::MalformedResponse(_) => write!(f, "malformed_response"),
+            Self::CanisterIdNotFound => write!(f, "canister_id_not_found"),
             Self::NoRoutingTable => write!(f, "no_routing_table"),
             Self::SubnetNotFound => write!(f, "subnet_not_found"),
             Self::NoHealthyNodes => write!(f, "no_healthy_nodes"),
@@ -147,8 +155,9 @@ async fn handler(request: axum::extract::Request) -> impl IntoResponse {
     "Hello"
 }
 
-pub fn setup_router() -> Router {
-    let common_layers = ServiceBuilder::new().layer(from_fn(validate_request));
+pub fn setup_router(canister_lookup: Arc<dyn ResolvesCanister>) -> Router {
+    let common_layers =
+        ServiceBuilder::new().layer(from_fn_with_state(canister_lookup, validate_request));
 
     let router = axum::Router::new()
         .route("/", axum::routing::get(handler))

@@ -10,6 +10,7 @@ use std::{
 use anyhow::{anyhow, Context, Error};
 use async_trait::async_trait;
 use candid::Principal;
+use fqdn::Fqdn;
 use futures::future::join_all;
 use rustls::{crypto::aws_lc_rs, sign::CertifiedKey};
 use tokio::select;
@@ -40,8 +41,34 @@ pub struct Cert<T: Clone + Send + Sync> {
 pub type CertKey = Cert<Arc<CertifiedKey>>;
 
 // Looks up custom domain canister id by hostname
-pub trait LookupCanister: Sync + Send {
-    fn lookup_canister(&self, hostname: &str) -> Option<Principal>;
+pub trait LooksupCustomDomain: Sync + Send {
+    fn lookup_custom_domain(&self, hostname: &Fqdn) -> Option<Principal>;
+}
+
+fn parse_general_name(name: &GeneralName<'_>) -> Result<Option<String>, Error> {
+    let name = match name {
+        GeneralName::DNSName(v) => (*v).to_string(),
+        GeneralName::IPAddress(v) => match v.len() {
+            4 => {
+                let b: [u8; 4] = (*v).try_into().unwrap(); // We already checked that it's 4
+                let ip = Ipv4Addr::from(b);
+                ip.to_string()
+            }
+
+            16 => {
+                let b: [u8; 16] = (*v).try_into().unwrap(); // We already checked that it's 16
+                let ip = Ipv6Addr::from(b);
+                ip.to_string()
+            }
+
+            _ => return Err(anyhow!("Invalid IP address length {}", v.len())),
+        },
+
+        // Ignore other types
+        _ => return Ok(None),
+    };
+
+    Ok(Some(name))
 }
 
 // Extracts a list of SubjectAlternativeName from a single certificate, formatted as strings.
@@ -53,37 +80,14 @@ fn extract_san_from_der(cert: &[u8]) -> Result<Vec<String>, Error> {
 
     for ext in cert.extensions() {
         if let ParsedExtension::SubjectAlternativeName(san) = ext.parsed_extension() {
-            let mut names = vec![];
-            for name in &san.general_names {
-                let name = match name {
-                    GeneralName::DNSName(v) => (*v).to_string(),
-                    GeneralName::IPAddress(v) => match v.len() {
-                        4 => {
-                            let b: [u8; 4] = (*v).try_into().unwrap(); // We already checked that it's 4
-                            let ip = Ipv4Addr::from(b);
-                            ip.to_string()
-                        }
-
-                        16 => {
-                            let b: [u8; 16] = (*v).try_into().unwrap(); // We already checked that it's 16
-                            let ip = Ipv6Addr::from(b);
-                            ip.to_string()
-                        }
-
-                        _ => return Err(anyhow!("Invalid IP address length {}", v.len())),
-                    },
-
-                    _ => continue,
-                };
-
-                names.push(name);
-            }
-
-            if names.is_empty() {
-                return Err(anyhow!(
-                    "No supported names found in SubjectAlternativeName extension"
-                ));
-            }
+            let names = san
+                .general_names
+                .iter()
+                .map(parse_general_name)
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>();
 
             return Ok(names);
         }
@@ -106,6 +110,11 @@ pub fn pem_convert_to_rustls(key: &[u8], certs: &[u8]) -> Result<CertKey, Error>
 
     // Extract a list of SANs from the 1st certificate in the chain
     let san = extract_san_from_der(certs[0].as_ref())?;
+    if san.is_empty() {
+        return Err(anyhow!(
+            "No supported names found in SubjectAlternativeName extension"
+        ));
+    }
 
     // Parse key
     let key = aws_lc_rs::sign::any_supported_type(&key)?;

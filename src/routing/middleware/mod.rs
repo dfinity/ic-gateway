@@ -1,26 +1,40 @@
-use std::sync::Arc;
+use std::{str::FromStr, sync::Arc};
 
-use axum::{extract::Request, middleware::Next, response::IntoResponse};
+use axum::{
+    extract::{Request, State},
+    middleware::Next,
+    response::IntoResponse,
+};
+use fqdn::FQDN;
 
 use crate::{
     http::ConnInfo,
     routing::{ErrorCause, RequestCtx},
+    tls::cert::LooksupCustomDomain,
 };
 
+use super::canister::ResolvesCanister;
+
 // Attempts to extract host from HTTP2 "authority" pseudo-header or from HTTP/1.1 "Host" header
-fn extract_authority(request: &Request) -> Option<&str> {
+fn extract_authority(request: &Request) -> Option<FQDN> {
     // Try HTTP2 first, then Host header
-    request.uri().authority().map(|x| x.host()).or_else(|| {
-        request.headers().get(http::header::HOST).and_then(|x| {
-            x.to_str()
-                .ok()
-                // Split the header if it has a port
-                .and_then(|x| x.split_once(':').map(|v| v.0).or(Some(x)))
+    request
+        .uri()
+        .authority()
+        .map(|x| x.host())
+        .or_else(|| {
+            request.headers().get(http::header::HOST).and_then(|x| {
+                x.to_str()
+                    .ok()
+                    // Split the header if it has a port
+                    .and_then(|x| x.split_once(':').map(|v| v.0).or(Some(x)))
+            })
         })
-    })
+        .and_then(|x| FQDN::from_str(x).ok())
 }
 
 pub async fn validate_request(
+    State(resolver): State<Arc<dyn ResolvesCanister>>,
     mut request: Request,
     next: Next,
 ) -> Result<impl IntoResponse, impl IntoResponse> {
@@ -45,10 +59,13 @@ pub async fn validate_request(
         }
     }
 
-    let ctx = Arc::new(RequestCtx {
-        authority: authority.into(),
-    });
+    let canister_id = resolver
+        .resolve_canister(&authority)
+        .ok_or(ErrorCause::CanisterIdNotFound)?;
 
+    println!("{:?}", canister_id.id.to_string());
+
+    let ctx = Arc::new(RequestCtx { authority });
     request.extensions_mut().insert(ctx);
 
     let resp = next.run(request).await;
@@ -59,6 +76,7 @@ pub async fn validate_request(
 mod test {
     use super::*;
     use anyhow::Error;
+    use fqdn::fqdn;
     use http::{HeaderValue, Uri};
 
     #[test]
@@ -72,7 +90,7 @@ mod test {
             .unwrap();
 
         let auth = extract_authority(&req);
-        assert_eq!(auth, Some("foo.bar"));
+        assert_eq!(auth, Some(fqdn!("foo.bar")));
 
         // Without port
         let req = axum::extract::Request::builder()
@@ -83,7 +101,7 @@ mod test {
             .unwrap();
 
         let auth = extract_authority(&req);
-        assert_eq!(auth, Some("foo.bar"));
+        assert_eq!(auth, Some(fqdn!("foo.bar")));
 
         // HTTP2
         let req = axum::extract::Request::builder()
@@ -94,7 +112,7 @@ mod test {
             .unwrap();
 
         let auth = extract_authority(&req);
-        assert_eq!(auth, Some("foo.bar"));
+        assert_eq!(auth, Some(fqdn!("foo.bar")));
 
         // Missing authority
         let mut req = axum::extract::Request::builder()
@@ -119,7 +137,7 @@ mod test {
         (*req.headers_mut()).insert(http::header::HOST, HeaderValue::from_static("foo.bar"));
 
         let auth = extract_authority(&req);
-        assert_eq!(auth, Some("foo.bar"));
+        assert_eq!(auth, Some(fqdn!("foo.bar")));
 
         Ok(())
     }

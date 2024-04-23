@@ -3,10 +3,10 @@ use std::{collections::HashMap, str::FromStr, sync::Arc};
 use anyhow::{anyhow, Error};
 use arc_swap::ArcSwapOption;
 use candid::Principal;
-use fqdn::FQDN;
+use fqdn::{Fqdn, FQDN};
 use rustls::{server::ClientHello, sign::CertifiedKey};
 
-use super::{Cert, LookupCanister};
+use super::{Cert, LooksupCustomDomain};
 use crate::tls::{self, resolver};
 
 pub trait StoresCertificates<T: Clone + Send + Sync>: Send + Sync {
@@ -16,7 +16,7 @@ pub trait StoresCertificates<T: Clone + Send + Sync>: Send + Sync {
 #[derive(Debug)]
 struct StorageInner<T: Clone> {
     certs: HashMap<String, T>,
-    canisters: HashMap<String, Principal>,
+    canisters: HashMap<FQDN, Principal>,
 }
 
 // Generic shared certificate storage
@@ -63,7 +63,10 @@ impl<T: Clone + Send + Sync> StoresCertificates<T> for Storage<T> {
         for c in cert_list {
             // Take note of the canister ID
             if let Some(v) = c.custom {
-                if canisters.insert(v.name.clone(), v.canister_id).is_some() {
+                if canisters
+                    .insert(FQDN::from_str(&v.name)?, v.canister_id)
+                    .is_some()
+                {
                     return Err(anyhow!("Duplicate name detected: {}", v.name));
                 }
             }
@@ -99,21 +102,24 @@ impl resolver::ResolvesServerCert for StorageKey {
 }
 
 // Implement looking up custom domain canister id by hostname
-impl<T: Clone + Sync + Send> LookupCanister for Storage<T> {
-    fn lookup_canister(&self, hostname: &str) -> Option<Principal> {
+impl<T: Clone + Sync + Send> LooksupCustomDomain for Storage<T> {
+    fn lookup_custom_domain(&self, hostname: &Fqdn) -> Option<Principal> {
         self.inner.load_full()?.canisters.get(hostname).copied()
     }
 }
 
 #[cfg(test)]
-mod test {
+pub mod test {
+    use fqdn::fqdn;
+
     use super::*;
     use crate::tls::cert::CustomDomain;
 
-    #[test]
-    fn test_storage() -> Result<(), Error> {
+    const TEST_CANISTER_ID: &str = "s6hwe-laaaa-aaaab-qaeba-cai";
+
+    pub fn create_test_storage() -> Storage<String> {
+        let canister_id = Principal::from_text(TEST_CANISTER_ID).unwrap();
         let storage: Storage<String> = Storage::new();
-        let canister_id = Principal::from_text("s6hwe-laaaa-aaaab-qaeba-cai").unwrap();
 
         // Check common lookups
         let certs = vec![
@@ -132,7 +138,15 @@ mod test {
             },
         ];
 
-        storage.store(certs)?;
+        storage.store(certs).unwrap();
+
+        storage
+    }
+
+    #[test]
+    fn test_storage() -> Result<(), Error> {
+        let canister_id = Principal::from_text(TEST_CANISTER_ID).unwrap();
+        let storage = create_test_storage();
 
         // Check SAN
         assert_eq!(storage.lookup_cert("foo.bar"), Some("foo.bar.cert".into()));
@@ -189,8 +203,11 @@ mod test {
         assert!(matches!(storage.store(certs), Err(_)));
 
         // Check custom domain lookup
-        assert_eq!(storage.lookup_canister("foo.baz"), Some(canister_id));
-        assert_eq!(storage.lookup_canister("foo.bar"), None);
+        assert_eq!(
+            storage.lookup_custom_domain(&fqdn!("foo.baz")),
+            Some(canister_id)
+        );
+        assert_eq!(storage.lookup_custom_domain(&fqdn!("foo.bar")), None);
 
         Ok(())
     }

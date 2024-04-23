@@ -154,7 +154,8 @@ mod tests {
             .expect_execute()
             .times(1)
             .with(predicate::function(|req: &Request| {
-                req.method().as_str().eq("GET") && req.url().to_string().eq("http://certificates/")
+                req.method().as_str().eq("GET")
+                    && req.url().to_string().eq("http://foo/certificates")
             }))
             .returning(|_| {
                 Ok(Response::builder()
@@ -175,7 +176,7 @@ mod tests {
             });
 
         let importer =
-            CertificatesImporter::new(Arc::new(http_client), Url::from_str("http://certificates")?);
+            CertificatesImporter::new(Arc::new(http_client), Url::from_str("http://foo")?);
 
         let out = importer.import().await?;
 

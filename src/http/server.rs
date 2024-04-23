@@ -1,5 +1,6 @@
 use std::{
     net::SocketAddr,
+    str::FromStr,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -8,6 +9,7 @@ use crate::core::Run;
 use anyhow::{anyhow, Context, Error};
 use async_trait::async_trait;
 use axum::{extract::Request, Router};
+use fqdn::FQDN;
 use hyper::body::Incoming;
 use hyper_util::{
     rt::{TokioExecutor, TokioIo, TokioTimer},
@@ -54,7 +56,7 @@ impl From<&cli::HttpServer> for Options {
 // TLS information about the connection
 #[derive(Clone, Debug)]
 pub struct TlsInfo {
-    pub sni: String,
+    pub sni: FQDN,
     pub alpn: String,
     pub protocol: ProtocolVersion,
     pub cipher: CipherSuite,
@@ -67,10 +69,17 @@ pub struct ConnInfo {
     pub tls: Option<TlsInfo>,
 }
 
-impl From<&ServerConnection> for TlsInfo {
-    fn from(c: &ServerConnection) -> Self {
-        Self {
-            sni: c.server_name().unwrap_or("unknown").into(),
+impl TryFrom<&ServerConnection> for TlsInfo {
+    type Error = Error;
+
+    fn try_from(c: &ServerConnection) -> Result<Self, Self::Error> {
+        Ok(Self {
+            sni: c
+                .server_name()
+                .ok_or(anyhow!("No SNI found"))
+                .and_then(|x| {
+                    FQDN::from_str(x).map_err(|_| anyhow!("unable to parse SNI as FQDN"))
+                })?,
             alpn: c
                 .alpn_protocol()
                 .map_or("unknown".into(), |x| String::from_utf8_lossy(x).to_string()),
@@ -78,7 +87,7 @@ impl From<&ServerConnection> for TlsInfo {
             cipher: c
                 .negotiated_cipher_suite()
                 .map_or(rustls::CipherSuite::Unknown(0), |x| x.suite()),
-        }
+        })
     }
 }
 
@@ -107,7 +116,7 @@ impl Conn {
         let latency = start.elapsed();
 
         let conn = stream.get_ref().1;
-        let tls_info = TlsInfo::from(conn);
+        let tls_info = TlsInfo::try_from(conn)?;
 
         debug!(
             "Server {}: {}: handshake finished in {}ms (server: {}, proto: {:?}, cipher: {:?}, ALPN: {})",

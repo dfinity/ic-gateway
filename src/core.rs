@@ -8,10 +8,13 @@ use tracing::{error, warn};
 use crate::{
     cli::Cli,
     http::{server, ReqwestClient, Server},
-    routing,
+    routing::{
+        self,
+        canister::{CanisterResolver, ResolvesCanister},
+    },
     tls::{
         self,
-        cert::{storage::StoresCertificates, Storage},
+        cert::{storage::StoresCertificates, LooksupCustomDomain, Storage},
         resolver::ResolvesServerCert,
     },
 };
@@ -36,7 +39,13 @@ pub async fn main(cli: Cli) -> Result<(), Error> {
     let handler_token = token.clone();
     ctrlc::set_handler(move || handler_token.cancel())?;
 
-    let router = routing::setup_router();
+    let storage = Arc::new(Storage::new());
+    let canister_resolver = CanisterResolver::new(
+        cli.domain.domains.clone(),
+        cli.domain.canister_aliases.clone(),
+        storage.clone() as Arc<dyn LooksupCustomDomain>,
+    )?;
+    let router = routing::setup_router(Arc::new(canister_resolver) as Arc<dyn ResolvesCanister>);
 
     let mut runners: Vec<(String, Arc<dyn Run>)> = vec![];
 
@@ -51,7 +60,6 @@ pub async fn main(cli: Cli) -> Result<(), Error> {
     runners.push(("http_server".into(), http_server));
 
     // Set up HTTPS
-    let storage = Arc::new(Storage::new());
     let (aggregator, rustls_cfg) = tls::setup(
         &cli,
         http_client.clone(),

@@ -5,6 +5,7 @@ use std::{
 };
 
 use clap::{Args, Parser};
+use fqdn::FQDN;
 use hickory_resolver::config::CLOUDFLARE_IPS;
 use humantime::parse_duration;
 use reqwest::Url;
@@ -12,6 +13,7 @@ use reqwest::Url;
 use crate::{
     core::{AUTHOR_NAME, SERVICE_NAME},
     http::dns,
+    routing::canister::CanisterAlias,
 };
 
 #[derive(Parser)]
@@ -29,6 +31,9 @@ pub struct Cli {
 
     #[command(flatten, next_help_heading = "Certificates")]
     pub cert: Cert,
+
+    #[command(flatten, next_help_heading = "Domains")]
+    pub domain: Domain,
 }
 
 // Clap does not support prefixes due to macro limitations
@@ -124,4 +129,15 @@ pub struct Cert {
     /// How frequently to poll providers for certificates
     #[clap(long = "cert-poll-interval", default_value = "10s", value_parser = parse_duration)]
     pub poll_interval: Duration,
+}
+
+#[derive(Args)]
+pub struct Domain {
+    /// List of canister aliases in format 'alias:<canister_id>'
+    #[clap(long = "domain")]
+    pub domains: Vec<FQDN>,
+
+    /// List of canister aliases in format 'alias:<canister_id>'
+    #[clap(long = "domain-canister-alias")]
+    pub canister_aliases: Vec<CanisterAlias>,
 }
