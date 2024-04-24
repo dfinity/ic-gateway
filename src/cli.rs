@@ -8,6 +8,7 @@ use clap::{Args, Parser};
 use fqdn::FQDN;
 use hickory_resolver::config::CLOUDFLARE_IPS;
 use humantime::parse_duration;
+use regex::Regex;
 use reqwest::Url;
 
 use crate::{
@@ -34,6 +35,12 @@ pub struct Cli {
 
     #[command(flatten, next_help_heading = "Domains")]
     pub domain: Domain,
+
+    #[command(flatten, next_help_heading = "Policy")]
+    pub policy: Policy,
+
+    #[command(flatten, next_help_heading = "Misc")]
+    pub misc: Misc,
 }
 
 // Clap does not support prefixes due to macro limitations
@@ -133,11 +140,41 @@ pub struct Cert {
 
 #[derive(Args)]
 pub struct Domain {
-    /// List of canister aliases in format 'alias:<canister_id>'
+    /// List of domains that we serve
     #[clap(long = "domain")]
     pub domains: Vec<FQDN>,
 
     /// List of canister aliases in format 'alias:<canister_id>'
-    #[clap(long = "domain-canister-alias")]
+    #[clap(long = "domain-alias")]
     pub canister_aliases: Vec<CanisterAlias>,
+}
+
+#[derive(Args)]
+pub struct Policy {
+    /// Regex to match domains that are allowed to serve system subnets
+    #[clap(long = "policy-domain-system")]
+    pub domains_system: Vec<Regex>,
+
+    /// Regex to match domains that are allowed to serve app subnets
+    #[clap(long = "policy-domain-app")]
+    pub domains_app: Vec<Regex>,
+
+    /// Path to a list of pre-isolation canisters, one canister per line
+    #[clap(long = "policy-pre-isolation-canisters")]
+    pub pre_isolation_canisters: Option<PathBuf>,
+
+    /// Denylist URL
+    #[clap(long = "policy-denylist-url")]
+    pub denylist_url: Option<Url>,
+
+    /// Path to a local denylist cache for initial seeding
+    #[clap(long = "policy-denylist-seed")]
+    pub denylist_seed: Option<PathBuf>,
+}
+
+#[derive(Args)]
+pub struct Misc {
+    /// Path to a GeoIP database
+    #[clap(long = "geoip-db")]
+    pub geoip_db: Option<PathBuf>,
 }

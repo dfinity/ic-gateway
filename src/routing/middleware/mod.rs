@@ -1,3 +1,5 @@
+pub mod geoip;
+
 use std::{str::FromStr, sync::Arc};
 
 use axum::{
@@ -10,7 +12,6 @@ use fqdn::FQDN;
 use crate::{
     http::ConnInfo,
     routing::{ErrorCause, RequestCtx},
-    tls::cert::LooksupCustomDomain,
 };
 
 use super::canister::ResolvesCanister;
@@ -43,29 +44,27 @@ pub async fn validate_request(
 
     let authority = match extract_authority(&request) {
         Some(v) => v,
-        None => {
-            return Err(ErrorCause::MalformedRequest(
-                "No valid authority found".to_string(),
-            ))
-        }
+        None => return Err(ErrorCause::NoAuthority),
     };
 
-    // If it's a TLS request - check the authority
+    // If it's a TLS request - check that authority matches SNI
     if let Some(v) = &conn_info.tls {
         if v.sni != authority {
-            return Err(ErrorCause::MalformedRequest(
-                "TLS SNI should match HTTP authority".to_string(),
-            ));
+            return Err(ErrorCause::SNIMismatch);
         }
     }
 
-    let canister_id = resolver
+    // Resolve the canister
+    let canister = resolver
         .resolve_canister(&authority)
         .ok_or(ErrorCause::CanisterIdNotFound)?;
 
-    println!("{:?}", canister_id.id.to_string());
+    println!("{:?}", canister.id.to_string());
 
-    let ctx = Arc::new(RequestCtx { authority });
+    let ctx = Arc::new(RequestCtx {
+        authority,
+        canister,
+    });
     request.extensions_mut().insert(ctx);
 
     let resp = next.run(request).await;

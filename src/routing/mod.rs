@@ -3,24 +3,31 @@ pub mod middleware;
 
 use std::{fmt, sync::Arc};
 
+use anyhow::Error;
 use axum::{
-    middleware::from_fn_with_state,
+    middleware::{from_fn_with_state, FromFnLayer},
     response::{IntoResponse, Response},
     Router,
 };
+use axum_extra::middleware::option_layer;
 use fqdn::FQDN;
 use http::StatusCode;
 use strum_macros::Display;
 use tower::ServiceBuilder;
 use tracing::warn;
 
-use crate::{http::ConnInfo, routing::middleware::validate_request};
+use crate::{
+    cli::Cli,
+    http::ConnInfo,
+    routing::middleware::{geoip, validate_request},
+};
 
-use self::canister::ResolvesCanister;
+use self::canister::{Canister, ResolvesCanister};
 
 pub struct RequestCtx {
     // HTTP2 authority or HTTP1 Host header
     authority: FQDN,
+    canister: Canister,
 }
 
 #[derive(Debug, Clone, Display)]
@@ -41,7 +48,9 @@ pub enum ErrorCause {
     LoadShed,
     MalformedRequest(String),
     MalformedResponse(String),
+    NoAuthority,
     CanisterIdNotFound,
+    SNIMismatch,
     NoRoutingTable,
     SubnetNotFound,
     NoHealthyNodes,
@@ -66,7 +75,9 @@ impl ErrorCause {
             Self::LoadShed => StatusCode::TOO_MANY_REQUESTS,
             Self::MalformedRequest(_) => StatusCode::BAD_REQUEST,
             Self::MalformedResponse(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::NoAuthority => StatusCode::BAD_REQUEST,
             Self::CanisterIdNotFound => StatusCode::BAD_REQUEST,
+            Self::SNIMismatch => StatusCode::BAD_REQUEST,
             Self::NoRoutingTable => StatusCode::SERVICE_UNAVAILABLE,
             Self::SubnetNotFound => StatusCode::BAD_REQUEST, // TODO change to 404?
             Self::NoHealthyNodes => StatusCode::SERVICE_UNAVAILABLE,
@@ -121,6 +132,8 @@ impl fmt::Display for ErrorCause {
             Self::MalformedRequest(_) => write!(f, "malformed_request"),
             Self::MalformedResponse(_) => write!(f, "malformed_response"),
             Self::CanisterIdNotFound => write!(f, "canister_id_not_found"),
+            Self::SNIMismatch => write!(f, "sni_mismatch"),
+            Self::NoAuthority => write!(f, "no_authority"),
             Self::NoRoutingTable => write!(f, "no_routing_table"),
             Self::SubnetNotFound => write!(f, "subnet_not_found"),
             Self::NoHealthyNodes => write!(f, "no_healthy_nodes"),
@@ -152,16 +165,31 @@ impl IntoResponse for ErrorCause {
 
 async fn handler(request: axum::extract::Request) -> impl IntoResponse {
     warn!("{:?}", request.extensions().get::<Arc<ConnInfo>>());
+    warn!("{:?}", request.extensions().get::<geoip::CountryCode>());
     "Hello"
 }
 
-pub fn setup_router(canister_lookup: Arc<dyn ResolvesCanister>) -> Router {
-    let common_layers =
-        ServiceBuilder::new().layer(from_fn_with_state(canister_lookup, validate_request));
+pub fn setup_router(
+    cli: &Cli,
+    canister_lookup: Arc<dyn ResolvesCanister>,
+) -> Result<Router, Error> {
+    let geoip = cli
+        .misc
+        .geoip_db
+        .as_ref()
+        .map(|x| -> Result<FromFnLayer<_, _, _>, Error> {
+            let geoip_db = geoip::GeoIp::new(x)?;
+            Ok(from_fn_with_state(Arc::new(geoip_db), geoip::geoip))
+        })
+        .transpose()?;
+
+    let common_layers = ServiceBuilder::new()
+        .layer(option_layer(geoip))
+        .layer(from_fn_with_state(canister_lookup, validate_request));
 
     let router = axum::Router::new()
         .route("/", axum::routing::get(handler))
         .layer(common_layers);
 
-    router
+    Ok(router)
 }

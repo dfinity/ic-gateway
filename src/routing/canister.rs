@@ -8,6 +8,8 @@ use crate::tls::cert::LooksupCustomDomain;
 
 const INVALID_ALIAS_FORMAT: &str = "Invalid alias format, must be 'alias:canister_id'";
 
+// Alias for a canister under all supported domains.
+// E.g. an alias 'nns' would resolve under both 'nns.ic0.app' and 'nns.icp0.io'
 #[derive(Clone)]
 pub struct CanisterAlias(FQDN, Principal);
 
@@ -22,8 +24,9 @@ impl FromStr for CanisterAlias {
                 }
 
                 Ok(Self(
-                    FQDN::from_str(alias)?,
-                    Principal::from_str(principal)?,
+                    FQDN::from_str(alias).context("unable to parse alias as FQDN")?,
+                    Principal::from_str(principal)
+                        .context("unable to parse canister id as Principal")?,
                 ))
             }
 
@@ -86,10 +89,11 @@ impl CanisterResolver {
             .map(|x| x.1)
     }
 
+    // Tries to resolve canister id from <id>.<domain> or <id>.raw.<domain> formatted hostname
     fn lookup_domain(&self, host: &Fqdn) -> Option<Canister> {
         let mut labels = host.labels();
 
-        // Check if the first part of hostname parses as Principal
+        // Check if the first part of the hostname parses as Principal
         let id = Principal::from_text(labels.next()?).ok()?;
 
         // Check if the next part is "raw" then we don't need to verify the response
@@ -116,6 +120,7 @@ impl CanisterResolver {
 
 impl ResolvesCanister for CanisterResolver {
     fn resolve_canister(&self, host: &Fqdn) -> Option<Canister> {
+        // Try to resolve canister using different sources
         self.lookup_alias(host)
             .or_else(|| self.lookup_domain(host))
             .or_else(|| {
@@ -130,7 +135,7 @@ mod test {
     use fqdn::fqdn;
 
     use super::*;
-    use crate::tls::cert::storage::test::create_test_storage;
+    use crate::tls::cert::storage::test::{create_test_storage, TEST_CANISTER_ID};
 
     #[test]
     fn test_canister_alias() -> Result<(), Error> {
@@ -171,7 +176,7 @@ mod test {
         .map(|x| CanisterAlias::from_str(x).unwrap())
         .collect::<Vec<_>>();
 
-        let domains = vec![fqdn!("ic0.app"), fqdn!("icp0.io")];
+        let domains = vec![fqdn!("ic0.app"), fqdn!("icp0.io"), fqdn!("foo")];
         let storage = create_test_storage();
 
         let resolver = CanisterResolver::new(
@@ -184,7 +189,8 @@ mod test {
         for d in &domains {
             // Ensure all aliases resolve with all domains
             for a in &aliases {
-                let canister = resolver.lookup_alias(&FQDN::from_str(&format!("{}.{d}", a.0))?);
+                let canister = resolver.lookup_alias(&fqdn!(&format!("{}.{d}", a.0)));
+
                 assert_eq!(
                     canister,
                     Some(Canister {
@@ -234,6 +240,39 @@ mod test {
         // Nested subdomain should not match
         assert_eq!(resolver.lookup_domain(&fqdn!("aaaaa-aa.foo.ic0.app")), None);
         assert_eq!(resolver.lookup_domain(&fqdn!("aaaaa-aa.foo.icp0.io")), None);
+
+        // Check the trait
+        // Resolve from alias
+        assert_eq!(
+            resolver.resolve_canister(&fqdn!("nns.ic0.app")),
+            Some(Canister {
+                id: Principal::from_text("qoctq-giaaa-aaaaa-aaaea-cai").unwrap(),
+                verify: true
+            })
+        );
+
+        // Resolve from hostname
+        assert_eq!(
+            resolver.resolve_canister(&fqdn!("aaaaa-aa.ic0.app")),
+            Some(Canister { id, verify: true })
+        );
+
+        assert_eq!(
+            resolver.resolve_canister(&fqdn!("aaaaa-aa.raw.ic0.app")),
+            Some(Canister { id, verify: false })
+        );
+
+        // Resolve custom domain
+        assert_eq!(
+            resolver.resolve_canister(&fqdn!("foo.baz")),
+            Some(Canister {
+                id: Principal::from_text(TEST_CANISTER_ID).unwrap(),
+                verify: true
+            })
+        );
+
+        // Something that's not there
+        assert_eq!(resolver.resolve_canister(&fqdn!("blah.blah")), None);
 
         Ok(())
     }

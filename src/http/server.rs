@@ -62,13 +62,6 @@ pub struct TlsInfo {
     pub cipher: CipherSuite,
 }
 
-#[derive(Clone, Debug)]
-pub struct ConnInfo {
-    pub local_addr: SocketAddr,
-    pub remote_addr: SocketAddr,
-    pub tls: Option<TlsInfo>,
-}
-
 impl TryFrom<&ServerConnection> for TlsInfo {
     type Error = Error;
 
@@ -76,19 +69,30 @@ impl TryFrom<&ServerConnection> for TlsInfo {
         Ok(Self {
             sni: c
                 .server_name()
-                .ok_or(anyhow!("No SNI found"))
+                .ok_or_else(|| anyhow!("No SNI found"))
                 .and_then(|x| {
                     FQDN::from_str(x).map_err(|_| anyhow!("unable to parse SNI as FQDN"))
                 })?,
-            alpn: c
-                .alpn_protocol()
-                .map_or("unknown".into(), |x| String::from_utf8_lossy(x).to_string()),
-            protocol: c.protocol_version().unwrap_or(ProtocolVersion::Unknown(0)),
+            alpn: String::from_utf8_lossy(
+                c.alpn_protocol().ok_or_else(|| anyhow!("No SNI found"))?,
+            )
+            .to_string(),
+            protocol: c
+                .protocol_version()
+                .ok_or_else(|| anyhow!("No TLS protocol found"))?,
             cipher: c
                 .negotiated_cipher_suite()
-                .map_or(rustls::CipherSuite::Unknown(0), |x| x.suite()),
+                .map(|x| x.suite())
+                .ok_or_else(|| anyhow!("No TLS ciphersuite found"))?,
         })
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct ConnInfo {
+    pub local_addr: SocketAddr,
+    pub remote_addr: SocketAddr,
+    pub tls: Option<TlsInfo>,
 }
 
 struct Conn {

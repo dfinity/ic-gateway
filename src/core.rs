@@ -45,7 +45,10 @@ pub async fn main(cli: Cli) -> Result<(), Error> {
         cli.domain.canister_aliases.clone(),
         storage.clone() as Arc<dyn LooksupCustomDomain>,
     )?;
-    let router = routing::setup_router(Arc::new(canister_resolver) as Arc<dyn ResolvesCanister>);
+    let router = routing::setup_router(
+        &cli,
+        Arc::new(canister_resolver) as Arc<dyn ResolvesCanister>,
+    )?;
 
     let mut runners: Vec<(String, Arc<dyn Run>)> = vec![];
 

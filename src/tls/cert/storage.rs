@@ -115,7 +115,7 @@ pub mod test {
     use super::*;
     use crate::tls::cert::CustomDomain;
 
-    const TEST_CANISTER_ID: &str = "s6hwe-laaaa-aaaab-qaeba-cai";
+    pub const TEST_CANISTER_ID: &str = "s6hwe-laaaa-aaaab-qaeba-cai";
 
     pub fn create_test_storage() -> Storage<String> {
         let canister_id = Principal::from_text(TEST_CANISTER_ID).unwrap();
