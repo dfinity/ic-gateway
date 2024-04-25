@@ -1,5 +1,6 @@
 use anyhow::Error;
 use async_trait::async_trait;
+use prometheus::Registry;
 use rustls::sign::CertifiedKey;
 use std::sync::Arc;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
@@ -28,29 +29,43 @@ pub trait Run: Send + Sync {
     async fn run(&self, token: CancellationToken) -> Result<(), Error>;
 }
 
-pub async fn main(cli: Cli) -> Result<(), Error> {
+pub async fn main(cli: &Cli) -> Result<(), Error> {
     let token = CancellationToken::new();
     let tracker = TaskTracker::new();
 
-    let http_client = Arc::new(ReqwestClient::new(&cli)?);
+    let registry = Registry::new();
+
+    let http_client = Arc::new(ReqwestClient::new(cli)?);
 
     // Handle SIGTERM/SIGHUP and Ctrl+C
     // Cancelling a token cancels all of its clones too
     let handler_token = token.clone();
     ctrlc::set_handler(move || handler_token.cancel())?;
 
+    // Make a list of all supported domains
+    let mut domains = cli.domain.domains_system.clone();
+    domains.extend(cli.domain.domains_app.clone());
+
     let storage = Arc::new(Storage::new());
     let canister_resolver = CanisterResolver::new(
-        cli.domain.domains.clone(),
+        domains,
         cli.domain.canister_aliases.clone(),
         storage.clone() as Arc<dyn LooksupCustomDomain>,
     )?;
-    let router = routing::setup_router(
-        &cli,
+
+    // List of cancellable tasks to execute & watch
+    let mut runners: Vec<(String, Arc<dyn Run>)> = vec![];
+
+    // Create a router
+    let (router, denylist_runner) = routing::setup_router(
+        cli,
+        http_client.clone(),
+        &registry,
         Arc::new(canister_resolver) as Arc<dyn ResolvesCanister>,
     )?;
-
-    let mut runners: Vec<(String, Arc<dyn Run>)> = vec![];
+    if let Some(v) = denylist_runner {
+        runners.push(("denylist_updater".into(), v));
+    }
 
     let server_options = server::Options::from(&cli.http_server);
     // Set up HTTP
@@ -64,7 +79,7 @@ pub async fn main(cli: Cli) -> Result<(), Error> {
 
     // Set up HTTPS
     let (aggregator, rustls_cfg) = tls::setup(
-        &cli,
+        cli,
         http_client.clone(),
         storage.clone() as Arc<dyn StoresCertificates<Arc<CertifiedKey>>>,
         storage.clone() as Arc<dyn ResolvesServerCert>,

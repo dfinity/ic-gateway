@@ -8,21 +8,26 @@ use std::{
 
 use anyhow::{anyhow, Context, Error};
 use arc_swap::ArcSwapOption;
+use async_trait::async_trait;
 use candid::Principal;
 use prometheus::{register_int_counter_vec_with_registry, IntCounterVec, Registry};
 use serde::Deserialize;
 use serde_json as json;
+use tokio::select;
+use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 use url::Url;
 
 use super::load_canister_list;
-use crate::http::Client;
+use crate::{core::Run, http::Client, routing::middleware::geoip::CountryCode};
 
 pub struct Denylist {
     url: Option<Url>,
     http_client: Arc<dyn Client>,
     denylist: ArcSwapOption<HashMap<Principal, Vec<String>>>,
     allowlist: HashSet<Principal>,
+    update_interval: Duration,
+    metrics: MetricParams,
 }
 
 impl Denylist {
@@ -30,12 +35,18 @@ impl Denylist {
         url: Option<Url>,
         allowlist: HashSet<Principal>,
         http_client: Arc<dyn Client>,
+        update_interval: Duration,
+        registry: &Registry,
     ) -> Self {
+        let metrics = MetricParams::new(registry);
+
         Self {
             url,
             http_client,
             denylist: ArcSwapOption::empty(),
             allowlist,
+            update_interval,
+            metrics,
         }
     }
 
@@ -44,43 +55,53 @@ impl Denylist {
         allowlist: Option<PathBuf>,
         seed: Option<PathBuf>,
         http_client: Arc<dyn Client>,
+        update_interval: Duration,
+        registry: &Registry,
     ) -> Result<Self, Error> {
         let allowlist = if let Some(v) = allowlist {
-            load_canister_list(v)?
+            let r = load_canister_list(&v).context("unable to read allowlist")?;
+            warn!("Denylist allowlist loaded: {}", r.len());
+            r
         } else {
             HashSet::new()
         };
 
-        let denylist = Self::new(url, allowlist, http_client);
+        let denylist = Self::new(url, allowlist, http_client, update_interval, registry);
 
         if let Some(v) = seed {
-            let seed = fs::read(v)?;
-            denylist.load_json(&seed)?;
+            let seed = fs::read(v).context("unable to read seed")?;
+            let r = denylist.load_json(&seed).context("unable to parse seed")?;
+            warn!("Denylist seed loaded: {r} canisters");
         }
 
         Ok(denylist)
     }
 
-    pub fn is_blocked(&self, canister_id: Principal, country_code: &str) -> bool {
+    pub fn is_blocked(&self, canister_id: Principal, country_code: Option<CountryCode>) -> bool {
         if self.allowlist.contains(&canister_id) {
             return false;
         }
 
-        if let Some(list) = self.denylist.load_full() {
-            let entry = match list.get(&canister_id) {
-                Some(v) => v,
-                None => return false,
-            };
+        // Load the list
+        let list = match self.denylist.load_full() {
+            None => return false,
+            Some(v) => v,
+        };
 
-            // if there are no codes - then all regions are blocked
-            if entry.is_empty() {
-                return true;
-            }
+        // See if there's an entry
+        let entry = match list.get(&canister_id) {
+            Some(v) => v,
+            None => return false,
+        };
 
-            return entry.iter().any(|x| x == country_code);
+        // if there are no codes - then all regions are blocked
+        if entry.is_empty() {
+            return true;
         }
 
-        false
+        // If there's no country code info -> then we don't block by default
+        // TODO discuss
+        country_code.map_or(false, |code| entry.iter().any(|x| *x == code.0))
     }
 
     pub async fn update(&self) -> Result<usize, Error> {
@@ -138,32 +159,48 @@ impl Denylist {
 
         Ok(count)
     }
+}
 
-    pub async fn run(&self, interval: Duration, registry: &Registry) -> Result<(), Error> {
+#[async_trait]
+impl Run for Denylist {
+    async fn run(&self, token: CancellationToken) -> Result<(), Error> {
         // Do not run if no URL was given
         if self.url.is_none() {
             return Ok(());
         }
 
-        let metric_params = MetricParams::new(registry);
+        warn!(
+            "Denylist updater started with {}s interval",
+            self.update_interval.as_secs()
+        );
 
+        let mut interval = tokio::time::interval(self.update_interval);
         loop {
-            let res = self.update().await;
+            select! {
+                biased;
 
-            let lbl = match res {
-                Err(e) => {
-                    warn!("Denylist update failed: {e}");
-                    "fail"
+                () = token.cancelled() => {
+                    warn!("Denylist updater stopped");
+                    return Ok(());
                 }
-                Ok(v) => {
-                    info!("Denylist updated: {} canisters", v);
-                    "ok"
+
+                _ = interval.tick() => {
+                    let res = self.update().await;
+
+                    let lbl = match res {
+                        Err(e) => {
+                            warn!("Denylist update failed: {e}");
+                            "fail"
+                        }
+                        Ok(v) => {
+                            info!("Denylist updated: {} canisters", v);
+                            "ok"
+                        }
+                    };
+
+                    self.metrics.updates.with_label_values(&[lbl]).inc();
                 }
-            };
-
-            metric_params.updates.with_label_values(&[lbl]).inc();
-
-            tokio::time::sleep(interval).await;
+            }
         }
     }
 }
@@ -229,45 +266,55 @@ mod tests {
         let client =
             Arc::new(TestClient(reqwest::ClientBuilder::new().build()?)) as Arc<dyn Client>;
 
+        let registry = Registry::new();
+
         let denylist = Denylist::new(
             Some(Url::parse(&server.url_str("/denylist.json")).unwrap()),
             HashSet::from([Principal::from_text("g3wsl-eqaaa-aaaan-aaaaa-cai").unwrap()]),
             client,
+            Duration::ZERO,
+            &registry,
         );
         denylist.update().await?;
 
         // blocked in given regions
         assert!(denylist.is_blocked(
             Principal::from_text("qoctq-giaaa-aaaaa-aaaea-cai").unwrap(),
-            "CH"
+            Some(CountryCode("CH".into()))
         ));
 
         assert!(denylist.is_blocked(
             Principal::from_text("qoctq-giaaa-aaaaa-aaaea-cai").unwrap(),
-            "US"
+            Some(CountryCode("US".into()))
         ));
 
         // unblocked in other
         assert!(!denylist.is_blocked(
             Principal::from_text("qoctq-giaaa-aaaaa-aaaea-cai").unwrap(),
-            "RU"
+            Some(CountryCode("RU".into()))
+        ));
+
+        // no country code
+        assert!(!denylist.is_blocked(
+            Principal::from_text("qoctq-giaaa-aaaaa-aaaea-cai").unwrap(),
+            None
         ));
 
         // blocked regardless of region
         assert!(denylist.is_blocked(
             Principal::from_text("s6hwe-laaaa-aaaab-qaeba-cai").unwrap(),
-            "foobar"
+            Some(CountryCode("foobar".into()))
         ));
 
         assert!(denylist.is_blocked(
             Principal::from_text("2dcn6-oqaaa-aaaai-abvoq-cai").unwrap(),
-            "foobar"
+            Some(CountryCode("foobar".into()))
         ));
 
         // allowlisted allowed regardless
         assert!(!denylist.is_blocked(
             Principal::from_text("g3wsl-eqaaa-aaaan-aaaaa-cai").unwrap(),
-            "foo"
+            Some(CountryCode("foo".into()))
         ));
 
         Ok(())
@@ -296,10 +343,13 @@ mod tests {
 
         let client =
             Arc::new(TestClient(reqwest::ClientBuilder::new().build()?)) as Arc<dyn Client>;
+        let registry = Registry::new();
         let denylist = Denylist::new(
             Some(Url::parse(&server.url_str("/denylist.json")).unwrap()),
             HashSet::new(),
             client,
+            Duration::ZERO,
+            &registry,
         );
         assert!(denylist.update().await.is_err());
 

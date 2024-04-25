@@ -12,17 +12,22 @@ use axum::{
 use axum_extra::middleware::option_layer;
 use fqdn::FQDN;
 use http::StatusCode;
+use prometheus::Registry;
 use strum_macros::Display;
 use tower::ServiceBuilder;
 use tracing::warn;
 
 use crate::{
     cli::Cli,
-    http::ConnInfo,
+    core::Run,
+    http::{Client, ConnInfo},
     routing::middleware::{geoip, validate_request},
 };
 
-use self::canister::{Canister, ResolvesCanister};
+use self::{
+    canister::{Canister, ResolvesCanister},
+    middleware::policy::{policy, PolicyState},
+};
 
 pub struct RequestCtx {
     // HTTP2 authority or HTTP1 Host header
@@ -51,6 +56,8 @@ pub enum ErrorCause {
     NoAuthority,
     CanisterIdNotFound,
     SNIMismatch,
+    DomainCanisterMismatch,
+    Denylisted,
     NoRoutingTable,
     SubnetNotFound,
     NoHealthyNodes,
@@ -78,6 +85,8 @@ impl ErrorCause {
             Self::NoAuthority => StatusCode::BAD_REQUEST,
             Self::CanisterIdNotFound => StatusCode::BAD_REQUEST,
             Self::SNIMismatch => StatusCode::BAD_REQUEST,
+            Self::DomainCanisterMismatch => StatusCode::FORBIDDEN,
+            Self::Denylisted => StatusCode::UNAVAILABLE_FOR_LEGAL_REASONS,
             Self::NoRoutingTable => StatusCode::SERVICE_UNAVAILABLE,
             Self::SubnetNotFound => StatusCode::BAD_REQUEST, // TODO change to 404?
             Self::NoHealthyNodes => StatusCode::SERVICE_UNAVAILABLE,
@@ -133,6 +142,8 @@ impl fmt::Display for ErrorCause {
             Self::MalformedResponse(_) => write!(f, "malformed_response"),
             Self::CanisterIdNotFound => write!(f, "canister_id_not_found"),
             Self::SNIMismatch => write!(f, "sni_mismatch"),
+            Self::DomainCanisterMismatch => write!(f, "domain_canister_mismatch"),
+            Self::Denylisted => write!(f, "denylisted"),
             Self::NoAuthority => write!(f, "no_authority"),
             Self::NoRoutingTable => write!(f, "no_routing_table"),
             Self::SubnetNotFound => write!(f, "subnet_not_found"),
@@ -171,9 +182,12 @@ async fn handler(request: axum::extract::Request) -> impl IntoResponse {
 
 pub fn setup_router(
     cli: &Cli,
-    canister_lookup: Arc<dyn ResolvesCanister>,
-) -> Result<Router, Error> {
-    let geoip = cli
+    http_client: Arc<dyn Client>,
+    registry: &Registry,
+    canister_resolver: Arc<dyn ResolvesCanister>,
+) -> Result<(Router, Option<Arc<dyn Run>>), Error> {
+    // GeoIP
+    let geoip_mw = cli
         .misc
         .geoip_db
         .as_ref()
@@ -183,13 +197,17 @@ pub fn setup_router(
         })
         .transpose()?;
 
+    // Policy
+    let (policy_state, denylist_runner) = PolicyState::new(cli, http_client, registry)?;
+
     let common_layers = ServiceBuilder::new()
-        .layer(option_layer(geoip))
-        .layer(from_fn_with_state(canister_lookup, validate_request));
+        .layer(option_layer(geoip_mw))
+        .layer(from_fn_with_state(canister_resolver, validate_request))
+        .layer(from_fn_with_state(Arc::new(policy_state), policy));
 
     let router = axum::Router::new()
         .route("/", axum::routing::get(handler))
         .layer(common_layers);
 
-    Ok(router)
+    Ok((router, denylist_runner))
 }

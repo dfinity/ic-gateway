@@ -1,9 +1,10 @@
 pub mod geoip;
+pub mod policy;
 
 use std::{str::FromStr, sync::Arc};
 
 use axum::{
-    extract::{Request, State},
+    extract::{Extension, Request, State},
     middleware::Next,
     response::IntoResponse,
 };
@@ -35,13 +36,11 @@ fn extract_authority(request: &Request) -> Option<FQDN> {
 }
 
 pub async fn validate_request(
+    Extension(conn_info): Extension<Arc<ConnInfo>>,
     State(resolver): State<Arc<dyn ResolvesCanister>>,
     mut request: Request,
     next: Next,
-) -> Result<impl IntoResponse, impl IntoResponse> {
-    // It should always be there, if not - then it's a bug and it's better to die
-    let conn_info = request.extensions().get::<Arc<ConnInfo>>().unwrap();
-
+) -> Result<impl IntoResponse, ErrorCause> {
     let authority = match extract_authority(&request) {
         Some(v) => v,
         None => return Err(ErrorCause::NoAuthority),
@@ -67,8 +66,7 @@ pub async fn validate_request(
     });
     request.extensions_mut().insert(ctx);
 
-    let resp = next.run(request).await;
-    Ok(resp)
+    Ok(next.run(request).await)
 }
 
 #[cfg(test)]

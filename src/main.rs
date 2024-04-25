@@ -24,9 +24,9 @@ async fn main() -> Result<(), Error> {
     let cli = Cli::parse();
 
     let subscriber = tracing_subscriber::FmtSubscriber::builder()
-        .with_max_level(tracing::Level::DEBUG)
+        .with_max_level(tracing::Level::INFO)
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
-    core::main(cli).await
+    core::main(&cli).await
 }

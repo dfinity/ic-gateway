@@ -8,7 +8,7 @@ use anyhow::{Context, Error};
 use candid::Principal;
 
 // Generic function to load a list of canister ids from a text file into a HashSet
-pub fn load_canister_list(path: PathBuf) -> Result<HashSet<Principal>, Error> {
+pub fn load_canister_list(path: &PathBuf) -> Result<HashSet<Principal>, Error> {
     let data = fs::read_to_string(path).context("failed to read canisters file")?;
     let set = data
         .lines()

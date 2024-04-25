@@ -8,7 +8,6 @@ use clap::{Args, Parser};
 use fqdn::FQDN;
 use hickory_resolver::config::CLOUDFLARE_IPS;
 use humantime::parse_duration;
-use regex::Regex;
 use reqwest::Url;
 
 use crate::{
@@ -140,25 +139,21 @@ pub struct Cert {
 
 #[derive(Args)]
 pub struct Domain {
-    /// List of domains that we serve
-    #[clap(long = "domain")]
-    pub domains: Vec<FQDN>,
+    /// List of domains that we serve system subnets from
+    #[clap(long = "domain-system")]
+    pub domains_system: Vec<FQDN>,
 
-    /// List of canister aliases in format 'alias:<canister_id>'
+    /// List of domains that we serve app subnets from
+    #[clap(long = "domain-app")]
+    pub domains_app: Vec<FQDN>,
+
+    /// List of canister aliases in format '<alias>:<canister_id>'
     #[clap(long = "domain-alias")]
     pub canister_aliases: Vec<CanisterAlias>,
 }
 
 #[derive(Args)]
 pub struct Policy {
-    /// Regex to match domains that are allowed to serve system subnets
-    #[clap(long = "policy-domain-system")]
-    pub domains_system: Vec<Regex>,
-
-    /// Regex to match domains that are allowed to serve app subnets
-    #[clap(long = "policy-domain-app")]
-    pub domains_app: Vec<Regex>,
-
     /// Path to a list of pre-isolation canisters, one canister per line
     #[clap(long = "policy-pre-isolation-canisters")]
     pub pre_isolation_canisters: Option<PathBuf>,
@@ -167,9 +162,17 @@ pub struct Policy {
     #[clap(long = "policy-denylist-url")]
     pub denylist_url: Option<Url>,
 
+    /// Path to a list of whitelisted canisters
+    #[clap(long = "policy-denylist-allowlist")]
+    pub denylist_allowlist: Option<PathBuf>,
+
     /// Path to a local denylist cache for initial seeding
     #[clap(long = "policy-denylist-seed")]
     pub denylist_seed: Option<PathBuf>,
+
+    /// How frequently to poll denlylist for updates
+    #[clap(long = "policy-denylist-poll-interval", default_value = "1m", value_parser = parse_duration)]
+    pub denylist_poll_interval: Duration,
 }
 
 #[derive(Args)]

@@ -8,7 +8,7 @@ use crate::tls::cert::LooksupCustomDomain;
 
 const INVALID_ALIAS_FORMAT: &str = "Invalid alias format, must be 'alias:canister_id'";
 
-// Alias for a canister under all supported domains.
+// Alias for a canister under all served domains.
 // E.g. an alias 'nns' would resolve under both 'nns.ic0.app' and 'nns.icp0.io'
 #[derive(Clone)]
 pub struct CanisterAlias(FQDN, Principal);
@@ -60,7 +60,7 @@ impl CanisterResolver {
         custom_domains: Arc<dyn LooksupCustomDomain>,
     ) -> Result<Self, Error> {
         let mut aliases = vec![];
-        // Generate a map of all alias+domain combinations
+        // Generate a list of all alias+domain combinations
         for a in aliases_in {
             for d in &domains {
                 aliases.push((
@@ -82,7 +82,7 @@ impl CanisterResolver {
 
     // Iterate over aliases and see if given host is a subdomain of any.
     // Host is a subdomain of itself also so 'nns.ic0.app' will match the alias 'nns' and domain 'ic0.app'.
-    fn lookup_alias(&self, host: &Fqdn) -> Option<Canister> {
+    fn resolve_alias(&self, host: &Fqdn) -> Option<Canister> {
         self.aliases
             .iter()
             .find(|x| host.is_subdomain_of(&x.0))
@@ -90,11 +90,14 @@ impl CanisterResolver {
     }
 
     // Tries to resolve canister id from <id>.<domain> or <id>.raw.<domain> formatted hostname
-    fn lookup_domain(&self, host: &Fqdn) -> Option<Canister> {
+    fn resolve_domain(&self, host: &Fqdn) -> Option<Canister> {
         let mut labels = host.labels();
 
+        // Split by '--' if it has one and ignore the preceeding part
+        let canister = labels.next()?.split("--").last()?;
+
         // Check if the first part of the hostname parses as Principal
-        let id = Principal::from_text(labels.next()?).ok()?;
+        let id = Principal::from_text(canister).ok()?;
 
         // Check if the next part is "raw" then we don't need to verify the response
         let mut labels = labels.peekable();
@@ -106,7 +109,7 @@ impl CanisterResolver {
             true
         };
 
-        // Construct the remaining part of domain
+        // Construct the remaining part of the domain
         let domain = FQDN::from_str(&labels.collect::<Vec<_>>().join(".")).ok()?;
 
         // Check if the domain is known
@@ -121,8 +124,8 @@ impl CanisterResolver {
 impl ResolvesCanister for CanisterResolver {
     fn resolve_canister(&self, host: &Fqdn) -> Option<Canister> {
         // Try to resolve canister using different sources
-        self.lookup_alias(host)
-            .or_else(|| self.lookup_domain(host))
+        self.resolve_alias(host)
+            .or_else(|| self.resolve_domain(host))
             .or_else(|| {
                 let id = self.custom_domains.lookup_custom_domain(host)?;
                 Some(Canister { id, verify: true })
@@ -189,7 +192,7 @@ mod test {
         for d in &domains {
             // Ensure all aliases resolve with all domains
             for a in &aliases {
-                let canister = resolver.lookup_alias(&fqdn!(&format!("{}.{d}", a.0)));
+                let canister = resolver.resolve_alias(&fqdn!(&format!("{}.{d}", a.0)));
 
                 assert_eq!(
                     canister,
@@ -202,12 +205,12 @@ mod test {
 
             // Ensure that non-existant aliases do not resolve
             assert_eq!(
-                resolver.lookup_alias(&FQDN::from_str(&format!("foo.{d}"))?),
+                resolver.resolve_alias(&FQDN::from_str(&format!("foo.{d}"))?),
                 None
             );
 
             assert_eq!(
-                resolver.lookup_alias(&FQDN::from_str(&format!("bar.{d}"))?),
+                resolver.resolve_alias(&FQDN::from_str(&format!("bar.{d}"))?),
                 None
             );
         }
@@ -216,30 +219,47 @@ mod test {
         let id = Principal::from_text("aaaaa-aa").unwrap();
 
         // No canister ID
-        assert_eq!(resolver.lookup_domain(&fqdn!("ic0.app")), None);
-        assert_eq!(resolver.lookup_domain(&fqdn!("raw.ic0.app")), None);
+        assert_eq!(resolver.resolve_domain(&fqdn!("ic0.app")), None);
+        assert_eq!(resolver.resolve_domain(&fqdn!("raw.ic0.app")), None);
 
         // Normal & raw
         assert_eq!(
-            resolver.lookup_domain(&fqdn!("aaaaa-aa.ic0.app")),
+            resolver.resolve_domain(&fqdn!("aaaaa-aa.ic0.app")),
             Some(Canister { id, verify: true })
         );
         assert_eq!(
-            resolver.lookup_domain(&fqdn!("aaaaa-aa.icp0.io")),
+            resolver.resolve_domain(&fqdn!("aaaaa-aa.icp0.io")),
             Some(Canister { id, verify: true })
         );
         assert_eq!(
-            resolver.lookup_domain(&fqdn!("aaaaa-aa.raw.ic0.app")),
+            resolver.resolve_domain(&fqdn!("aaaaa-aa.raw.ic0.app")),
             Some(Canister { id, verify: false })
         );
         assert_eq!(
-            resolver.lookup_domain(&fqdn!("aaaaa-aa.raw.icp0.io")),
+            resolver.resolve_domain(&fqdn!("aaaaa-aa.raw.icp0.io")),
             Some(Canister { id, verify: false })
         );
 
+        // foo-- <canister_id>
+        assert_eq!(
+            resolver.resolve_domain(&fqdn!("foo--aaaaa-aa.ic0.app")),
+            Some(Canister { id, verify: true })
+        );
+
+        assert_eq!(
+            resolver.resolve_domain(&fqdn!("asndjasldfajlsd--aaaaa-aa.ic0.app")),
+            Some(Canister { id, verify: true })
+        );
+
         // Nested subdomain should not match
-        assert_eq!(resolver.lookup_domain(&fqdn!("aaaaa-aa.foo.ic0.app")), None);
-        assert_eq!(resolver.lookup_domain(&fqdn!("aaaaa-aa.foo.icp0.io")), None);
+        assert_eq!(
+            resolver.resolve_domain(&fqdn!("aaaaa-aa.foo.ic0.app")),
+            None
+        );
+        assert_eq!(
+            resolver.resolve_domain(&fqdn!("aaaaa-aa.foo.icp0.io")),
+            None
+        );
 
         // Check the trait
         // Resolve from alias
