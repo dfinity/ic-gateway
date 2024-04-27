@@ -12,6 +12,7 @@ mod cache;
 mod cli;
 mod core;
 mod http;
+mod metrics;
 mod policy;
 mod routing;
 mod tls;

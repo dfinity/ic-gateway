@@ -1,21 +1,12 @@
 pub mod geoip;
 pub mod policy;
+pub mod request_id;
+pub mod validate;
 
-use std::{str::FromStr, sync::Arc};
+use std::str::FromStr;
 
-use axum::{
-    extract::{Extension, Request, State},
-    middleware::Next,
-    response::IntoResponse,
-};
+use axum::extract::Request;
 use fqdn::FQDN;
-
-use crate::{
-    http::ConnInfo,
-    routing::{ErrorCause, RequestCtx},
-};
-
-use super::canister::ResolvesCanister;
 
 // Attempts to extract host from HTTP2 "authority" pseudo-header or from HTTP/1.1 "Host" header
 fn extract_authority(request: &Request) -> Option<FQDN> {
@@ -25,48 +16,14 @@ fn extract_authority(request: &Request) -> Option<FQDN> {
         .authority()
         .map(|x| x.host())
         .or_else(|| {
-            request.headers().get(http::header::HOST).and_then(|x| {
-                x.to_str()
-                    .ok()
-                    // Split the header if it has a port
-                    .and_then(|x| x.split_once(':').map(|v| v.0).or(Some(x)))
-            })
+            request
+                .headers()
+                .get(http::header::HOST)
+                .and_then(|x| x.to_str().ok())
         })
+        // Split if it has a port
+        .and_then(|x| x.split(':').next())
         .and_then(|x| FQDN::from_str(x).ok())
-}
-
-pub async fn validate_request(
-    Extension(conn_info): Extension<Arc<ConnInfo>>,
-    State(resolver): State<Arc<dyn ResolvesCanister>>,
-    mut request: Request,
-    next: Next,
-) -> Result<impl IntoResponse, ErrorCause> {
-    let authority = match extract_authority(&request) {
-        Some(v) => v,
-        None => return Err(ErrorCause::NoAuthority),
-    };
-
-    // If it's a TLS request - check that authority matches SNI
-    if let Some(v) = &conn_info.tls {
-        if v.sni != authority {
-            return Err(ErrorCause::SNIMismatch);
-        }
-    }
-
-    // Resolve the canister
-    let canister = resolver
-        .resolve_canister(&authority)
-        .ok_or(ErrorCause::CanisterIdNotFound)?;
-
-    println!("{:?}", canister.id.to_string());
-
-    let ctx = Arc::new(RequestCtx {
-        authority,
-        canister,
-    });
-    request.extensions_mut().insert(ctx);
-
-    Ok(next.run(request).await)
 }
 
 #[cfg(test)]
@@ -135,6 +92,20 @@ mod test {
 
         let auth = extract_authority(&req);
         assert_eq!(auth, Some(fqdn!("foo.bar")));
+
+        // Badly formatted
+        let mut req = axum::extract::Request::builder()
+            .method("GET")
+            .version(axum::http::version::Version::HTTP_2)
+            .uri("http://foo.bar")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        *req.uri_mut() = Uri::default();
+        req.headers_mut()
+            .insert("Host", HeaderValue::from_static("foo|||bar"));
+
+        let auth = extract_authority(&req);
+        assert_eq!(auth, None);
 
         Ok(())
     }

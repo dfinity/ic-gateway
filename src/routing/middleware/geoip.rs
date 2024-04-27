@@ -40,7 +40,7 @@ impl GeoIp {
     }
 }
 
-pub async fn geoip(
+pub async fn middleware(
     State(geoip): State<Arc<GeoIp>>,
     Extension(conn_info): Extension<Arc<ConnInfo>>,
     mut request: Request,

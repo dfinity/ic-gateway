@@ -4,7 +4,7 @@ use anyhow::{Context, Error};
 use axum::{
     extract::{Extension, Request, State},
     middleware::Next,
-    response::{IntoResponse, Response},
+    response::Response,
 };
 use prometheus::Registry;
 
@@ -65,7 +65,7 @@ impl PolicyState {
     }
 }
 
-pub async fn policy(
+pub async fn middleware(
     State(state): State<Arc<PolicyState>>,
     country_code: Option<Extension<CountryCode>>,
     Extension(ctx): Extension<Arc<RequestCtx>>,

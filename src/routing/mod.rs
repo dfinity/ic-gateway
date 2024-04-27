@@ -5,7 +5,7 @@ use std::{fmt, sync::Arc};
 
 use anyhow::Error;
 use axum::{
-    middleware::{from_fn_with_state, FromFnLayer},
+    middleware::{from_fn, from_fn_with_state, FromFnLayer},
     response::{IntoResponse, Response},
     Router,
 };
@@ -21,13 +21,11 @@ use crate::{
     cli::Cli,
     core::Run,
     http::{Client, ConnInfo},
-    routing::middleware::{geoip, validate_request},
+    metrics,
+    routing::middleware::{geoip, policy, request_id, validate},
 };
 
-use self::{
-    canister::{Canister, ResolvesCanister},
-    middleware::policy::{policy, PolicyState},
-};
+use self::canister::{Canister, ResolvesCanister};
 
 pub struct RequestCtx {
     // HTTP2 authority or HTTP1 Host header
@@ -193,17 +191,29 @@ pub fn setup_router(
         .as_ref()
         .map(|x| -> Result<FromFnLayer<_, _, _>, Error> {
             let geoip_db = geoip::GeoIp::new(x)?;
-            Ok(from_fn_with_state(Arc::new(geoip_db), geoip::geoip))
+            Ok(from_fn_with_state(Arc::new(geoip_db), geoip::middleware))
         })
         .transpose()?;
 
     // Policy
-    let (policy_state, denylist_runner) = PolicyState::new(cli, http_client, registry)?;
+    let (policy_state, denylist_runner) = policy::PolicyState::new(cli, http_client, registry)?;
 
+    // Metrics
+    let metrics_mw = from_fn_with_state(
+        metrics::HttpMetricParams::new(registry),
+        metrics::middleware,
+    );
+
+    // Common layers
     let common_layers = ServiceBuilder::new()
+        .layer(from_fn(request_id::middleware))
+        .layer(metrics_mw)
         .layer(option_layer(geoip_mw))
-        .layer(from_fn_with_state(canister_resolver, validate_request))
-        .layer(from_fn_with_state(Arc::new(policy_state), policy));
+        .layer(from_fn_with_state(canister_resolver, validate::middleware))
+        .layer(from_fn_with_state(
+            Arc::new(policy_state),
+            policy::middleware,
+        ));
 
     let router = axum::Router::new()
         .route("/", axum::routing::get(handler))
