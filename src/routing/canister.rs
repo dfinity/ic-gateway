@@ -6,8 +6,6 @@ use fqdn::{Fqdn, FQDN};
 
 use crate::tls::cert::LooksupCustomDomain;
 
-const INVALID_ALIAS_FORMAT: &str = "Invalid alias format, must be 'alias:canister_id'";
-
 // Alias for a canister under all served domains.
 // E.g. an alias 'nns' would resolve under both 'nns.ic0.app' and 'nns.icp0.io'
 #[derive(Clone)]
@@ -17,6 +15,8 @@ impl FromStr for CanisterAlias {
     type Err = Error;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
+        const INVALID_ALIAS_FORMAT: &str = "Invalid alias format, must be '<alias>:<canister_id>'";
+
         match value.split_once(':') {
             Some((alias, principal)) => {
                 if alias.is_empty() {
@@ -36,9 +36,10 @@ impl FromStr for CanisterAlias {
 }
 
 // Combination of canister id and whether we need to verify the response
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Canister {
     pub id: Principal,
+    pub domain: FQDN,
     pub verify: bool,
 }
 
@@ -67,6 +68,7 @@ impl CanisterResolver {
                     FQDN::from_str(&format!("{}.{d}", a.0))?,
                     Canister {
                         id: a.1,
+                        domain: d.clone(),
                         verify: true,
                     },
                 ));
@@ -86,7 +88,7 @@ impl CanisterResolver {
         self.aliases
             .iter()
             .find(|x| host.is_subdomain_of(&x.0))
-            .map(|x| x.1)
+            .map(|x| x.1.clone())
     }
 
     // Tries to resolve canister id from <id>.<domain> or <id>.raw.<domain> formatted hostname
@@ -117,7 +119,7 @@ impl CanisterResolver {
             return None;
         }
 
-        Some(Canister { id, verify })
+        Some(Canister { id, domain, verify })
     }
 }
 
@@ -128,7 +130,11 @@ impl ResolvesCanister for CanisterResolver {
             .or_else(|| self.resolve_domain(host))
             .or_else(|| {
                 let id = self.custom_domains.lookup_custom_domain(host)?;
-                Some(Canister { id, verify: true })
+                Some(Canister {
+                    id,
+                    domain: host.to_owned(),
+                    verify: true,
+                })
             })
     }
 }
@@ -151,6 +157,9 @@ mod test {
 
         // Bad alias
         let a = CanisterAlias::from_str(":aaaaa-aa");
+        assert!(a.is_err());
+
+        let a = CanisterAlias::from_str("|||:aaaaa-aa");
         assert!(a.is_err());
 
         // All is empty
@@ -198,6 +207,7 @@ mod test {
                     canister,
                     Some(Canister {
                         id: a.1,
+                        domain: d.clone(),
                         verify: true
                     })
                 );
@@ -225,30 +235,54 @@ mod test {
         // Normal & raw
         assert_eq!(
             resolver.resolve_domain(&fqdn!("aaaaa-aa.ic0.app")),
-            Some(Canister { id, verify: true })
+            Some(Canister {
+                id,
+                domain: fqdn!("ic0.app"),
+                verify: true
+            })
         );
         assert_eq!(
             resolver.resolve_domain(&fqdn!("aaaaa-aa.icp0.io")),
-            Some(Canister { id, verify: true })
+            Some(Canister {
+                id,
+                domain: fqdn!("icp0.io"),
+                verify: true
+            })
         );
         assert_eq!(
             resolver.resolve_domain(&fqdn!("aaaaa-aa.raw.ic0.app")),
-            Some(Canister { id, verify: false })
+            Some(Canister {
+                id,
+                domain: fqdn!("ic0.app"),
+                verify: false
+            })
         );
         assert_eq!(
             resolver.resolve_domain(&fqdn!("aaaaa-aa.raw.icp0.io")),
-            Some(Canister { id, verify: false })
+            Some(Canister {
+                id,
+                domain: fqdn!("icp0.io"),
+                verify: false
+            })
         );
 
         // foo-- <canister_id>
         assert_eq!(
             resolver.resolve_domain(&fqdn!("foo--aaaaa-aa.ic0.app")),
-            Some(Canister { id, verify: true })
+            Some(Canister {
+                id,
+                domain: fqdn!("ic0.app"),
+                verify: true
+            })
         );
 
         assert_eq!(
             resolver.resolve_domain(&fqdn!("asndjasldfajlsd--aaaaa-aa.ic0.app")),
-            Some(Canister { id, verify: true })
+            Some(Canister {
+                id,
+                domain: fqdn!("ic0.app"),
+                verify: true
+            })
         );
 
         // Nested subdomain should not match
@@ -267,6 +301,7 @@ mod test {
             resolver.resolve_canister(&fqdn!("nns.ic0.app")),
             Some(Canister {
                 id: Principal::from_text("qoctq-giaaa-aaaaa-aaaea-cai").unwrap(),
+                domain: fqdn!("ic0.app"),
                 verify: true
             })
         );
@@ -274,12 +309,20 @@ mod test {
         // Resolve from hostname
         assert_eq!(
             resolver.resolve_canister(&fqdn!("aaaaa-aa.ic0.app")),
-            Some(Canister { id, verify: true })
+            Some(Canister {
+                id,
+                domain: fqdn!("ic0.app"),
+                verify: true
+            })
         );
 
         assert_eq!(
             resolver.resolve_canister(&fqdn!("aaaaa-aa.raw.ic0.app")),
-            Some(Canister { id, verify: false })
+            Some(Canister {
+                id,
+                domain: fqdn!("ic0.app"),
+                verify: false
+            })
         );
 
         // Resolve custom domain
@@ -287,7 +330,8 @@ mod test {
             resolver.resolve_canister(&fqdn!("foo.baz")),
             Some(Canister {
                 id: Principal::from_text(TEST_CANISTER_ID).unwrap(),
-                verify: true
+                domain: fqdn!("foo.baz"),
+                verify: true,
             })
         );
 

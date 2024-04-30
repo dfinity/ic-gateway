@@ -6,6 +6,8 @@ use std::{
     task::{Context, Poll},
 };
 
+use crate::http::calc_headers_size;
+
 // Body that counts the bytes streamed
 pub struct CountingBody<D, E> {
     inner: Pin<Box<dyn Body<Data = D, Error = E> + Send + 'static>>,
@@ -74,21 +76,22 @@ where
             // There is still some data available
             Poll::Ready(Some(v)) => match v {
                 Ok(buf) => {
-                    // Ignore if it's not a data frame for now.
-                    // It can also be trailers that are uncommon
+                    // Normal data frame
                     if buf.is_data() {
                         self.bytes_sent += buf.data_ref().unwrap().remaining() as u64;
+                    } else if buf.is_trailers() {
+                        // Trailers are very uncommon, for the sake of completeness
+                        self.bytes_sent += calc_headers_size(buf.trailers_ref().unwrap()) as u64;
+                    }
 
-                        // Check if we already got what was expected
-                        if Some(self.bytes_sent) >= self.expected_size {
-                            self.do_callback(Ok(()));
-                        }
+                    // Check if we already got what was expected
+                    if Some(self.bytes_sent) >= self.expected_size {
+                        self.do_callback(Ok(()));
                     }
                 }
 
                 // Error occured, execute callback
                 Err(e) => {
-                    // Error is not Copy/Clone so use string instead
                     self.do_callback(Err(e.to_string()));
                 }
             },
@@ -117,8 +120,13 @@ mod test {
 
     #[tokio::test]
     async fn test_body_stream() {
-        let data = b"foobarblahblahfoobarblahblahfoobarblahblahfoobarblahblahfoobarblahblahfoobarblahblahfoobarblahblahfoobarblahblahfoobarblahblahfoobarblahblahfoobarblahblahfoobarblahblahfoobarblahblahfoobarblahblahfoobarblahblahfoobarblahblahfoobarblahblahfoobarblahblahfoobarblahblahfoobarblahblahfoobarblahblahfoobarblahblahfoobarblahblahfoobarblahblahfoobarblahblah";
-        let mut stream = tokio_util::io::ReaderStream::new(&data[..]);
+        let data = b"foobarblahblahfoobarblahblahfoobarblahblahfoobarblahblahfoobarbl\
+        ahblahfoobarblahblahfoobarblahblahfoobarblahblahfoobarblahblahfoobarblahblahfoobarblahbla\
+        hfoobarblahblahfoobarblahblahfoobarblahblahfoobarblahblahfoobarblahblahfoobarblahblahfoob\
+        arblahblahfoobarblahblahfoobarblahblahfoobarblahblahfoobarblahblahfoobarblahblahfoobarbla\
+        blahfoobarblahblah";
+
+        let stream = tokio_util::io::ReaderStream::new(&data[..]);
         let body = axum::body::Body::from_stream(stream);
 
         let (tx, rx) = std::sync::mpsc::channel();
@@ -141,7 +149,6 @@ mod test {
     #[tokio::test]
     async fn test_body_full() {
         let data = vec![0; 512];
-
         let buf = bytes::Bytes::from_iter(data.clone());
         let body = http_body_util::Full::new(buf);
 

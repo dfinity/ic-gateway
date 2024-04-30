@@ -90,6 +90,7 @@ impl TryFrom<&ServerConnection> for TlsInfo {
 
 #[derive(Clone, Debug)]
 pub struct ConnInfo {
+    pub accepted_at: Instant,
     pub local_addr: SocketAddr,
     pub remote_addr: SocketAddr,
     pub tls: Option<TlsInfo>,
@@ -137,6 +138,8 @@ impl Conn {
     }
 
     pub async fn handle(&self, stream: TcpStream) -> Result<(), Error> {
+        let accepted_at = Instant::now();
+
         debug!(
             "Server {}: {}: got a new connection",
             self.addr, self.remote_addr
@@ -164,6 +167,7 @@ impl Conn {
         // Since it will be cloned for each request served over this connection
         // it's probably better to wrap it into Arc
         let conn_info = ConnInfo {
+            accepted_at,
             local_addr: self.addr,
             remote_addr: self.remote_addr,
             tls: tls_info,

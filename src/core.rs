@@ -2,13 +2,14 @@ use anyhow::Error;
 use async_trait::async_trait;
 use prometheus::Registry;
 use rustls::sign::CertifiedKey;
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::{error, warn};
 
 use crate::{
     cli::Cli,
     http::{server, ReqwestClient, Server},
+    metrics,
     routing::{
         self,
         canister::{CanisterResolver, ResolvesCanister},
@@ -30,11 +31,10 @@ pub trait Run: Send + Sync {
 }
 
 pub async fn main(cli: &Cli) -> Result<(), Error> {
+    // Prepare some general stuff
     let token = CancellationToken::new();
     let tracker = TaskTracker::new();
-
     let registry = Registry::new();
-
     let http_client = Arc::new(ReqwestClient::new(cli)?);
 
     // Handle SIGTERM/SIGHUP and Ctrl+C
@@ -46,14 +46,17 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     let mut domains = cli.domain.domains_system.clone();
     domains.extend(cli.domain.domains_app.clone());
 
+    // Prepare certificate storage
     let storage = Arc::new(Storage::new());
+
+    // Prepare canister resolver to infer canister_id from requests
     let canister_resolver = CanisterResolver::new(
         domains,
         cli.domain.canister_aliases.clone(),
         storage.clone() as Arc<dyn LooksupCustomDomain>,
     )?;
 
-    // List of cancellable tasks to execute & watch
+    // List of cancellable tasks to execute & track
     let mut runners: Vec<(String, Arc<dyn Run>)> = vec![];
 
     // Create a router
@@ -68,6 +71,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     }
 
     let server_options = server::Options::from(&cli.http_server);
+
     // Set up HTTP
     let http_server = Arc::new(Server::new(
         cli.http_server.http,
@@ -94,7 +98,16 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     )) as Arc<dyn Run>;
     runners.push(("https_server".into(), https_server));
 
-    // Spawn runners
+    // Setup metrics
+    if let Some(addr) = cli.metrics.listen {
+        let (router, runner) = metrics::setup(&registry);
+        runners.push(("metrics_runner".into(), runner));
+
+        let srv = Arc::new(Server::new(addr, router, server_options, None));
+        runners.push(("metrics_server".into(), srv as Arc<dyn Run>));
+    }
+
+    // Spawn & track runners
     for (name, obj) in runners {
         let token = token.child_token();
         tracker.spawn(async move {

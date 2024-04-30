@@ -38,6 +38,9 @@ pub struct Cli {
     #[command(flatten, next_help_heading = "Policy")]
     pub policy: Policy,
 
+    #[command(flatten, next_help_heading = "Metrics")]
+    pub metrics: Metrics,
+
     #[command(flatten, next_help_heading = "Misc")]
     pub misc: Misc,
 }
@@ -173,6 +176,13 @@ pub struct Policy {
     /// How frequently to poll denlylist for updates
     #[clap(long = "policy-denylist-poll-interval", default_value = "1m", value_parser = parse_duration)]
     pub denylist_poll_interval: Duration,
+}
+
+#[derive(Args)]
+pub struct Metrics {
+    /// Where to listen for Prometheus metrics scraping
+    #[clap(long = "metrics-listen")]
+    pub listen: Option<SocketAddr>,
 }
 
 #[derive(Args)]

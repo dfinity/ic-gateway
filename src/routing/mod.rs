@@ -29,8 +29,8 @@ use self::canister::{Canister, ResolvesCanister};
 
 pub struct RequestCtx {
     // HTTP2 authority or HTTP1 Host header
-    authority: FQDN,
-    canister: Canister,
+    pub authority: FQDN,
+    pub canister: Canister,
 }
 
 #[derive(Debug, Clone, Display)]
@@ -70,7 +70,7 @@ pub enum ErrorCause {
 }
 
 impl ErrorCause {
-    pub fn status_code(&self) -> StatusCode {
+    pub const fn status_code(&self) -> StatusCode {
         match self {
             Self::Other(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Self::PayloadTooLarge(_) => StatusCode::PAYLOAD_TOO_LARGE,
@@ -200,7 +200,7 @@ pub fn setup_router(
 
     // Metrics
     let metrics_mw = from_fn_with_state(
-        metrics::HttpMetricParams::new(registry),
+        Arc::new(metrics::HttpMetricParams::new(registry)),
         metrics::middleware,
     );
 

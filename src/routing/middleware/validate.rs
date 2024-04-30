@@ -20,6 +20,7 @@ pub async fn middleware(
     mut request: Request,
     next: Next,
 ) -> Result<impl IntoResponse, ErrorCause> {
+    // Extract the authority
     let authority = match extract_authority(&request) {
         Some(v) => v,
         None => return Err(ErrorCause::NoAuthority),
@@ -37,13 +38,14 @@ pub async fn middleware(
         .resolve_canister(&authority)
         .ok_or(ErrorCause::CanisterIdNotFound)?;
 
-    println!("{:?}", canister.id.to_string());
-
     let ctx = Arc::new(RequestCtx {
         authority,
         canister,
     });
-    request.extensions_mut().insert(ctx);
+    request.extensions_mut().insert(ctx.clone());
 
-    Ok(next.run(request).await)
+    let mut response = next.run(request).await;
+    response.extensions_mut().insert(ctx);
+
+    Ok(response)
 }
