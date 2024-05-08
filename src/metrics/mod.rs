@@ -18,13 +18,11 @@ use axum::{
     Router,
 };
 use http::header::CONTENT_TYPE;
-use hyper::client::conn;
 use jemalloc_ctl::{epoch, stats};
 use prometheus::{
-    proto::MetricFamily, register_histogram_vec_with_registry,
-    register_int_counter_vec_with_registry, register_int_gauge_vec_with_registry,
-    register_int_gauge_with_registry, Encoder, HistogramOpts, HistogramVec, IntCounterVec,
-    IntGauge, IntGaugeVec, Registry, TextEncoder,
+    register_histogram_vec_with_registry, register_int_counter_vec_with_registry,
+    register_int_gauge_with_registry, Encoder, HistogramVec, IntCounterVec, IntGauge, Registry,
+    TextEncoder,
 };
 use tokio::{select, sync::RwLock};
 use tokio_util::sync::CancellationToken;
@@ -147,7 +145,7 @@ impl Run for MetricsRunner {
     }
 }
 
-pub async fn handler(State(state): State<Arc<RwLock<MetricsCache>>>) -> impl IntoResponse {
+async fn handler(State(state): State<Arc<RwLock<MetricsCache>>>) -> impl IntoResponse {
     // Get a read lock and clone the buffer contents
     (
         [(CONTENT_TYPE, PROMETHEUS_CONTENT_TYPE)],
@@ -174,7 +172,7 @@ pub fn setup(registry: &Registry) -> (Router, Arc<dyn Run>) {
 }
 
 #[derive(Clone)]
-pub struct HttpMetricParams {
+pub struct HttpMetrics {
     pub requests: IntCounterVec,
     pub duration: HistogramVec,
     pub duration_full: HistogramVec,
@@ -182,11 +180,9 @@ pub struct HttpMetricParams {
     pub response_size: HistogramVec,
 }
 
-impl HttpMetricParams {
+impl HttpMetrics {
     pub fn new(registry: &Registry) -> Self {
-        const LABELS_HTTP: &[&str] = &[
-            "tls", "method", "http", "domain", "status", "error", "cache",
-        ];
+        const LABELS_HTTP: &[&str] = &["tls", "method", "http", "domain", "status", "error"];
 
         Self {
             requests: register_int_counter_vec_with_registry!(
@@ -237,7 +233,7 @@ impl HttpMetricParams {
 }
 
 pub async fn middleware(
-    State(state): State<Arc<HttpMetricParams>>,
+    State(state): State<Arc<HttpMetrics>>,
     Extension(conn_info): Extension<Arc<ConnInfo>>,
     Extension(request_id): Extension<RequestId>,
     request: Request,
@@ -267,11 +263,11 @@ pub async fn middleware(
     let status = response.status().as_u16().to_string();
 
     // By this time the channel should already have the data
-    // since the response headers are already received -> request body was for sure read
+    // since the response headers are already received -> request body was for sure read (or an error happened)
     let request_size = rx.recv().unwrap_or(0) + request_size_headers;
 
-    let (parts, body) = response.into_parts();
-
+    // The callback will be executed when the streaming of the response body to the client will finish
+    // or the error happens
     let response_callback = move |response_size: u64, _: Result<(), String>| {
         let duration_full = conn_info.accepted_at.elapsed();
 
@@ -279,7 +275,7 @@ pub async fn middleware(
             .tls
             .as_ref()
             .map(|x| (x.protocol.as_str().unwrap(), x.cipher.as_str().unwrap()))
-            .unwrap_or(("unknown", "unknown"));
+            .unwrap_or(("no", "no"));
         let domain = ctx
             .as_ref()
             .map(|x| x.canister.domain.to_string())
@@ -296,7 +292,6 @@ pub async fn middleware(
             &domain,
             &status,
             &error_cause,
-            "BYPASS", // TODO fill when cache is implemented
         ];
 
         // Update metrics
@@ -327,7 +322,7 @@ pub async fn middleware(
             tls_version,
             tls_cipher,
             domain,
-            host = ctx.as_ref().map(|x| x.authority.to_string()),
+            host = uri.host(),
             path = uri.path(),
             canister_id = ctx.as_ref().map(|x| x.canister.id.to_string()),
             error = error_cause,
@@ -338,6 +333,7 @@ pub async fn middleware(
         );
     };
 
+    let (parts, body) = response.into_parts();
     let body = CountingBody::new(body, response_callback);
     Response::from_parts(parts, body)
 }

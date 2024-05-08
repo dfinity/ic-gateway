@@ -1,4 +1,5 @@
 pub mod geoip;
+pub mod headers;
 pub mod policy;
 pub mod request_id;
 pub mod validate;

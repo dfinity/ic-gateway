@@ -84,6 +84,7 @@ impl CanisterResolver {
 
     // Iterate over aliases and see if given host is a subdomain of any.
     // Host is a subdomain of itself also so 'nns.ic0.app' will match the alias 'nns' and domain 'ic0.app'.
+    // This will also match any subdomains of the alias - TODO discuss
     fn resolve_alias(&self, host: &Fqdn) -> Option<Canister> {
         self.aliases
             .iter()
@@ -232,7 +233,7 @@ mod test {
         assert_eq!(resolver.resolve_domain(&fqdn!("ic0.app")), None);
         assert_eq!(resolver.resolve_domain(&fqdn!("raw.ic0.app")), None);
 
-        // Normal & raw
+        // Normal
         assert_eq!(
             resolver.resolve_domain(&fqdn!("aaaaa-aa.ic0.app")),
             Some(Canister {
@@ -249,6 +250,8 @@ mod test {
                 verify: true
             })
         );
+
+        // Raw
         assert_eq!(
             resolver.resolve_domain(&fqdn!("aaaaa-aa.raw.ic0.app")),
             Some(Canister {
@@ -277,7 +280,7 @@ mod test {
         );
 
         assert_eq!(
-            resolver.resolve_domain(&fqdn!("asndjasldfajlsd--aaaaa-aa.ic0.app")),
+            resolver.resolve_domain(&fqdn!("foo--bar--aaaaa-aa.ic0.app")),
             Some(Canister {
                 id,
                 domain: fqdn!("ic0.app"),
@@ -285,7 +288,7 @@ mod test {
             })
         );
 
-        // Nested subdomain should not match
+        // Nested subdomain should not match (?)
         assert_eq!(
             resolver.resolve_domain(&fqdn!("aaaaa-aa.foo.ic0.app")),
             None

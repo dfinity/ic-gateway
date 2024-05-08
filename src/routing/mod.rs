@@ -22,7 +22,7 @@ use crate::{
     core::Run,
     http::{Client, ConnInfo},
     metrics,
-    routing::middleware::{geoip, policy, request_id, validate},
+    routing::middleware::{geoip, headers, policy, request_id, validate},
 };
 
 use self::canister::{Canister, ResolvesCanister};
@@ -175,7 +175,6 @@ impl IntoResponse for ErrorCause {
 async fn handler(request: axum::extract::Request) -> impl IntoResponse {
     warn!("{:?}", request.extensions().get::<Arc<ConnInfo>>());
     warn!("{:?}", request.extensions().get::<geoip::CountryCode>());
-    "Hello"
 }
 
 pub fn setup_router(
@@ -200,13 +199,14 @@ pub fn setup_router(
 
     // Metrics
     let metrics_mw = from_fn_with_state(
-        Arc::new(metrics::HttpMetricParams::new(registry)),
+        Arc::new(metrics::HttpMetrics::new(registry)),
         metrics::middleware,
     );
 
     // Common layers
     let common_layers = ServiceBuilder::new()
         .layer(from_fn(request_id::middleware))
+        .layer(from_fn(headers::middleware))
         .layer(metrics_mw)
         .layer(option_layer(geoip_mw))
         .layer(from_fn_with_state(canister_resolver, validate::middleware))
