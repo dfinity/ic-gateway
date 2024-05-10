@@ -7,6 +7,7 @@ use rustls::{
 
 // Custom ResolvesServerCert trait that takes ClientHello by reference.
 // It's needed because Rustls' ResolvesServerCert consumes ClientHello
+// https://github.com/rustls/rustls/issues/1908
 pub trait ResolvesServerCert: Debug + Send + Sync {
     fn resolve(&self, client_hello: &ClientHello) -> Option<Arc<CertifiedKey>>;
 }
@@ -15,7 +16,7 @@ pub trait ResolvesServerCert: Debug + Send + Sync {
 // Only one Rustls-compatible resolver can be used (acme) since it takes ClientHello by value
 #[derive(Debug, derive_new::new)]
 pub struct AggregatingResolver {
-    acme: Option<Arc<dyn ResolvesServerCertRustls>>,
+    rustls: Option<Arc<dyn ResolvesServerCertRustls>>,
     resolvers: Vec<Arc<dyn ResolvesServerCert>>,
 }
 
@@ -29,6 +30,6 @@ impl ResolvesServerCertRustls for AggregatingResolver {
         }
 
         // Otherwise try the ACME resolver with Rustls trait that consumes ClientHello
-        self.acme.as_ref().and_then(|x| x.resolve(ch))
+        self.rustls.as_ref().and_then(|x| x.resolve(ch))
     }
 }

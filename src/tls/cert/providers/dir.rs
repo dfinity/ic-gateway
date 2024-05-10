@@ -37,6 +37,7 @@ impl ProvidesCertificates for Provider {
 
             // Guess key file name
             let path = v.path();
+            // We already checked that file has .pem extension so unwrap is safe
             let base = path.file_stem().unwrap().to_string_lossy();
             let keyfile = self.path.join(format!("{base}.key"));
 

@@ -14,6 +14,7 @@ use crate::{
     core::{AUTHOR_NAME, SERVICE_NAME},
     http::dns,
     routing::canister::CanisterAlias,
+    tls::acme,
 };
 
 #[derive(Parser)]
@@ -37,6 +38,9 @@ pub struct Cli {
 
     #[command(flatten, next_help_heading = "Policy")]
     pub policy: Policy,
+
+    #[command(flatten, next_help_heading = "ACME")]
+    pub acme: Acme,
 
     #[command(flatten, next_help_heading = "Metrics")]
     pub metrics: Metrics,
@@ -176,6 +180,22 @@ pub struct Policy {
     /// How frequently to poll denlylist for updates
     #[clap(long = "policy-denylist-poll-interval", default_value = "1m", value_parser = parse_duration)]
     pub denylist_poll_interval: Duration,
+}
+
+#[derive(Args)]
+pub struct Acme {
+    /// Type of ACME challenge to use. Currently supported: alpn
+    #[clap(long = "acme-challenge", requires = "acme_cache_path")]
+    pub acme_challenge: Option<acme::Challenge>,
+
+    /// Path to a directory where to store ACME cache (credentials and certificates).
+    /// Must be specified if --acme-challenge is set.
+    #[clap(long = "acme-cache-path")]
+    pub acme_cache_path: Option<PathBuf>,
+
+    /// Whether to use LetsEncrypt staging API to avoid hitting the limits
+    #[clap(long = "acme-staging")]
+    pub acme_staging: bool,
 }
 
 #[derive(Args)]

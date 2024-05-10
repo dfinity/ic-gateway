@@ -6,6 +6,7 @@ mod test;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Error};
+use fqdn::FQDN;
 use rustls::{
     client::{ClientConfig, ClientSessionMemoryCache, Resumption},
     server::{ServerConfig, ServerSessionMemoryCache},
@@ -17,7 +18,7 @@ use rustls_acme::acme::ACME_TLS_ALPN_NAME;
 
 use crate::{
     cli::Cli,
-    core::Run,
+    core::Runner,
     http,
     tls::{
         cert::{providers, Aggregator},
@@ -73,18 +74,23 @@ pub fn prepare_client_config() -> ClientConfig {
 }
 
 // Prepares the stuff needed for serving TLS
+#[allow(clippy::type_complexity)]
 pub fn setup(
     cli: &Cli,
+    domains: Vec<FQDN>,
     http_client: Arc<dyn http::Client>,
     storage: Arc<dyn StoresCertificates<Arc<CertifiedKey>>>,
     cert_resolver: Arc<dyn ResolvesServerCert>,
-) -> Result<(Arc<dyn Run>, ServerConfig), Error> {
+) -> Result<(Vec<Runner>, ServerConfig), Error> {
     let mut providers = vec![];
+    let mut runners = vec![];
 
+    // Create Dir providers
     for v in &cli.cert.dir {
         providers.push(Arc::new(providers::Dir::new(v.clone())) as Arc<dyn ProvidesCertificates>);
     }
 
+    // Create CertIssuer providers
     for v in &cli.cert.issuer_urls {
         providers.push(
             Arc::new(providers::Syncer::new(http_client.clone(), v.clone()))
@@ -92,15 +98,35 @@ pub fn setup(
         );
     }
 
-    if providers.is_empty() {
+    // Prepare ACME if configured
+    let acme_resolver = if let Some(v) = &cli.acme.acme_challenge {
+        match v {
+            acme::Challenge::Alpn => {
+                let domains = domains.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+                let (run, res) = acme::AcmeTlsAlpn::new(
+                    domains,
+                    cli.acme.acme_staging,
+                    cli.acme.acme_cache_path.clone().unwrap(),
+                )?;
+                runners.push(Runner("acme_runner".into(), run));
+                Some(res)
+            }
+        }
+    } else {
+        None
+    };
+
+    if acme_resolver.is_none() && providers.is_empty() {
         return Err(anyhow!(
-            "No certificate providers specified - HTTPS cannot be used"
+            "No ACME or certificate providers specified - HTTPS cannot be used"
         ));
     }
 
     let cert_aggregator = Arc::new(Aggregator::new(providers, storage, cli.cert.poll_interval));
-    let resolve_aggregator = Arc::new(AggregatingResolver::new(None, vec![cert_resolver]));
+    runners.push(Runner("cert_aggregator".into(), cert_aggregator));
+
+    let resolve_aggregator = Arc::new(AggregatingResolver::new(acme_resolver, vec![cert_resolver]));
     let config = prepare_server_config(resolve_aggregator);
 
-    Ok((cert_aggregator, config))
+    Ok((runners, config))
 }

@@ -1,8 +1,8 @@
-use anyhow::Error;
+use anyhow::{anyhow, Error};
 use async_trait::async_trait;
 use prometheus::Registry;
 use rustls::sign::CertifiedKey;
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::{error, warn};
 
@@ -29,13 +29,22 @@ pub const AUTHOR_NAME: &str = "Boundary Node Team <boundary-nodes@dfinity.org>";
 pub trait Run: Send + Sync {
     async fn run(&self, token: CancellationToken) -> Result<(), Error>;
 }
+pub struct Runner(pub String, pub Arc<dyn Run>);
 
 pub async fn main(cli: &Cli) -> Result<(), Error> {
+    // Install crypto-provider
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .expect("unable to install rustls crypto provider");
+
     // Prepare some general stuff
     let token = CancellationToken::new();
     let tracker = TaskTracker::new();
     let registry = Registry::new();
     let http_client = Arc::new(ReqwestClient::new(cli)?);
+
+    // List of cancellable tasks to execute & track
+    let mut runners: Vec<Runner> = vec![];
 
     // Handle SIGTERM/SIGHUP and Ctrl+C
     // Cancelling a token cancels all of its clones too
@@ -44,20 +53,23 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
 
     // Make a list of all supported domains
     let mut domains = cli.domain.domains_system.clone();
-    domains.extend(cli.domain.domains_app.clone());
+    domains.extend_from_slice(&cli.domain.domains_app);
+
+    if domains.is_empty() {
+        return Err(anyhow!(
+            "No domains specified (use --domain-system and/or --domain-app)"
+        ));
+    }
 
     // Prepare certificate storage
     let storage = Arc::new(Storage::new());
 
     // Prepare canister resolver to infer canister_id from requests
     let canister_resolver = CanisterResolver::new(
-        domains,
+        domains.clone(),
         cli.domain.canister_aliases.clone(),
         storage.clone() as Arc<dyn LooksupCustomDomain>,
     )?;
-
-    // List of cancellable tasks to execute & track
-    let mut runners: Vec<(String, Arc<dyn Run>)> = vec![];
 
     // Create a router
     let (router, denylist_runner) = routing::setup_router(
@@ -67,7 +79,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         Arc::new(canister_resolver) as Arc<dyn ResolvesCanister>,
     )?;
     if let Some(v) = denylist_runner {
-        runners.push(("denylist_updater".into(), v));
+        runners.push(Runner("denylist_updater".into(), v));
     }
 
     let server_options = server::Options::from(&cli.http_server);
@@ -79,16 +91,17 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         server_options,
         None,
     )) as Arc<dyn Run>;
-    runners.push(("http_server".into(), http_server));
+    runners.push(Runner("http_server".into(), http_server));
 
     // Set up HTTPS
-    let (aggregator, rustls_cfg) = tls::setup(
+    let (tls_runners, rustls_cfg) = tls::setup(
         cli,
+        domains,
         http_client.clone(),
         storage.clone() as Arc<dyn StoresCertificates<Arc<CertifiedKey>>>,
         storage.clone() as Arc<dyn ResolvesServerCert>,
     )?;
-    runners.push(("aggregator".into(), aggregator));
+    runners.extend(tls_runners);
 
     let https_server = Arc::new(Server::new(
         cli.http_server.https,
@@ -96,23 +109,23 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         server_options,
         Some(rustls_cfg),
     )) as Arc<dyn Run>;
-    runners.push(("https_server".into(), https_server));
+    runners.push(Runner("https_server".into(), https_server));
 
     // Setup metrics
     if let Some(addr) = cli.metrics.listen {
         let (router, runner) = metrics::setup(&registry);
-        runners.push(("metrics_runner".into(), runner));
+        runners.push(Runner("metrics_runner".into(), runner));
 
         let srv = Arc::new(Server::new(addr, router, server_options, None));
-        runners.push(("metrics_server".into(), srv as Arc<dyn Run>));
+        runners.push(Runner("metrics_server".into(), srv as Arc<dyn Run>));
     }
 
     // Spawn & track runners
-    for (name, obj) in runners {
+    for r in runners {
         let token = token.child_token();
         tracker.spawn(async move {
-            if let Err(e) = obj.run(token).await {
-                error!("Runner '{name}' exited with an error: {e}");
+            if let Err(e) = r.1.run(token).await {
+                error!("Runner '{}' exited with an error: {e}", r.0);
             }
         });
     }

@@ -1,9 +1,7 @@
 pub mod body;
 
 use std::{
-    net::SocketAddr,
-    pin::Pin,
-    sync::{atomic::AtomicBool, Arc},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
