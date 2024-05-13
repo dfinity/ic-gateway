@@ -1,21 +1,29 @@
+pub mod body;
 pub mod canister;
+pub mod error_cause;
 pub mod middleware;
 
-use std::{fmt, sync::Arc};
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
 
 use anyhow::Error;
 use axum::{
+    body::Body,
+    extract::{Request, State},
     middleware::{from_fn, from_fn_with_state, FromFnLayer},
     response::{IntoResponse, Response},
+    routing::{get, post},
     Router,
 };
 use axum_extra::middleware::option_layer;
+use derive_new::new;
 use fqdn::FQDN;
-use http::StatusCode;
 use prometheus::Registry;
-use strum_macros::Display;
 use tower::ServiceBuilder;
 use tracing::warn;
+use url::Url;
 
 use crate::{
     cli::Cli,
@@ -25,7 +33,10 @@ use crate::{
     routing::middleware::{geoip, headers, policy, request_id, validate},
 };
 
-use self::canister::{Canister, ResolvesCanister};
+use {
+    canister::{Canister, ResolvesCanister},
+    error_cause::ErrorCause,
+};
 
 pub struct RequestCtx {
     // HTTP2 authority or HTTP1 Host header
@@ -33,146 +44,65 @@ pub struct RequestCtx {
     pub canister: Canister,
 }
 
-#[derive(Debug, Clone, Display)]
-#[strum(serialize_all = "snake_case")]
-pub enum RateLimitCause {
-    Normal,
-    LedgerTransfer,
+// Proxies provided Axum request to a given URL using Reqwest Client trait object and returns Axum response
+async fn proxy(
+    url: Url,
+    request: Request,
+    http_client: &Arc<dyn Client>,
+) -> Result<Response, Error> {
+    // Convert Axum request into Reqwest one
+    let (parts, body) = request.into_parts();
+    let mut request = reqwest::Request::new(parts.method.clone(), url);
+    *request.headers_mut() = parts.headers;
+    // Use SyncBodyDataStream wrapper that is Sync (Axum body is !Sync)
+    *request.body_mut() = Some(reqwest::Body::wrap_stream(body::SyncBodyDataStream::new(
+        body,
+    )));
+
+    // Execute the request
+    let response = http_client.execute(request).await?;
+    let headers = response.headers().clone();
+
+    // Convert the Reqwest response back to the Axum one
+    let mut response = Response::builder()
+        .status(response.status())
+        .body(Body::from_stream(response.bytes_stream()))?;
+    *response.headers_mut() = headers;
+
+    Ok(response)
 }
 
-// Categorized possible causes for request processing failures
-// Not using Error as inner type since it's not cloneable
-#[derive(Debug, Clone)]
-pub enum ErrorCause {
-    UnableToReadBody(String),
-    PayloadTooLarge(usize),
-    UnableToParseCBOR(String),
-    UnableToParseHTTPArg(String),
-    LoadShed,
-    MalformedRequest(String),
-    MalformedResponse(String),
-    NoAuthority,
-    CanisterIdNotFound,
-    SNIMismatch,
-    DomainCanisterMismatch,
-    Denylisted,
-    NoRoutingTable,
-    SubnetNotFound,
-    NoHealthyNodes,
-    ReplicaErrorDNS(String),
-    ReplicaErrorConnect,
-    ReplicaTimeout,
-    ReplicaTLSErrorOther(String),
-    ReplicaTLSErrorCert(String),
-    ReplicaErrorOther(String),
-    RateLimited(RateLimitCause),
-    Other(String),
+#[derive(new)]
+struct IssuerProxyState {
+    http_client: Arc<dyn Client>,
+    issuers: Vec<Url>,
+    #[new(default)]
+    next: AtomicUsize,
 }
 
-impl ErrorCause {
-    pub const fn status_code(&self) -> StatusCode {
-        match self {
-            Self::Other(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::PayloadTooLarge(_) => StatusCode::PAYLOAD_TOO_LARGE,
-            Self::UnableToReadBody(_) => StatusCode::REQUEST_TIMEOUT,
-            Self::UnableToParseCBOR(_) => StatusCode::BAD_REQUEST,
-            Self::UnableToParseHTTPArg(_) => StatusCode::BAD_REQUEST,
-            Self::LoadShed => StatusCode::TOO_MANY_REQUESTS,
-            Self::MalformedRequest(_) => StatusCode::BAD_REQUEST,
-            Self::MalformedResponse(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::NoAuthority => StatusCode::BAD_REQUEST,
-            Self::CanisterIdNotFound => StatusCode::BAD_REQUEST,
-            Self::SNIMismatch => StatusCode::BAD_REQUEST,
-            Self::DomainCanisterMismatch => StatusCode::FORBIDDEN,
-            Self::Denylisted => StatusCode::UNAVAILABLE_FOR_LEGAL_REASONS,
-            Self::NoRoutingTable => StatusCode::SERVICE_UNAVAILABLE,
-            Self::SubnetNotFound => StatusCode::BAD_REQUEST, // TODO change to 404?
-            Self::NoHealthyNodes => StatusCode::SERVICE_UNAVAILABLE,
-            Self::ReplicaErrorDNS(_) => StatusCode::SERVICE_UNAVAILABLE,
-            Self::ReplicaErrorConnect => StatusCode::SERVICE_UNAVAILABLE,
-            Self::ReplicaTimeout => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::ReplicaTLSErrorOther(_) => StatusCode::SERVICE_UNAVAILABLE,
-            Self::ReplicaTLSErrorCert(_) => StatusCode::SERVICE_UNAVAILABLE,
-            Self::ReplicaErrorOther(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::RateLimited(_) => StatusCode::TOO_MANY_REQUESTS,
-        }
-    }
+// Proxies /registrations endpoint to the certificate issuers if they're defined
+async fn issuer_proxy(
+    State(state): State<Arc<IssuerProxyState>>,
+    request: Request,
+) -> Result<impl IntoResponse, ErrorCause> {
+    // Extract path part from the request
+    let path = request.uri().path();
 
-    pub fn details(&self) -> Option<String> {
-        match self {
-            Self::Other(x) => Some(x.clone()),
-            Self::PayloadTooLarge(x) => Some(format!("maximum body size is {x} bytes")),
-            Self::UnableToReadBody(x) => Some(x.clone()),
-            Self::UnableToParseCBOR(x) => Some(x.clone()),
-            Self::UnableToParseHTTPArg(x) => Some(x.clone()),
-            Self::LoadShed => Some("Overloaded".into()),
-            Self::MalformedRequest(x) => Some(x.clone()),
-            Self::MalformedResponse(x) => Some(x.clone()),
-            Self::ReplicaErrorDNS(x) => Some(x.clone()),
-            Self::ReplicaTLSErrorOther(x) => Some(x.clone()),
-            Self::ReplicaTLSErrorCert(x) => Some(x.clone()),
-            Self::ReplicaErrorOther(x) => Some(x.clone()),
-            _ => None,
-        }
-    }
+    // Pick next issuer using round-robin & generate request URL for it
+    let next = state.next.fetch_add(1, Ordering::SeqCst) % state.issuers.len();
+    let url = state.issuers[next]
+        .clone()
+        .join(path)
+        .map_err(|_| ErrorCause::MalformedRequest("unable to parse path as URL part".into()))?;
 
-    pub const fn retriable(&self) -> bool {
-        matches!(
-            self,
-            Self::ReplicaErrorDNS(_)
-                | Self::ReplicaErrorConnect
-                | Self::ReplicaTLSErrorOther(_)
-                | Self::ReplicaTLSErrorCert(_)
-        )
-    }
+    let response = proxy(url, request, &state.http_client)
+        .await
+        .map_err(ErrorCause::from)?;
+
+    Ok(response)
 }
 
-impl fmt::Display for ErrorCause {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::Other(_) => write!(f, "general_error"),
-            Self::UnableToReadBody(_) => write!(f, "unable_to_read_body"),
-            Self::PayloadTooLarge(_) => write!(f, "payload_too_large"),
-            Self::UnableToParseCBOR(_) => write!(f, "unable_to_parse_cbor"),
-            Self::UnableToParseHTTPArg(_) => write!(f, "unable_to_parse_http_arg"),
-            Self::LoadShed => write!(f, "load_shed"),
-            Self::MalformedRequest(_) => write!(f, "malformed_request"),
-            Self::MalformedResponse(_) => write!(f, "malformed_response"),
-            Self::CanisterIdNotFound => write!(f, "canister_id_not_found"),
-            Self::SNIMismatch => write!(f, "sni_mismatch"),
-            Self::DomainCanisterMismatch => write!(f, "domain_canister_mismatch"),
-            Self::Denylisted => write!(f, "denylisted"),
-            Self::NoAuthority => write!(f, "no_authority"),
-            Self::NoRoutingTable => write!(f, "no_routing_table"),
-            Self::SubnetNotFound => write!(f, "subnet_not_found"),
-            Self::NoHealthyNodes => write!(f, "no_healthy_nodes"),
-            Self::ReplicaErrorDNS(_) => write!(f, "replica_error_dns"),
-            Self::ReplicaErrorConnect => write!(f, "replica_error_connect"),
-            Self::ReplicaTimeout => write!(f, "replica_timeout"),
-            Self::ReplicaTLSErrorOther(_) => write!(f, "replica_tls_error"),
-            Self::ReplicaTLSErrorCert(_) => write!(f, "replica_tls_error_cert"),
-            Self::ReplicaErrorOther(_) => write!(f, "replica_error_other"),
-            Self::RateLimited(x) => write!(f, "rate_limited_{x}"),
-        }
-    }
-}
-
-// Creates the response from ErrorCause and injects itself into extensions to be visible by middleware
-impl IntoResponse for ErrorCause {
-    fn into_response(self) -> Response {
-        let mut body = self.to_string();
-
-        if let Some(v) = self.details() {
-            body = format!("{body}: {v}");
-        }
-
-        let mut resp = (self.status_code(), format!("{body}\n")).into_response();
-        resp.extensions_mut().insert(self);
-        resp
-    }
-}
-
-async fn handler(request: axum::extract::Request) -> impl IntoResponse {
+async fn handler(request: Request) -> impl IntoResponse {
     warn!("{:?}", request.extensions().get::<Arc<ConnInfo>>());
     warn!("{:?}", request.extensions().get::<geoip::CountryCode>());
 }
@@ -195,7 +125,9 @@ pub fn setup_router(
         .transpose()?;
 
     // Policy
-    let (policy_state, denylist_runner) = policy::PolicyState::new(cli, http_client, registry)?;
+    let (policy_state, denylist_runner) =
+        policy::PolicyState::new(cli, http_client.clone(), registry)?;
+    let policy_mw = policy_state.map(|x| from_fn_with_state(Arc::new(x), policy::middleware));
 
     // Metrics
     let metrics_mw = from_fn_with_state(
@@ -210,14 +142,32 @@ pub fn setup_router(
         .layer(metrics_mw)
         .layer(option_layer(geoip_mw))
         .layer(from_fn_with_state(canister_resolver, validate::middleware))
-        .layer(from_fn_with_state(
-            Arc::new(policy_state),
-            policy::middleware,
-        ));
+        .layer(option_layer(policy_mw));
 
     let router = axum::Router::new()
-        .route("/", axum::routing::get(handler))
+        .route("/", get(handler))
         .layer(common_layers);
+
+    // Setup issuer proxy endpoint if we have them configured
+    let router = if !cli.cert.issuer_urls.is_empty() {
+        // Strip possible path from URLs
+        let mut urls = cli.cert.issuer_urls.clone();
+        urls.iter_mut().for_each(|x| x.set_path(""));
+
+        let state = Arc::new(IssuerProxyState::new(http_client, urls));
+
+        router
+            .route(
+                "/registrations/:id",
+                get(issuer_proxy)
+                    .put(issuer_proxy)
+                    .delete(issuer_proxy)
+                    .with_state(state.clone()),
+            )
+            .route("/registrations", post(issuer_proxy).with_state(state))
+    } else {
+        router
+    };
 
     Ok((router, denylist_runner))
 }

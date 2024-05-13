@@ -30,7 +30,7 @@ use tracing::{debug, info, warn};
 use crate::{
     core::Run,
     http::{calc_headers_size, http_version, server::ConnInfo},
-    routing::{middleware::request_id::RequestId, ErrorCause, RequestCtx},
+    routing::{error_cause::ErrorCause, middleware::request_id::RequestId, RequestCtx},
 };
 use body::CountingBody;
 

@@ -1,9 +1,9 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use mockall::automock;
 
-use crate::{cli, core::SERVICE_NAME, http::dns::Resolver, tls::prepare_client_config};
+use super::dns;
 
 #[automock]
 #[async_trait]
@@ -11,25 +11,34 @@ pub trait Client: Send + Sync {
     async fn execute(&self, req: reqwest::Request) -> Result<reqwest::Response, reqwest::Error>;
 }
 
+pub struct Options {
+    pub dns_options: dns::Options,
+    pub timeout_connect: Duration,
+    pub timeout: Duration,
+    pub tcp_keepalive: Option<Duration>,
+    pub http2_keepalive: Option<Duration>,
+    pub http2_keepalive_timeout: Duration,
+    pub user_agent: String,
+    pub tls_config: rustls::ClientConfig,
+}
+
 #[derive(Clone)]
 pub struct ReqwestClient(reqwest::Client);
 
 impl ReqwestClient {
-    pub fn new(cli: &cli::Cli) -> Result<Self, anyhow::Error> {
-        let http = &cli.http_client;
-
+    pub fn new(opts: Options) -> Result<Self, anyhow::Error> {
         let client = reqwest::Client::builder()
-            .use_preconfigured_tls(prepare_client_config())
-            .dns_resolver(Arc::new(Resolver::new(&cli.dns)))
-            .connect_timeout(http.timeout_connect)
-            .timeout(http.timeout)
+            .use_preconfigured_tls(opts.tls_config)
+            .dns_resolver(Arc::new(dns::Resolver::new(opts.dns_options)))
+            .connect_timeout(opts.timeout_connect)
+            .timeout(opts.timeout)
             .tcp_nodelay(true)
-            .tcp_keepalive(Some(http.tcp_keepalive))
-            .http2_keep_alive_interval(Some(http.http2_keepalive))
-            .http2_keep_alive_timeout(http.http2_keepalive_timeout)
+            .tcp_keepalive(opts.tcp_keepalive)
+            .http2_keep_alive_interval(opts.http2_keepalive)
+            .http2_keep_alive_timeout(opts.http2_keepalive_timeout)
             .http2_keep_alive_while_idle(true)
             .http2_adaptive_window(true)
-            .user_agent(SERVICE_NAME)
+            .user_agent(opts.user_agent)
             .redirect(reqwest::redirect::Policy::none())
             .no_proxy()
             .build()?;

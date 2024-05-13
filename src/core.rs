@@ -1,15 +1,15 @@
+use std::{error::Error as StdError, sync::Arc};
+
 use anyhow::{anyhow, Error};
 use async_trait::async_trait;
 use prometheus::Registry;
 use rustls::sign::CertifiedKey;
-use std::sync::Arc;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::{error, warn};
 
 use crate::{
     cli::Cli,
-    http::{server, ReqwestClient, Server},
-    metrics,
+    http, metrics,
     routing::{
         self,
         canister::{CanisterResolver, ResolvesCanister},
@@ -31,6 +31,26 @@ pub trait Run: Send + Sync {
 }
 pub struct Runner(pub String, pub Arc<dyn Run>);
 
+#[async_trait]
+impl Run for http::Server {
+    async fn run(&self, token: CancellationToken) -> Result<(), Error> {
+        self.serve(token).await
+    }
+}
+
+pub fn error_source<E: StdError + 'static>(error: &impl StdError) -> Option<&E> {
+    let mut source = error.source();
+    while let Some(err) = source {
+        if let Some(v) = err.downcast_ref() {
+            return Some(v);
+        }
+
+        source = err.source();
+    }
+
+    None
+}
+
 pub async fn main(cli: &Cli) -> Result<(), Error> {
     // Install crypto-provider
     rustls::crypto::aws_lc_rs::default_provider()
@@ -41,7 +61,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     let token = CancellationToken::new();
     let tracker = TaskTracker::new();
     let registry = Registry::new();
-    let http_client = Arc::new(ReqwestClient::new(cli)?);
+    let http_client = Arc::new(http::ReqwestClient::new(cli.into())?);
 
     // List of cancellable tasks to execute & track
     let mut runners: Vec<Runner> = vec![];
@@ -52,12 +72,13 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     ctrlc::set_handler(move || handler_token.cancel())?;
 
     // Make a list of all supported domains
-    let mut domains = cli.domain.domains_system.clone();
+    let mut domains = cli.domain.domains.clone();
+    domains.extend_from_slice(&cli.domain.domains_system);
     domains.extend_from_slice(&cli.domain.domains_app);
 
     if domains.is_empty() {
         return Err(anyhow!(
-            "No domains specified (use --domain-system and/or --domain-app)"
+            "No domains to serve specified (use --domain/--domain-system/--domain-app)"
         ));
     }
 
@@ -82,13 +103,11 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         runners.push(Runner("denylist_updater".into(), v));
     }
 
-    let server_options = server::Options::from(&cli.http_server);
-
     // Set up HTTP
-    let http_server = Arc::new(Server::new(
+    let http_server = Arc::new(http::Server::new(
         cli.http_server.http,
         router.clone(),
-        server_options,
+        (&cli.http_server).into(),
         None,
     )) as Arc<dyn Run>;
     runners.push(Runner("http_server".into(), http_server));
@@ -103,10 +122,10 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     )?;
     runners.extend(tls_runners);
 
-    let https_server = Arc::new(Server::new(
+    let https_server = Arc::new(http::Server::new(
         cli.http_server.https,
         router,
-        server_options,
+        (&cli.http_server).into(),
         Some(rustls_cfg),
     )) as Arc<dyn Run>;
     runners.push(Runner("https_server".into(), https_server));
@@ -116,7 +135,12 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         let (router, runner) = metrics::setup(&registry);
         runners.push(Runner("metrics_runner".into(), runner));
 
-        let srv = Arc::new(Server::new(addr, router, server_options, None));
+        let srv = Arc::new(http::Server::new(
+            addr,
+            router,
+            (&cli.http_server).into(),
+            None,
+        ));
         runners.push(Runner("metrics_server".into(), srv as Arc<dyn Run>));
     }
 

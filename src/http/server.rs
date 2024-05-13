@@ -5,9 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::core::Run;
 use anyhow::{anyhow, Context, Error};
-use async_trait::async_trait;
 use axum::{extract::Request, Router};
 use fqdn::FQDN;
 use hyper::body::Incoming;
@@ -26,7 +24,7 @@ use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tower_service::Service;
 use tracing::{debug, warn};
 
-use crate::{cli, tls::is_http_alpn};
+use super::is_http_alpn;
 
 // Blanket async read+write trait to box streams
 trait AsyncReadWrite: AsyncRead + AsyncWrite + Send + Sync + Unpin {}
@@ -39,18 +37,6 @@ pub struct Options {
     pub http2_keepalive_interval: Duration,
     pub http2_keepalive_timeout: Duration,
     pub grace_period: Duration,
-}
-
-impl From<&cli::HttpServer> for Options {
-    fn from(c: &cli::HttpServer) -> Self {
-        Self {
-            backlog: c.backlog,
-            http2_keepalive_interval: c.http2_keepalive_interval,
-            http2_keepalive_timeout: c.http2_keepalive_timeout,
-            http2_max_streams: c.http2_max_streams,
-            grace_period: c.grace_period,
-        }
-    }
 }
 
 // TLS information about the connection
@@ -107,7 +93,7 @@ struct Conn {
 }
 
 impl Conn {
-    pub async fn tls_handshake(
+    async fn tls_handshake(
         &self,
         stream: TcpStream,
     ) -> Result<(TlsStream<TcpStream>, TlsInfo), Error> {
@@ -137,7 +123,7 @@ impl Conn {
         Ok((stream, tls_info))
     }
 
-    pub async fn handle(&self, stream: TcpStream) -> Result<(), Error> {
+    async fn handle(&self, stream: TcpStream) -> Result<(), Error> {
         let accepted_at = Instant::now();
 
         debug!(
@@ -242,11 +228,8 @@ impl Server {
             tls_acceptor: rustls_cfg.map(|x| TlsAcceptor::from(Arc::new(x))),
         }
     }
-}
 
-#[async_trait]
-impl Run for Server {
-    async fn run(&self, token: CancellationToken) -> Result<(), Error> {
+    pub async fn serve(&self, token: CancellationToken) -> Result<(), Error> {
         let listener = listen_tcp_backlog(self.addr, self.options.backlog)?;
 
         // Prepare Hyper connection builder
@@ -290,7 +273,7 @@ impl Run for Server {
                         Ok(v) => v,
                         Err(e) => {
                             warn!("Unable to accept connection: {e}");
-                            // Wait few ms just in case that there's an overflowed backlog
+                            // Wait few ms just in case that there's an overflown backlog
                             // so that we don't run into infinite error loop
                             tokio::time::sleep(Duration::from_millis(10)).await;
                             continue;

@@ -130,11 +130,9 @@ mod test {
         let body = axum::body::Body::from_stream(stream);
 
         let (tx, rx) = std::sync::mpsc::channel();
-
         let callback = move |response_size: u64, _body_result: Result<(), String>| {
             let _ = tx.send(response_size);
         };
-
         let body = CountingBody::new(body, callback);
 
         // Check that the body streams the same data back
@@ -153,11 +151,9 @@ mod test {
         let body = http_body_util::Full::new(buf);
 
         let (tx, rx) = std::sync::mpsc::channel();
-
         let callback = move |response_size: u64, _body_result: Result<(), String>| {
             let _ = tx.send(response_size);
         };
-
         let body = CountingBody::new(body, callback);
 
         // Check that the body streams the same data back

@@ -1,4 +1,7 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::{
+    net::{IpAddr, SocketAddr},
+    sync::Arc,
+};
 
 use hickory_resolver::{
     config::{NameServerConfigGroup, ResolverConfig, ResolverOpts},
@@ -8,9 +11,7 @@ use hickory_resolver::{
 use reqwest::dns::{Addrs, Name, Resolve, Resolving};
 use strum_macros::EnumString;
 
-use crate::cli::Dns;
-
-#[derive(Clone, Debug, EnumString)]
+#[derive(Clone, Copy, Debug, EnumString)]
 #[strum(serialize_all = "snake_case")]
 pub enum Protocol {
     Clear,
@@ -21,16 +22,21 @@ pub enum Protocol {
 #[derive(Debug, Clone)]
 pub struct Resolver(Arc<TokioAsyncResolver>);
 
+pub struct Options {
+    pub protocol: Protocol,
+    pub servers: Vec<IpAddr>,
+    pub tls_name: String,
+    pub cache_size: usize,
+}
+
 // new() must be called in Tokio context
 impl Resolver {
-    pub fn new(cli: &Dns) -> Self {
-        let name_servers = match cli.protocol {
-            Protocol::Clear => NameServerConfigGroup::from_ips_clear(&cli.servers, 53, true),
-            Protocol::Tls => {
-                NameServerConfigGroup::from_ips_tls(&cli.servers, 853, cli.tls_name.clone(), true)
-            }
+    pub fn new(o: Options) -> Self {
+        let name_servers = match o.protocol {
+            Protocol::Clear => NameServerConfigGroup::from_ips_clear(&o.servers, 53, true),
+            Protocol::Tls => NameServerConfigGroup::from_ips_tls(&o.servers, 853, o.tls_name, true),
             Protocol::Https => {
-                NameServerConfigGroup::from_ips_https(&cli.servers, 443, cli.tls_name.clone(), true)
+                NameServerConfigGroup::from_ips_https(&o.servers, 443, o.tls_name, true)
             }
         };
 
@@ -38,7 +44,7 @@ impl Resolver {
 
         let mut opts = ResolverOpts::default();
         opts.rotate = true;
-        opts.cache_size = cli.cache_size;
+        opts.cache_size = o.cache_size;
         opts.use_hosts_file = false;
         opts.preserve_intermediates = false;
         opts.try_tcp_on_error = true;

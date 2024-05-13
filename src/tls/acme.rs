@@ -64,7 +64,7 @@ impl Run for AcmeTlsAlpn {
                 // Kick the ACME process forward
                 res = state.next() => {
                     match res.unwrap() {
-                        Ok(v) => warn!("AcmeTlsAlpn: success: event {v:?}"),
+                        Ok(v) => warn!("AcmeTlsAlpn: success: {v:?}"),
                         Err(e) => warn!("AcmeTlsAlpn: error: {e}"),
                     }
                 }

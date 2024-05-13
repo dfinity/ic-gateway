@@ -88,15 +88,14 @@ impl<T: Clone + Send + Sync> StoresCertificates<T> for Storage<T> {
 // Implement certificate resolving for Rustls
 impl resolver::ResolvesServerCert for StorageKey {
     fn resolve(&self, ch: &ClientHello) -> Option<Arc<CertifiedKey>> {
-        // See if client provided us with an SNI
-        let sni = ch.server_name()?;
-
         // Make sure we've got an ALPN list and they're all HTTP, otherwise refuse resolving.
         // This is to make sure we don't answer to e.g. ACME challenges here
         if !ch.alpn()?.all(tls::is_http_alpn) {
             return None;
         }
 
+        // See if client provided us with an SNI
+        let sni = ch.server_name()?;
         self.lookup_cert(sni)
     }
 }

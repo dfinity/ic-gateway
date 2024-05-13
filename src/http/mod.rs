@@ -7,6 +7,14 @@ use http::{HeaderMap, Version};
 pub use client::{Client, ReqwestClient};
 pub use server::{ConnInfo, Server};
 
+pub const ALPN_H1: &[u8] = b"http/1.1";
+pub const ALPN_H2: &[u8] = b"h2";
+pub const ALPN_HTTP: &[&[u8]] = &[ALPN_H1, ALPN_H2];
+
+pub fn is_http_alpn(alpn: &[u8]) -> bool {
+    ALPN_HTTP.contains(&alpn)
+}
+
 // Calculate very approximate HTTP request/response headers size in bytes.
 // More or less accurate only for http/1.1 since in h2 headers are in HPACK-compressed.
 // But it seems there's no better way.

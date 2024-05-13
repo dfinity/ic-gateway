@@ -17,27 +17,33 @@ use crate::{
 };
 
 pub struct PolicyState {
-    domain_canister_matcher: DomainCanisterMatcher,
+    domain_canister_matcher: Option<DomainCanisterMatcher>,
     denylist: Option<Arc<Denylist>>,
 }
 
+#[allow(clippy::type_complexity)]
 impl PolicyState {
     pub fn new(
         cli: &Cli,
         http_client: Arc<dyn Client>,
         registry: &Registry,
-    ) -> Result<(Self, Option<Arc<dyn Run>>), Error> {
+    ) -> Result<(Option<Self>, Option<Arc<dyn Run>>), Error> {
         let pre_isolation_canisters = if let Some(v) = cli.policy.pre_isolation_canisters.as_ref() {
             load_canister_list(v).context("unable to load pre-isolation canisters")?
         } else {
             HashSet::new()
         };
 
-        let domain_canister_matcher = DomainCanisterMatcher::new(
-            pre_isolation_canisters,
-            cli.domain.domains_app.clone(),
-            cli.domain.domains_system.clone(),
-        );
+        // Enable matcher only if both system and app domains are specified. CLI makes sure that if one is set then another is too.
+        let domain_canister_matcher = if !cli.domain.domains_app.is_empty() {
+            Some(DomainCanisterMatcher::new(
+                pre_isolation_canisters,
+                cli.domain.domains_app.clone(),
+                cli.domain.domains_system.clone(),
+            ))
+        } else {
+            None
+        };
 
         let denylist = if cli.policy.denylist_seed.is_some() || cli.policy.denylist_url.is_some() {
             Some(Arc::new(
@@ -55,11 +61,12 @@ impl PolicyState {
             None
         };
 
+        // Return the policy only if at least one of the filters is enabled
         Ok((
-            Self {
+            (denylist.is_some() && domain_canister_matcher.is_some()).then_some(Self {
                 domain_canister_matcher,
                 denylist: denylist.clone(),
-            },
+            }),
             denylist.map(|x| x as Arc<dyn Run>),
         ))
     }
@@ -72,19 +79,18 @@ pub async fn middleware(
     request: Request,
     next: Next,
 ) -> Result<Response, ErrorCause> {
-    // Check denylisting
+    // Check denylisting if configured
     if let Some(v) = state.denylist.as_ref() {
         if v.is_blocked(ctx.canister.id, country_code.map(|x| x.0)) {
             return Err(ErrorCause::Denylisted);
         }
     }
 
-    // Check domain-canister matching
-    if !state
-        .domain_canister_matcher
-        .check(ctx.canister.id, &ctx.authority)
-    {
-        return Err(ErrorCause::DomainCanisterMismatch);
+    // Check domain-canister matching if configured
+    if let Some(v) = &state.domain_canister_matcher.as_ref() {
+        if !v.check(ctx.canister.id, &ctx.authority) {
+            return Err(ErrorCause::DomainCanisterMismatch);
+        }
     }
 
     Ok(next.run(request).await)

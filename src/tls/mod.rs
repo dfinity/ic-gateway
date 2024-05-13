@@ -19,7 +19,7 @@ use rustls_acme::acme::ACME_TLS_ALPN_NAME;
 use crate::{
     cli::Cli,
     core::Runner,
-    http,
+    http::{is_http_alpn, Client, ALPN_H1, ALPN_H2},
     tls::{
         cert::{providers, Aggregator},
         resolver::{AggregatingResolver, ResolvesServerCert},
@@ -27,14 +27,6 @@ use crate::{
 };
 
 use cert::{providers::ProvidesCertificates, storage::StoresCertificates};
-
-const ALPN_H1: &[u8] = b"http/1.1";
-const ALPN_H2: &[u8] = b"h2";
-const ALPN_HTTP: &[&[u8]] = &[ALPN_H1, ALPN_H2];
-
-pub fn is_http_alpn(alpn: &[u8]) -> bool {
-    ALPN_HTTP.contains(&alpn)
-}
 
 pub fn prepare_server_config(
     resolver: Arc<dyn rustls::server::ResolvesServerCert>,
@@ -74,11 +66,10 @@ pub fn prepare_client_config() -> ClientConfig {
 }
 
 // Prepares the stuff needed for serving TLS
-#[allow(clippy::type_complexity)]
 pub fn setup(
     cli: &Cli,
     domains: Vec<FQDN>,
-    http_client: Arc<dyn http::Client>,
+    http_client: Arc<dyn Client>,
     storage: Arc<dyn StoresCertificates<Arc<CertifiedKey>>>,
     cert_resolver: Arc<dyn ResolvesServerCert>,
 ) -> Result<(Vec<Runner>, ServerConfig), Error> {

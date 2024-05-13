@@ -14,7 +14,7 @@ use crate::{
     core::{AUTHOR_NAME, SERVICE_NAME},
     http::dns,
     routing::canister::CanisterAlias,
-    tls::acme,
+    tls::{self, acme},
 };
 
 #[derive(Parser)]
@@ -146,12 +146,18 @@ pub struct Cert {
 
 #[derive(Args)]
 pub struct Domain {
-    /// List of domains that we serve system subnets from
-    #[clap(long = "domain-system")]
+    /// Specify domains that will be served. This affects the routing, canister extraction, ACME certificate issuing etc.
+    #[clap(long = "domain")]
+    pub domains: Vec<FQDN>,
+
+    /// List of domains that we serve system subnets from. This enables domain-canister matching for these domains & adds them to the list of served domains above, do not list them there separately.
+    /// Requires --domain-app.
+    #[clap(long = "domain-system", requires = "domains_app")]
     pub domains_system: Vec<FQDN>,
 
-    /// List of domains that we serve app subnets from
-    #[clap(long = "domain-app")]
+    /// List of domains that we serve app subnets from. See --domain-system above for details.
+    /// Requires --domain-system.
+    #[clap(long = "domain-app", requires = "domains_system")]
     pub domains_app: Vec<FQDN>,
 
     /// List of canister aliases in format '<alias>:<canister_id>'
@@ -184,7 +190,9 @@ pub struct Policy {
 
 #[derive(Args)]
 pub struct Acme {
-    /// Type of ACME challenge to use. Currently supported: alpn
+    /// Type of ACME challenge to use. Currently supported: alpn.
+    /// If specified it will try to obtain the certificate that is valid for all specified domains
+    /// (--domain-app & --domain-system). For this to succeed they all should resolve to the hostname where this service is running.
     #[clap(long = "acme-challenge", requires = "acme_cache_path")]
     pub acme_challenge: Option<acme::Challenge>,
 
@@ -193,7 +201,7 @@ pub struct Acme {
     #[clap(long = "acme-cache-path")]
     pub acme_cache_path: Option<PathBuf>,
 
-    /// Whether to use LetsEncrypt staging API to avoid hitting the limits
+    /// Whether to use LetsEncrypt staging API for testing to avoid hitting the limits
     #[clap(long = "acme-staging")]
     pub acme_staging: bool,
 }
@@ -210,4 +218,43 @@ pub struct Misc {
     /// Path to a GeoIP database
     #[clap(long = "geoip-db")]
     pub geoip_db: Option<PathBuf>,
+}
+
+// Some conversions
+impl From<&HttpServer> for crate::http::server::Options {
+    fn from(c: &HttpServer) -> Self {
+        Self {
+            backlog: c.backlog,
+            http2_keepalive_interval: c.http2_keepalive_interval,
+            http2_keepalive_timeout: c.http2_keepalive_timeout,
+            http2_max_streams: c.http2_max_streams,
+            grace_period: c.grace_period,
+        }
+    }
+}
+
+impl From<&Dns> for crate::http::dns::Options {
+    fn from(c: &Dns) -> Self {
+        Self {
+            protocol: c.protocol,
+            servers: c.servers.clone(),
+            tls_name: c.tls_name.clone(),
+            cache_size: c.cache_size,
+        }
+    }
+}
+
+impl From<&Cli> for crate::http::client::Options {
+    fn from(c: &Cli) -> Self {
+        Self {
+            dns_options: (&c.dns).into(),
+            timeout_connect: c.http_client.timeout_connect,
+            timeout: c.http_client.timeout,
+            tcp_keepalive: Some(c.http_client.tcp_keepalive),
+            http2_keepalive: Some(c.http_client.http2_keepalive),
+            http2_keepalive_timeout: c.http_client.http2_keepalive_timeout,
+            user_agent: crate::core::SERVICE_NAME.into(),
+            tls_config: tls::prepare_client_config(),
+        }
+    }
 }
