@@ -2,8 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use mockall::automock;
-
-use super::dns;
+use reqwest::dns::Resolve;
 
 #[automock]
 #[async_trait]
@@ -12,7 +11,6 @@ pub trait Client: Send + Sync {
 }
 
 pub struct Options {
-    pub dns_options: dns::Options,
     pub timeout_connect: Duration,
     pub timeout: Duration,
     pub tcp_keepalive: Option<Duration>,
@@ -26,10 +24,10 @@ pub struct Options {
 pub struct ReqwestClient(reqwest::Client);
 
 impl ReqwestClient {
-    pub fn new(opts: Options) -> Result<Self, anyhow::Error> {
+    pub fn new(opts: Options, dns_resolver: impl Resolve + 'static) -> Result<Self, anyhow::Error> {
         let client = reqwest::Client::builder()
             .use_preconfigured_tls(opts.tls_config)
-            .dns_resolver(Arc::new(dns::Resolver::new(opts.dns_options)))
+            .dns_resolver(Arc::new(dns_resolver))
             .connect_timeout(opts.timeout_connect)
             .timeout(opts.timeout)
             .tcp_nodelay(true)

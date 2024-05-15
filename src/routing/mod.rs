@@ -11,7 +11,7 @@ use std::sync::{
 use anyhow::Error;
 use axum::{
     body::Body,
-    extract::{Request, State},
+    extract::{Path, Request, State},
     middleware::{from_fn, from_fn_with_state, FromFnLayer},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -21,22 +21,27 @@ use axum_extra::middleware::option_layer;
 use derive_new::new;
 use fqdn::FQDN;
 use prometheus::Registry;
+use regex::Regex;
 use tower::ServiceBuilder;
 use tracing::warn;
 use url::Url;
 
 use crate::{
     cli::Cli,
-    core::Run,
     http::{Client, ConnInfo},
     metrics,
     routing::middleware::{geoip, headers, policy, request_id, validate},
+    tasks::TaskManager,
 };
 
 use {
     canister::{Canister, ResolvesCanister},
     error_cause::ErrorCause,
 };
+
+lazy_static::lazy_static! {
+    static ref REGEX_REG_ID: Regex = Regex::new(r"^[a-zA-Z0-9]+$").unwrap();
+}
 
 pub struct RequestCtx {
     // HTTP2 authority or HTTP1 Host header
@@ -83,12 +88,23 @@ struct IssuerProxyState {
 // Proxies /registrations endpoint to the certificate issuers if they're defined
 async fn issuer_proxy(
     State(state): State<Arc<IssuerProxyState>>,
+    id: Option<Path<String>>,
     request: Request,
 ) -> Result<impl IntoResponse, ErrorCause> {
+    // Validate request ID if it's provided
+    if let Some(v) = id {
+        if !REGEX_REG_ID.is_match(&v.0) {
+            return Err(ErrorCause::MalformedRequest(
+                "Incorrect request ID format".into(),
+            ));
+        }
+    }
+
     // Extract path part from the request
     let path = request.uri().path();
 
     // Pick next issuer using round-robin & generate request URL for it
+    // TODO should we do retries here?
     let next = state.next.fetch_add(1, Ordering::SeqCst) % state.issuers.len();
     let url = state.issuers[next]
         .clone()
@@ -109,10 +125,11 @@ async fn handler(request: Request) -> impl IntoResponse {
 
 pub fn setup_router(
     cli: &Cli,
+    tasks: &mut TaskManager,
     http_client: Arc<dyn Client>,
     registry: &Registry,
     canister_resolver: Arc<dyn ResolvesCanister>,
-) -> Result<(Router, Option<Arc<dyn Run>>), Error> {
+) -> Result<Router, Error> {
     // GeoIP
     let geoip_mw = cli
         .misc
@@ -128,6 +145,9 @@ pub fn setup_router(
     let (policy_state, denylist_runner) =
         policy::PolicyState::new(cli, http_client.clone(), registry)?;
     let policy_mw = policy_state.map(|x| from_fn_with_state(Arc::new(x), policy::middleware));
+    if let Some(v) = denylist_runner {
+        tasks.add("denylist_runner", v);
+    }
 
     // Metrics
     let metrics_mw = from_fn_with_state(
@@ -150,6 +170,9 @@ pub fn setup_router(
 
     // Setup issuer proxy endpoint if we have them configured
     let router = if !cli.cert.issuer_urls.is_empty() {
+        // Init it early to avoid threading races
+        lazy_static::initialize(&REGEX_REG_ID);
+
         // Strip possible path from URLs
         let mut urls = cli.cert.issuer_urls.clone();
         urls.iter_mut().for_each(|x| x.set_path(""));
@@ -169,5 +192,5 @@ pub fn setup_router(
         router
     };
 
-    Ok((router, denylist_runner))
+    Ok(router)
 }

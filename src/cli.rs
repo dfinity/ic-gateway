@@ -190,20 +190,53 @@ pub struct Policy {
 
 #[derive(Args)]
 pub struct Acme {
-    /// Type of ACME challenge to use. Currently supported: alpn.
-    /// If specified it will try to obtain the certificate that is valid for all specified domains
-    /// (--domain-app & --domain-system). For this to succeed they all should resolve to the hostname where this service is running.
+    /// If specified we'll try to obtain the certificate that is valid for all served domains using given ACME challenge.
+    /// Currently supported:
+    /// - alpn: for this to succeed all domains should resolve to the host where this service is running.
+    /// - dns: enables to request wildcard certificates, requires DNS backend to be configured.
     #[clap(long = "acme-challenge", requires = "acme_cache_path")]
     pub acme_challenge: Option<acme::Challenge>,
+
+    /// DNS backend to use when challenge is "dns". Currently only "cloudflare" is supported.
+    #[clap(long = "acme-dns-backend")]
+    pub acme_dns_backend: Option<acme::dns::DnsBackend>,
+
+    /// File from which to read API token if DNS backend is Cloudflare
+    #[clap(
+        long = "acme-dns-cloudflare-url",
+        default_value = "https://api.cloudflare.com/client/v4/"
+    )]
+    pub acme_dns_cloudflare_url: Url,
+
+    /// File from which to read API token if DNS backend is Cloudflare
+    #[clap(long = "acme-dns-cloudflare-token")]
+    pub acme_dns_cloudflare_token: Option<PathBuf>,
 
     /// Path to a directory where to store ACME cache (credentials and certificates).
     /// Must be specified if --acme-challenge is set.
     #[clap(long = "acme-cache-path")]
     pub acme_cache_path: Option<PathBuf>,
 
+    /// Asks ACME client to request a wildcard certificate for each of the domains configured.
+    /// So in addition to `foo.app` the certificate will be also valid for `*.foo.app`.
+    /// For obvious reasons this works only with DNS challenge, has no effect with ALPN.
+    #[clap(long = "acme-wildcard")]
+    pub acme_wildcard: bool,
+
+    /// Attempt to renew the certificates when less than this duration is left until expiration
+    #[clap(long = "acme-renew-before", value_parser = parse_duration, default_value = "30d")]
+    pub acme_renew_before: Duration,
+
     /// Whether to use LetsEncrypt staging API for testing to avoid hitting the limits
     #[clap(long = "acme-staging")]
     pub acme_staging: bool,
+
+    /// E-Mail to use when creating ACME accounts, must start with mailto:
+    #[clap(
+        long = "acme-contact",
+        default_value = "mailto:boundary-nodes@dfinity.org"
+    )]
+    pub acme_contact: String,
 }
 
 #[derive(Args)]
@@ -244,15 +277,14 @@ impl From<&Dns> for crate::http::dns::Options {
     }
 }
 
-impl From<&Cli> for crate::http::client::Options {
-    fn from(c: &Cli) -> Self {
+impl From<&HttpClient> for crate::http::client::Options {
+    fn from(c: &HttpClient) -> Self {
         Self {
-            dns_options: (&c.dns).into(),
-            timeout_connect: c.http_client.timeout_connect,
-            timeout: c.http_client.timeout,
-            tcp_keepalive: Some(c.http_client.tcp_keepalive),
-            http2_keepalive: Some(c.http_client.http2_keepalive),
-            http2_keepalive_timeout: c.http_client.http2_keepalive_timeout,
+            timeout_connect: c.timeout_connect,
+            timeout: c.timeout,
+            tcp_keepalive: Some(c.tcp_keepalive),
+            http2_keepalive: Some(c.http2_keepalive),
+            http2_keepalive_timeout: c.http2_keepalive_timeout,
             user_agent: crate::core::SERVICE_NAME.into(),
             tls_config: tls::prepare_client_config(),
         }

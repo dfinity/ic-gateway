@@ -10,10 +10,10 @@ use prometheus::Registry;
 
 use crate::{
     cli::Cli,
-    core::Run,
     http::Client,
     policy::{denylist::Denylist, domain_canister::DomainCanisterMatcher, load_canister_list},
     routing::{middleware::geoip::CountryCode, ErrorCause, RequestCtx},
+    tasks::Run,
 };
 
 pub struct PolicyState {

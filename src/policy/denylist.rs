@@ -19,7 +19,7 @@ use tracing::{info, warn};
 use url::Url;
 
 use super::load_canister_list;
-use crate::{core::Run, http::Client, routing::middleware::geoip::CountryCode};
+use crate::{http::Client, routing::middleware::geoip::CountryCode, tasks::Run};
 
 pub struct Denylist {
     url: Option<Url>,

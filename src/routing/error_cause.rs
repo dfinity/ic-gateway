@@ -155,17 +155,6 @@ impl IntoResponse for ErrorCause {
 
 impl From<anyhow::Error> for ErrorCause {
     fn from(e: anyhow::Error) -> Self {
-        // Check if it's a known Reqwest error
-        if let Some(e) = error_infer::<reqwest::Error>(&e) {
-            if e.is_connect() {
-                return Self::BackendErrorConnect;
-            }
-
-            if e.is_timeout() {
-                return Self::BackendTimeout;
-            }
-        }
-
         // Check if it's a DNS error
         if let Some(e) = error_infer::<ResolveError>(&e) {
             return Self::BackendErrorDNS(e.to_string());
@@ -184,6 +173,17 @@ impl From<anyhow::Error> for ErrorCause {
             };
         }
 
-        Self::BackendErrorOther(e.to_string())
+        // Check if it's a known Reqwest error
+        if let Some(e) = error_infer::<reqwest::Error>(&e) {
+            if e.is_connect() {
+                return Self::BackendErrorConnect;
+            }
+
+            if e.is_timeout() {
+                return Self::BackendTimeout;
+            }
+        }
+
+        Self::Other(e.to_string())
     }
 }

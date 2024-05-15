@@ -1,11 +1,10 @@
-use std::{error::Error as StdError, sync::Arc};
+use std::sync::Arc;
 
-use anyhow::{anyhow, Error};
-use async_trait::async_trait;
+use anyhow::{anyhow, Context, Error};
 use prometheus::Registry;
-use rustls::sign::CertifiedKey;
-use tokio_util::{sync::CancellationToken, task::TaskTracker};
-use tracing::{error, warn};
+
+use tokio_util::sync::CancellationToken;
+use tracing::warn;
 
 use crate::{
     cli::Cli,
@@ -14,63 +13,17 @@ use crate::{
         self,
         canister::{CanisterResolver, ResolvesCanister},
     },
+    tasks::TaskManager,
     tls::{
         self,
-        cert::{storage::StoresCertificates, LooksupCustomDomain, Storage},
-        resolver::ResolvesServerCert,
+        cert::{LooksupCustomDomain, Storage},
     },
 };
 
 pub const SERVICE_NAME: &str = "ic_gateway";
 pub const AUTHOR_NAME: &str = "Boundary Node Team <boundary-nodes@dfinity.org>";
 
-// Long running task that can be cancelled by a token
-#[async_trait]
-pub trait Run: Send + Sync {
-    async fn run(&self, token: CancellationToken) -> Result<(), Error>;
-}
-pub struct Runner(pub String, pub Arc<dyn Run>);
-
-#[async_trait]
-impl Run for http::Server {
-    async fn run(&self, token: CancellationToken) -> Result<(), Error> {
-        self.serve(token).await
-    }
-}
-
-pub fn error_source<E: StdError + 'static>(error: &impl StdError) -> Option<&E> {
-    let mut source = error.source();
-    while let Some(err) = source {
-        if let Some(v) = err.downcast_ref() {
-            return Some(v);
-        }
-
-        source = err.source();
-    }
-
-    None
-}
-
 pub async fn main(cli: &Cli) -> Result<(), Error> {
-    // Install crypto-provider
-    rustls::crypto::aws_lc_rs::default_provider()
-        .install_default()
-        .expect("unable to install rustls crypto provider");
-
-    // Prepare some general stuff
-    let token = CancellationToken::new();
-    let tracker = TaskTracker::new();
-    let registry = Registry::new();
-    let http_client = Arc::new(http::ReqwestClient::new(cli.into())?);
-
-    // List of cancellable tasks to execute & track
-    let mut runners: Vec<Runner> = vec![];
-
-    // Handle SIGTERM/SIGHUP and Ctrl+C
-    // Cancelling a token cancels all of its clones too
-    let handler_token = token.clone();
-    ctrlc::set_handler(move || handler_token.cancel())?;
-
     // Make a list of all supported domains
     let mut domains = cli.domain.domains.clone();
     domains.extend_from_slice(&cli.domain.domains_system);
@@ -81,6 +34,28 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
             "No domains to serve specified (use --domain/--domain-system/--domain-app)"
         ));
     }
+
+    // Install crypto-provider
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .expect("unable to install rustls crypto provider");
+
+    // Prepare some general stuff
+    let token = CancellationToken::new();
+    let registry = Registry::new();
+    let dns_resolver = http::dns::Resolver::new((&cli.dns).into());
+    let http_client = Arc::new(http::ReqwestClient::new(
+        (&cli.http_client).into(),
+        dns_resolver.clone(),
+    )?);
+
+    // List of cancellable tasks to execute & track
+    let mut tasks = TaskManager::new();
+
+    // Handle SIGTERM/SIGHUP and Ctrl+C
+    // Cancelling a token cancels all of its clones too
+    let handler_token = token.clone();
+    ctrlc::set_handler(move || handler_token.cancel())?;
 
     // Prepare certificate storage
     let storage = Arc::new(Storage::new());
@@ -93,15 +68,13 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     )?;
 
     // Create a router
-    let (router, denylist_runner) = routing::setup_router(
+    let router = routing::setup_router(
         cli,
+        &mut tasks,
         http_client.clone(),
         &registry,
         Arc::new(canister_resolver) as Arc<dyn ResolvesCanister>,
     )?;
-    if let Some(v) = denylist_runner {
-        runners.push(Runner("denylist_updater".into(), v));
-    }
 
     // Set up HTTP
     let http_server = Arc::new(http::Server::new(
@@ -109,31 +82,33 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         router.clone(),
         (&cli.http_server).into(),
         None,
-    )) as Arc<dyn Run>;
-    runners.push(Runner("http_server".into(), http_server));
+    ));
+    tasks.add("http_server", http_server);
 
     // Set up HTTPS
-    let (tls_runners, rustls_cfg) = tls::setup(
+    let rustls_cfg = tls::setup(
         cli,
+        &mut tasks,
         domains,
+        Arc::new(dns_resolver),
         http_client.clone(),
-        storage.clone() as Arc<dyn StoresCertificates<Arc<CertifiedKey>>>,
-        storage.clone() as Arc<dyn ResolvesServerCert>,
-    )?;
-    runners.extend(tls_runners);
+        storage.clone(),
+        storage.clone(),
+    )
+    .await
+    .context("unable to setup TLS")?;
 
     let https_server = Arc::new(http::Server::new(
         cli.http_server.https,
         router,
         (&cli.http_server).into(),
         Some(rustls_cfg),
-    )) as Arc<dyn Run>;
-    runners.push(Runner("https_server".into(), https_server));
+    ));
+    tasks.add("https_server", https_server);
 
     // Setup metrics
     if let Some(addr) = cli.metrics.listen {
-        let (router, runner) = metrics::setup(&registry);
-        runners.push(Runner("metrics_runner".into(), runner));
+        let router = metrics::setup(&registry, &mut tasks);
 
         let srv = Arc::new(http::Server::new(
             addr,
@@ -141,25 +116,17 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
             (&cli.http_server).into(),
             None,
         ));
-        runners.push(Runner("metrics_server".into(), srv as Arc<dyn Run>));
+        tasks.add("metrics_server", srv);
     }
 
     // Spawn & track runners
-    for r in runners {
-        let token = token.child_token();
-        tracker.spawn(async move {
-            if let Err(e) = r.1.run(token).await {
-                error!("Runner '{}' exited with an error: {e}", r.0);
-            }
-        });
-    }
+    tasks.start(&token);
 
     warn!("Service is running, waiting for the shutdown signal");
     token.cancelled().await;
 
     warn!("Shutdown signal received, cleaning up");
-    tracker.close();
-    tracker.wait().await;
+    tasks.stop().await;
 
     Ok(())
 }

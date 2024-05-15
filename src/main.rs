@@ -15,6 +15,7 @@ mod http;
 mod metrics;
 mod policy;
 mod routing;
+mod tasks;
 mod tls;
 
 #[global_allocator]
@@ -25,7 +26,7 @@ async fn main() -> Result<(), Error> {
     let cli = Cli::parse();
 
     let subscriber = tracing_subscriber::FmtSubscriber::builder()
-        .with_max_level(tracing::Level::DEBUG)
+        .with_max_level(tracing::Level::INFO)
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 

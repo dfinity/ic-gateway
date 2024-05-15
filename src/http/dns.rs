@@ -1,8 +1,12 @@
 use std::{
     net::{IpAddr, SocketAddr},
+    str::FromStr,
     sync::Arc,
 };
 
+use anyhow::Error;
+use async_trait::async_trait;
+use hickory_proto::rr::RecordType;
 use hickory_resolver::{
     config::{NameServerConfigGroup, ResolverConfig, ResolverOpts},
     lookup_ip::LookupIpIntoIter,
@@ -19,8 +23,11 @@ pub enum Protocol {
     Https,
 }
 
-#[derive(Debug, Clone)]
-pub struct Resolver(Arc<TokioAsyncResolver>);
+#[async_trait]
+pub trait Resolves: Send + Sync {
+    async fn resolve(&self, name: &str, record: &str) -> Result<Vec<(String, String)>, Error>;
+    fn flush_cache(&self);
+}
 
 pub struct Options {
     pub protocol: Protocol,
@@ -28,6 +35,9 @@ pub struct Options {
     pub tls_name: String,
     pub cache_size: usize,
 }
+
+#[derive(Debug, Clone)]
+pub struct Resolver(Arc<TokioAsyncResolver>);
 
 // new() must be called in Tokio context
 impl Resolver {
@@ -79,5 +89,24 @@ impl Resolve for Resolver {
 
             Ok(addrs)
         })
+    }
+}
+
+#[async_trait]
+impl Resolves for Resolver {
+    async fn resolve(&self, name: &str, record: &str) -> Result<Vec<(String, String)>, Error> {
+        let record_type = RecordType::from_str(record)?;
+        let lookup = self.0.lookup(name, record_type).await?;
+
+        let rr = lookup
+            .into_iter()
+            .map(|x| (x.record_type().to_string(), x.to_string()))
+            .collect::<Vec<_>>();
+
+        Ok(rr)
+    }
+
+    fn flush_cache(&self) {
+        self.0.clear_cache();
     }
 }

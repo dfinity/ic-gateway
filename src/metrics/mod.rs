@@ -28,9 +28,9 @@ use tower_http::compression::CompressionLayer;
 use tracing::{debug, info, warn};
 
 use crate::{
-    core::Run,
     http::{calc_headers_size, http_version, server::ConnInfo},
     routing::{error_cause::ErrorCause, middleware::request_id::RequestId, RequestCtx},
+    tasks::{Run, TaskManager},
 };
 use body::CountingBody;
 
@@ -151,11 +151,12 @@ async fn handler(State(state): State<Arc<RwLock<MetricsCache>>>) -> impl IntoRes
     )
 }
 
-pub fn setup(registry: &Registry) -> (Router, Arc<dyn Run>) {
+pub fn setup(registry: &Registry, tasks: &mut TaskManager) -> Router {
     let cache = Arc::new(RwLock::new(MetricsCache::new(METRICS_CACHE_CAPACITY)));
     let runner = Arc::new(MetricsRunner::new(cache.clone(), registry));
+    tasks.add("metrics_runner", runner);
 
-    let router = Router::new()
+    Router::new()
         .route("/metrics", get(handler))
         .layer(
             CompressionLayer::new()
@@ -164,9 +165,7 @@ pub fn setup(registry: &Registry) -> (Router, Arc<dyn Run>) {
                 .zstd(true)
                 .deflate(true),
         )
-        .with_state(cache);
-
-    (router, runner as Arc<dyn Run>)
+        .with_state(cache)
 }
 
 #[derive(Clone)]
