@@ -42,21 +42,21 @@ impl Run for AcmeAlpn {
     async fn run(&self, token: CancellationToken) -> Result<(), Error> {
         let mut state = self.state.lock().await;
 
-        warn!("AcmeTlsAlpn: started");
+        warn!("ACMEALPN: started");
         loop {
             select! {
                 biased; // Poll top-down
 
                 () = token.cancelled() => {
-                    warn!("AcmeTlsAlpn: shutting down");
+                    warn!("ACMEALPN: shutting down");
                     return Ok(());
                 },
 
                 // Kick the ACME process forward
                 res = state.next() => {
                     match res.unwrap() {
-                        Ok(v) => warn!("AcmeTlsAlpn: success: {v:?}"),
-                        Err(e) => warn!("AcmeTlsAlpn: error: {e}"),
+                        Ok(v) => warn!("ACMEALPN: success: {v:?}"),
+                        Err(e) => warn!("ACMEALPN: error: {e}"),
                     }
                 }
             }

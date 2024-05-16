@@ -192,12 +192,18 @@ pub struct Policy {
 pub struct Acme {
     /// If specified we'll try to obtain the certificate that is valid for all served domains using given ACME challenge.
     /// Currently supported:
-    /// - alpn: for this to succeed all domains should resolve to the host where this service is running.
-    /// - dns: enables to request wildcard certificates, requires DNS backend to be configured.
+    /// - alpn: all served domains must resolve to the host where this service is running.
+    /// - dns: allows to request wildcard certificates, requires DNS backend to be configured.
     #[clap(long = "acme-challenge", requires = "acme_cache_path")]
     pub acme_challenge: Option<acme::Challenge>,
 
-    /// DNS backend to use when challenge is "dns". Currently only "cloudflare" is supported.
+    /// Path to a directory where to store ACME cache (account and certificates).
+    /// Directory structure is different when using ALPN and DNS, but it shouldn't collide (I hope).
+    /// Must be specified if --acme-challenge is set.
+    #[clap(long = "acme-cache-path")]
+    pub acme_cache_path: Option<PathBuf>,
+
+    /// DNS backend to use when using DNS challenge. Currently only "cloudflare" is supported.
     #[clap(long = "acme-dns-backend")]
     pub acme_dns_backend: Option<acme::dns::DnsBackend>,
 
@@ -212,18 +218,15 @@ pub struct Acme {
     #[clap(long = "acme-dns-cloudflare-token")]
     pub acme_dns_cloudflare_token: Option<PathBuf>,
 
-    /// Path to a directory where to store ACME cache (credentials and certificates).
-    /// Must be specified if --acme-challenge is set.
-    #[clap(long = "acme-cache-path")]
-    pub acme_cache_path: Option<PathBuf>,
-
     /// Asks ACME client to request a wildcard certificate for each of the domains configured.
     /// So in addition to `foo.app` the certificate will be also valid for `*.foo.app`.
     /// For obvious reasons this works only with DNS challenge, has no effect with ALPN.
     #[clap(long = "acme-wildcard")]
     pub acme_wildcard: bool,
 
-    /// Attempt to renew the certificates when less than this duration is left until expiration
+    /// Attempt to renew the certificates when less than this duration is left until expiration.
+    /// This works only with DNS challenge, ALPN currently starts to renew after half of certificate
+    /// lifetime has passed.
     #[clap(long = "acme-renew-before", value_parser = parse_duration, default_value = "30d")]
     pub acme_renew_before: Duration,
 
@@ -254,6 +257,17 @@ pub struct Misc {
 }
 
 // Some conversions
+impl From<&Dns> for crate::http::dns::Options {
+    fn from(c: &Dns) -> Self {
+        Self {
+            protocol: c.protocol,
+            servers: c.servers.clone(),
+            tls_name: c.tls_name.clone(),
+            cache_size: c.cache_size,
+        }
+    }
+}
+
 impl From<&HttpServer> for crate::http::server::Options {
     fn from(c: &HttpServer) -> Self {
         Self {
@@ -262,17 +276,6 @@ impl From<&HttpServer> for crate::http::server::Options {
             http2_keepalive_timeout: c.http2_keepalive_timeout,
             http2_max_streams: c.http2_max_streams,
             grace_period: c.grace_period,
-        }
-    }
-}
-
-impl From<&Dns> for crate::http::dns::Options {
-    fn from(c: &Dns) -> Self {
-        Self {
-            protocol: c.protocol,
-            servers: c.servers.clone(),
-            tls_name: c.tls_name.clone(),
-            cache_size: c.cache_size,
         }
     }
 }

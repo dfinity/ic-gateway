@@ -141,10 +141,10 @@ pub async fn setup(
     cli: &Cli,
     tasks: &mut TaskManager,
     domains: Vec<FQDN>,
-    resolver: Arc<dyn Resolves>,
     http_client: Arc<dyn Client>,
     storage: Arc<dyn StoresCertificates<Arc<CertifiedKey>>>,
     cert_resolver: Arc<dyn ResolvesServerCert>,
+    dns_resolver: Arc<dyn Resolves>,
 ) -> Result<ServerConfig, Error> {
     let mut providers = vec![];
 
@@ -156,14 +156,14 @@ pub async fn setup(
     // Create CertIssuer providers
     for v in &cli.cert.issuer_urls {
         providers.push(
-            Arc::new(providers::Syncer::new(http_client.clone(), v.clone()))
+            Arc::new(providers::Issuer::new(http_client.clone(), v.clone()))
                 as Arc<dyn ProvidesCertificates>,
         );
     }
 
     // Prepare ACME if configured
     let acme_resolver = if let Some(v) = &cli.acme.acme_challenge {
-        Some(setup_acme(cli, tasks, domains, v, resolver).await?)
+        Some(setup_acme(cli, tasks, domains, v, dns_resolver).await?)
     } else {
         None
     };

@@ -60,7 +60,7 @@ pub struct AcmeOptions {
     contact: String,
 }
 
-// Generic ACME implementation that is using TokenManager implementor to set a challenge token
+// Generic ACME client that is using TokenManager implementor to set a challenge token
 pub struct Acme {
     domains: Vec<String>,
     challenge: ChallengeType,
@@ -142,6 +142,7 @@ impl Acme {
         Ok(account)
     }
 
+    // Generate a list of identifiers for certificate
     fn generate_names(&self) -> Vec<String> {
         self.domains
             .clone()
@@ -336,10 +337,12 @@ impl Acme {
 
         info!("ACME: Authorizations processed");
 
-        // Poll until Ready or timeout
-        self.poll_order(&mut order, OrderStatus::Ready)
-            .await
-            .context("order unable to reach Ready state")?;
+        // Poll until Ready or timeout if it's not already
+        if order.state().status != OrderStatus::Ready {
+            self.poll_order(&mut order, OrderStatus::Ready)
+                .await
+                .context("order unable to reach Ready state")?;
+        }
 
         info!("ACME: Order is Ready");
 

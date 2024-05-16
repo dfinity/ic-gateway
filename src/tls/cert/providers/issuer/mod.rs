@@ -82,7 +82,7 @@ impl ProvidesCertificates for CertificatesImporter {
             .collect::<Result<Vec<_>, _>>()?;
 
         info!(
-            "Syncer provider ({}): {} certs loaded",
+            "Issuer provider ({}): {} certs loaded",
             self.exporter_url,
             certs.len()
         );
@@ -146,7 +146,7 @@ mod tests {
     use reqwest::Body;
     use std::{str::FromStr, sync::Arc};
 
-    use crate::{http::client::MockClient, tls::cert::providers::syncer::verify::MockVerify};
+    use crate::{http::client::MockClient, tls::cert::providers::issuer::verify::MockVerify};
 
     #[tokio::test]
     async fn import_ok() -> Result<(), AnyhowError> {

@@ -97,7 +97,7 @@ mod tests {
     use candid::Principal;
 
     use super::{MockParse, Verifier, Verify, VerifyError};
-    use crate::tls::cert::providers::syncer::{Package, Pair};
+    use crate::tls::cert::providers::issuer::{Package, Pair};
 
     #[test]
     fn verify_ok() {

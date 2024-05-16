@@ -1,8 +1,8 @@
 pub mod dir;
-pub mod syncer;
+pub mod issuer;
 
 pub use dir::Provider as Dir;
-pub use syncer::CertificatesImporter as Syncer;
+pub use issuer::CertificatesImporter as Issuer;
 
 use async_trait::async_trait;
 
