@@ -111,12 +111,13 @@ pub fn pem_convert_to_rustls(key: &[u8], certs: &[u8]) -> Result<CertKey, Error>
     let key = rustls_pemfile::private_key(&mut key.as_ref())?
         .ok_or_else(|| anyhow!("No private key found"))?;
 
+    // Load the cert chain
     let certs = rustls_pemfile::certs(&mut certs.as_ref()).collect::<Result<Vec<_>, _>>()?;
     if certs.is_empty() {
         return Err(anyhow!("No certificates found"));
     }
 
-    // Extract a list of SANs from the 1st certificate in the chain
+    // Extract a list of SANs from the 1st certificate in the chain (the leaf one)
     let san = extract_san_from_der(certs[0].as_ref())?;
     if san.is_empty() {
         return Err(anyhow!(
@@ -172,26 +173,26 @@ impl Run for Aggregator {
         loop {
             select! {
                 () = token.cancelled() => {
-                    warn!("Aggregator exiting");
+                    warn!("CertAggregator: exiting");
                     return Ok(());
                 },
 
                 _ = interval.tick() => {
                     let certs = match self.fetch().await {
                         Err(e) => {
-                            warn!("Unable to fetch certificates: {e}");
+                            warn!("CertAggregator: unable to fetch certificates: {e}");
                             continue;
                         }
                         Ok(v) => v,
                     };
 
-                    info!("Aggregator: {} certs fetched", certs.len());
+                    info!("CertAggregator: {} certs fetched", certs.len());
                     for v in &certs {
-                        debug!("Aggregator: cert loaded: {:?}", v.san);
+                        debug!("CertAggregator: cert loaded: {:?}", v.san);
                     }
 
                     if let Err(e) = self.storage.store(certs) {
-                        warn!("Error storing certificates: {e}");
+                        warn!("CertAggregator: error storing certificates: {e}");
                     }
                 }
             }

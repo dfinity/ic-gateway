@@ -54,9 +54,10 @@ impl Run for AcmeAlpn {
 
                 // Kick the ACME process forward
                 res = state.next() => {
-                    match res.unwrap() {
-                        Ok(v) => warn!("ACMEALPN: success: {v:?}"),
-                        Err(e) => warn!("ACMEALPN: error: {e}"),
+                    match res {
+                        Some(Ok(v)) => warn!("ACMEALPN: success: {v:?}"),
+                        Some(Err(e)) => warn!("ACMEALPN: error: {e}"),
+                        _ => warn!("ACMEALPN: unexpected None"),
                     }
                 }
             }

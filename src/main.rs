@@ -2,7 +2,7 @@
 //#![warn(clippy::pedantic)]
 #![warn(clippy::nursery)]
 
-use anyhow::Error;
+use anyhow::{Context, Error};
 use clap::Parser;
 use jemallocator::Jemalloc;
 
@@ -12,6 +12,7 @@ mod cache;
 mod cli;
 mod core;
 mod http;
+mod log;
 mod metrics;
 mod policy;
 mod routing;
@@ -25,10 +26,6 @@ static GLOBAL: Jemalloc = Jemalloc;
 async fn main() -> Result<(), Error> {
     let cli = Cli::parse();
 
-    let subscriber = tracing_subscriber::FmtSubscriber::builder()
-        .with_max_level(tracing::Level::INFO)
-        .finish();
-    tracing::subscriber::set_global_default(subscriber)?;
-
+    log::setup_logging(&cli.log).context("unable to setup logging")?;
     core::main(&cli).await
 }

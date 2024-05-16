@@ -31,7 +31,7 @@ use crate::{
 use cert::{providers::ProvidesCertificates, storage::StoresCertificates};
 
 use self::acme::{
-    dns::{AcmeDns, DnsBackend, TokenManagerDns},
+    dns::{AcmeDns, DnsBackend, DnsManager, TokenManagerDns},
     Acme, AcmeOptions,
 };
 
@@ -115,14 +115,14 @@ async fn setup_acme(
                     let token =
                         fs::read_to_string(path).context("unable to read Cloudflare token")?;
 
-                    acme::dns::cloudflare::Cloudflare::new(
-                        cli.acme.acme_dns_cloudflare_url.as_ref(),
-                        &token,
-                    )?
+                    Arc::new(acme::dns::cloudflare::Cloudflare::new(
+                        cli.acme.acme_dns_cloudflare_url.clone(),
+                        token,
+                    )?) as Arc<dyn DnsManager>
                 }
             };
 
-            let token_manager = TokenManagerDns::new(resolver, Arc::new(dns_backend));
+            let token_manager = TokenManagerDns::new(resolver, dns_backend);
             let acme_client = Acme::new(ChallengeType::Dns01, Arc::new(token_manager), opts)
                 .await
                 .context("unable to create ACME client")?;

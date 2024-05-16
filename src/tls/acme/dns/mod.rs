@@ -64,12 +64,14 @@ impl TokenManager for TokenManagerDns {
         backoff::future::retry(boff, || async {
             self.resolver.flush_cache();
 
+            // Get all TXT records for given hostname
             let records = self
                 .resolver
                 .resolve(&host, "TXT")
                 .await
                 .map_err(|x| backoff::Error::transient(x.to_string()))?;
 
+            // See if any of them matches given token
             records
                 .iter()
                 .find(|&x| x.0 == "TXT" && x.1 == token)
@@ -106,6 +108,7 @@ impl AcmeDns {
         let cert = self.acme.load().await?;
         let ckey = pem_convert_to_rustls(&cert.key, &cert.cert)?;
         self.cert.store(Some(ckey.cert));
+        warn!("ACMEDNS: Certificate loaded");
         Ok(())
     }
 
@@ -118,8 +121,6 @@ impl AcmeDns {
                 warn!("ACMEDNS: Certificate is still valid");
 
                 if self.cert.load_full().is_none() {
-                    warn!("ACMEDNS: No certificate loaded, loading");
-
                     if let Err(e) = self.reload().await {
                         error!("ACMEDNS: Unable to load certificate: {e}");
                     }

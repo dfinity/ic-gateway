@@ -45,6 +45,9 @@ pub struct Cli {
     #[command(flatten, next_help_heading = "Metrics")]
     pub metrics: Metrics,
 
+    #[command(flatten, next_help_heading = "Logging")]
+    pub log: Log,
+
     #[command(flatten, next_help_heading = "Misc")]
     pub misc: Misc,
 }
@@ -247,6 +250,25 @@ pub struct Metrics {
     /// Where to listen for Prometheus metrics scraping
     #[clap(long = "metrics-listen")]
     pub listen: Option<SocketAddr>,
+}
+
+#[derive(Args)]
+pub struct Log {
+    /// Maximum logging level
+    #[clap(long = "log-level", default_value = "info")]
+    pub log_level: tracing::Level,
+    /// Enables logging to stdout
+    #[clap(long = "log-stdout")]
+    pub log_stdout: bool,
+    /// Enables logging to stdout in JSON
+    #[clap(long = "log-stdout-json")]
+    pub log_stdout_json: bool,
+    /// Enables logging to Journald
+    #[clap(long = "log-journald")]
+    pub log_journald: bool,
+    /// Enables logging to /dev/null (to benchmark logging)
+    #[clap(long = "log-null")]
+    pub log_null: bool,
 }
 
 #[derive(Args)]

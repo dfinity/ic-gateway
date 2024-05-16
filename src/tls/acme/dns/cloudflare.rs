@@ -15,7 +15,7 @@ use cloudflare::{
         Environment, HttpApiClientConfig,
     },
 };
-use tracing::warn;
+use url::Url;
 
 use super::{DnsManager, Record};
 
@@ -35,13 +35,13 @@ pub struct Cloudflare {
 }
 
 impl Cloudflare {
-    pub fn new(url: &str, key: &str) -> Result<Self, Error> {
-        let credentials = Credentials::UserAuthToken { token: key.into() };
+    pub fn new(url: Url, token: String) -> Result<Self, Error> {
+        let credentials = Credentials::UserAuthToken { token };
 
         let client = Client::new(
             credentials,
             HttpApiClientConfig::default(),
-            Environment::Custom(url.try_into().context("invalid api url")?),
+            Environment::Custom(url),
         )
         .context("failed to initialize cloudflare api client")?;
 
@@ -103,12 +103,10 @@ impl DnsManager for Cloudflare {
         // Search zone
         let zone_id = self.find_zone(zone).await?;
 
-        // Create/Update record
+        // Create record
         let content = match record {
             Record::Txt(content) => DnsContent::TXT { content },
         };
-
-        warn!("adding {} {:?}", name, content);
 
         self.client
             .request(&CreateDnsRecord {
@@ -137,8 +135,6 @@ impl DnsManager for Cloudflare {
 
         // Delete all matching records
         for record in resp.result {
-            warn!("deleting {:?}", record.content);
-
             self.client
                 .request(&DeleteDnsRecord {
                     zone_identifier: &zone_id,
