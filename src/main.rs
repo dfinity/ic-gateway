@@ -5,6 +5,7 @@
 use anyhow::{Context, Error};
 use clap::Parser;
 use jemallocator::Jemalloc;
+use tracing::warn;
 
 use crate::cli::Cli;
 
@@ -25,7 +26,8 @@ static GLOBAL: Jemalloc = Jemalloc;
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let cli = Cli::parse();
-
     log::setup_logging(&cli.log).context("unable to setup logging")?;
+    warn!("Env: {}, Hostname: {}", cli.misc.env, cli.misc.hostname);
+
     core::main(&cli).await
 }

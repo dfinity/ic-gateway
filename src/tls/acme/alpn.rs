@@ -14,7 +14,7 @@ use crate::tasks::Run;
 use super::AcmeOptions;
 
 pub struct AcmeAlpn {
-    // Mutex here is only to make AcmeTlsAlpn Sync
+    // Mutex here is only to make it Sync
     state: Mutex<AcmeState<IoError, IoError>>,
 }
 
@@ -40,6 +40,7 @@ impl AcmeAlpn {
 #[async_trait]
 impl Run for AcmeAlpn {
     async fn run(&self, token: CancellationToken) -> Result<(), Error> {
+        #[allow(clippy::significant_drop_tightening)]
         let mut state = self.state.lock().await;
 
         warn!("ACMEALPN: started");

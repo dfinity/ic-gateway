@@ -22,7 +22,7 @@ use tracing::info;
 
 use crate::tls::cert::{extract_san_from_der, extract_validity_from_der};
 
-#[derive(Clone, Display, EnumString)]
+#[derive(Clone, Display, EnumString, PartialEq, Eq)]
 #[strum(serialize_all = "snake_case")]
 pub enum Challenge {
     Alpn,
@@ -303,15 +303,17 @@ impl Acme {
                 return Ok(Validity::NoCertsFound);
             }
 
+            let cert = certs[0].as_ref();
+
             // Check if it's time to renew
-            let validity = extract_validity_from_der(certs[0].as_ref())?;
+            let validity = extract_validity_from_der(cert)?;
             let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
             if now > validity.not_after.timestamp() as u64 - self.renew_before.as_secs() {
                 return Ok(Validity::Expires);
             }
 
             // Check if cert's SANs match the domains that we have
-            let mut sans = extract_san_from_der(certs[0].as_ref())?;
+            let mut sans = extract_san_from_der(cert)?;
             let mut names = self.generate_names();
             sans.sort();
             names.sort();
@@ -327,7 +329,7 @@ impl Acme {
 
     pub async fn issue(&self) -> Result<(), Error> {
         let mut order = self.prepare_order().await?;
-        info!("ACME: Order for {:?} created", self.domains);
+        info!("ACME: Order for {:?} obtained", self.domains);
 
         // Process authorizations and fulfill their challenges
         let authorizations = self

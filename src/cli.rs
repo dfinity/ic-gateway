@@ -210,7 +210,7 @@ pub struct Acme {
     #[clap(long = "acme-dns-backend")]
     pub acme_dns_backend: Option<acme::dns::DnsBackend>,
 
-    /// File from which to read API token if DNS backend is Cloudflare
+    /// Cloudflare API URL
     #[clap(
         long = "acme-dns-cloudflare-url",
         default_value = "https://api.cloudflare.com/client/v4/"
@@ -257,22 +257,67 @@ pub struct Log {
     /// Maximum logging level
     #[clap(long = "log-level", default_value = "info")]
     pub log_level: tracing::Level,
+
     /// Enables logging to stdout
     #[clap(long = "log-stdout")]
     pub log_stdout: bool,
+
     /// Enables logging to stdout in JSON
     #[clap(long = "log-stdout-json")]
     pub log_stdout_json: bool,
+
     /// Enables logging to Journald
     #[clap(long = "log-journald")]
     pub log_journald: bool,
+
     /// Enables logging to /dev/null (to benchmark logging)
     #[clap(long = "log-null")]
     pub log_null: bool,
+
+    #[command(flatten, next_help_heading = "Clickhouse")]
+    pub clickhouse: Clickhouse,
+}
+
+#[derive(Args, Clone)]
+pub struct Clickhouse {
+    /// Setting this enables logging of HTTP requests to Clickhouse DB
+    #[clap(long = "log-clickhouse-url")]
+    pub log_clickhouse_url: Option<Url>,
+
+    /// Clickhouse username
+    #[clap(long = "log-clickhouse-user")]
+    pub log_clickhouse_user: Option<String>,
+
+    /// Clickhouse password
+    #[clap(long = "log-clickhouse-pass")]
+    pub log_clickhouse_pass: Option<String>,
+
+    /// Clickhouse database
+    #[clap(long = "log-clickhouse-db")]
+    pub log_clickhouse_db: Option<String>,
+
+    /// Clickhouse table
+    #[clap(long = "log-clickhouse-table")]
+    pub log_clickhouse_table: Option<String>,
+
+    /// Clickhouse batch size
+    #[clap(long = "log-clickhouse-batch", default_value = "250000")]
+    pub log_clickhouse_batch: u64,
+
+    /// Clickhouse flush interval
+    #[clap(long = "log-clickhouse-interval", value_parser = parse_duration, default_value = "5s")]
+    pub log_clickhouse_interval: Duration,
 }
 
 #[derive(Args)]
 pub struct Misc {
+    /// Environment we run in to specify in logs
+    #[clap(long = "env", default_value = "dev")]
+    pub env: String,
+    /// Local hostname to identify in e.g. logs.
+    /// If not specified - tries to obtain it.
+    #[clap(long = "hostname", default_value = hostname::get().unwrap().into_string().unwrap())]
+    pub hostname: String,
     /// Path to a GeoIP database
     #[clap(long = "geoip-db")]
     pub geoip_db: Option<PathBuf>,

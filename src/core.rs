@@ -2,22 +2,15 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Error};
 use prometheus::Registry;
-
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
 
 use crate::{
     cli::Cli,
-    http, metrics,
-    routing::{
-        self,
-        canister::{CanisterResolver, ResolvesCanister},
-    },
+    http, log, metrics,
+    routing::{self, canister::CanisterResolver},
     tasks::TaskManager,
-    tls::{
-        self,
-        cert::{LooksupCustomDomain, Storage},
-    },
+    tls::{self, cert::Storage},
 };
 
 pub const SERVICE_NAME: &str = "ic_gateway";
@@ -38,7 +31,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     // Install crypto-provider
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
-        .expect("unable to install rustls crypto provider");
+        .map_err(|_| anyhow!("unable to install Rustls crypto provider"))?;
 
     // Prepare some general stuff
     let token = CancellationToken::new();
@@ -48,6 +41,14 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         (&cli.http_client).into(),
         dns_resolver.clone(),
     )?);
+    let clickhouse = if cli.log.clickhouse.log_clickhouse_url.is_some() {
+        Some(Arc::new(
+            log::clickhouse::Clickhouse::new(&cli.log.clickhouse)
+                .context("unable to init Clickhouse")?,
+        ))
+    } else {
+        None
+    };
 
     // List of cancellable tasks to execute & track
     let mut tasks = TaskManager::new();
@@ -64,7 +65,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     let canister_resolver = CanisterResolver::new(
         domains.clone(),
         cli.domain.canister_aliases.clone(),
-        storage.clone() as Arc<dyn LooksupCustomDomain>,
+        storage.clone(),
     )?;
 
     // Create a router
@@ -73,7 +74,8 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         &mut tasks,
         http_client.clone(),
         &registry,
-        Arc::new(canister_resolver) as Arc<dyn ResolvesCanister>,
+        Arc::new(canister_resolver),
+        clickhouse.clone(),
     )?;
 
     // Set up HTTP
@@ -91,8 +93,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         &mut tasks,
         domains,
         http_client.clone(),
-        storage.clone(),
-        storage.clone(),
+        storage,
         Arc::new(dns_resolver),
     )
     .await
@@ -127,6 +128,11 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
 
     warn!("Shutdown signal received, cleaning up");
     tasks.stop().await;
+
+    // Clickhouse should stop last to ensure that all requests are finished & flushed
+    if let Some(v) = clickhouse {
+        v.stop().await;
+    }
 
     Ok(())
 }

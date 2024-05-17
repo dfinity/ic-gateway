@@ -29,6 +29,7 @@ use url::Url;
 use crate::{
     cli::Cli,
     http::{Client, ConnInfo},
+    log::clickhouse::Clickhouse,
     metrics,
     routing::middleware::{geoip, headers, policy, request_id, validate},
     tasks::TaskManager,
@@ -129,6 +130,7 @@ pub fn setup_router(
     http_client: Arc<dyn Client>,
     registry: &Registry,
     canister_resolver: Arc<dyn ResolvesCanister>,
+    clickhouse: Option<Arc<Clickhouse>>,
 ) -> Result<Router, Error> {
     // GeoIP
     let geoip_mw = cli
@@ -151,7 +153,12 @@ pub fn setup_router(
 
     // Metrics
     let metrics_mw = from_fn_with_state(
-        Arc::new(metrics::HttpMetrics::new(registry)),
+        Arc::new(metrics::HttpMetrics::new(
+            registry,
+            cli.misc.env.clone(),
+            cli.misc.hostname.clone(),
+            clickhouse,
+        )),
         metrics::middleware,
     );
 

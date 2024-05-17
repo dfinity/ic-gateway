@@ -9,7 +9,7 @@ use uuid::Uuid;
 const HEADER: HeaderName = HeaderName::from_static("x-request-id");
 
 #[derive(Clone, Copy)]
-pub struct RequestId(Uuid);
+pub struct RequestId(pub Uuid);
 
 // Generate & insert request UUID into extensions and headers
 pub async fn middleware(mut request: Request, next: Next) -> Response {

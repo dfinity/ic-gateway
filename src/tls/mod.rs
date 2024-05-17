@@ -12,7 +12,6 @@ use rustls::{
     server::{
         ResolvesServerCert as ResolvesServerCertRustls, ServerConfig, ServerSessionMemoryCache,
     },
-    sign::CertifiedKey,
     version::{TLS12, TLS13},
     RootCertStore,
 };
@@ -24,15 +23,18 @@ use crate::{
     tasks::TaskManager,
     tls::{
         cert::{providers, Aggregator},
-        resolver::{AggregatingResolver, ResolvesServerCert},
+        resolver::AggregatingResolver,
     },
 };
 
-use cert::{providers::ProvidesCertificates, storage::StoresCertificates};
+use self::acme::Challenge;
 
-use self::acme::{
-    dns::{AcmeDns, DnsBackend, DnsManager, TokenManagerDns},
-    Acme, AcmeOptions,
+use {
+    acme::{
+        dns::{AcmeDns, DnsBackend, DnsManager, TokenManagerDns},
+        Acme, AcmeOptions,
+    },
+    cert::{providers::ProvidesCertificates, storage::StorageKey},
 };
 
 // Checks if given host matches any of domains
@@ -43,19 +45,22 @@ pub fn sni_matches(host: &Fqdn, domains: &[FQDN], wildcard: bool) -> bool {
         .any(|x| x == host || (wildcard && Some(x.as_ref()) == host.parent()))
 }
 
-pub fn prepare_server_config(resolver: Arc<dyn ResolvesServerCertRustls>) -> ServerConfig {
+pub fn prepare_server_config(
+    resolver: Arc<dyn ResolvesServerCertRustls>,
+    acme: bool,
+) -> ServerConfig {
     let mut cfg = ServerConfig::builder_with_protocol_versions(&[&TLS13, &TLS12])
         .with_no_client_auth()
         .with_cert_resolver(resolver);
 
     // Create custom session storage with higher limit to allow effective TLS session resumption
     cfg.session_storage = ServerSessionMemoryCache::new(131_072);
-    cfg.alpn_protocols = vec![
-        ALPN_H2.to_vec(),
-        ALPN_H1.to_vec(),
-        // Support ACME challenge ALPN too
-        ACME_TLS_ALPN_NAME.to_vec(),
-    ];
+    cfg.alpn_protocols = vec![ALPN_H2.to_vec(), ALPN_H1.to_vec()];
+
+    // Support ACME challenge ALPN too if requested
+    if acme {
+        cfg.alpn_protocols.push(ACME_TLS_ALPN_NAME.to_vec());
+    }
 
     cfg
 }
@@ -83,7 +88,7 @@ async fn setup_acme(
     tasks: &mut TaskManager,
     domains: Vec<FQDN>,
     challenge: &acme::Challenge,
-    resolver: Arc<dyn Resolves>,
+    dns_resolver: Arc<dyn Resolves>,
 ) -> Result<Arc<dyn ResolvesServerCertRustls>, Error> {
     let opts = AcmeOptions::new(
         domains.iter().map(|x| x.to_string()).collect::<Vec<_>>(),
@@ -122,7 +127,7 @@ async fn setup_acme(
                 }
             };
 
-            let token_manager = TokenManagerDns::new(resolver, dns_backend);
+            let token_manager = TokenManagerDns::new(dns_resolver, dns_backend);
             let acme_client = Acme::new(ChallengeType::Dns01, Arc::new(token_manager), opts)
                 .await
                 .context("unable to create ACME client")?;
@@ -142,23 +147,22 @@ pub async fn setup(
     tasks: &mut TaskManager,
     domains: Vec<FQDN>,
     http_client: Arc<dyn Client>,
-    storage: Arc<dyn StoresCertificates<Arc<CertifiedKey>>>,
-    cert_resolver: Arc<dyn ResolvesServerCert>,
+    storage: Arc<StorageKey>,
     dns_resolver: Arc<dyn Resolves>,
 ) -> Result<ServerConfig, Error> {
-    let mut providers = vec![];
+    let mut providers: Vec<Arc<dyn ProvidesCertificates>> = vec![];
 
     // Create Dir providers
     for v in &cli.cert.dir {
-        providers.push(Arc::new(providers::Dir::new(v.clone())) as Arc<dyn ProvidesCertificates>);
+        providers.push(Arc::new(providers::Dir::new(v.clone())));
     }
 
     // Create CertIssuer providers
     for v in &cli.cert.issuer_urls {
-        providers.push(
-            Arc::new(providers::Issuer::new(http_client.clone(), v.clone()))
-                as Arc<dyn ProvidesCertificates>,
-        );
+        providers.push(Arc::new(providers::Issuer::new(
+            http_client.clone(),
+            v.clone(),
+        )));
     }
 
     // Prepare ACME if configured
@@ -174,11 +178,18 @@ pub async fn setup(
         ));
     }
 
-    let cert_aggregator = Arc::new(Aggregator::new(providers, storage, cli.cert.poll_interval));
+    let cert_aggregator = Arc::new(Aggregator::new(
+        providers,
+        storage.clone(),
+        cli.cert.poll_interval,
+    ));
     tasks.add("cert_aggregator", cert_aggregator);
 
-    let resolve_aggregator = Arc::new(AggregatingResolver::new(acme_resolver, vec![cert_resolver]));
-    let config = prepare_server_config(resolve_aggregator);
+    let resolve_aggregator = Arc::new(AggregatingResolver::new(acme_resolver, vec![storage]));
+    let config = prepare_server_config(
+        resolve_aggregator,
+        cli.acme.acme_challenge == Some(Challenge::Alpn),
+    );
 
     Ok(config)
 }

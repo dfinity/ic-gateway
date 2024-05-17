@@ -17,6 +17,7 @@ bytes = "1.5"
 candid = "0.10"
 clap = { version = "4.5", features = ["derive", "string"] }
 clap_derive = "4.5"
+clickhouse = { version = "0.11", features = ["uuid", "time"] }
 ctrlc = { version = "3.4", features = ["termination"] }
 # cloudflare v0.11 is broken, master is fixed but unreleased yet.
 # see https://github.com/cloudflare/cloudflare-rs/issues/222
@@ -32,6 +33,7 @@ hickory-resolver = { version = "0.24", features = [
     "webpki-roots",
     "dnssec-ring",
 ] }
+hostname = "0.4"
 http = "1.1"
 http-body = "1.0"
 http-body-util = "0.1"
@@ -74,6 +76,7 @@ strum = "0.26"
 strum_macros = "0.26"
 sync_wrapper = "1.0"
 thiserror = "1.0"
+time = { version = "0.3", features = ["macros", "serde"] }
 tempfile = "3.10"
 tokio = { version = "1.36", features = ["full"] }
 tokio-util = { version = "0.7", features = ["full"] }
