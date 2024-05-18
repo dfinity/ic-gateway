@@ -31,9 +31,11 @@ use crate::{
     http::{Client, ConnInfo},
     log::clickhouse::Clickhouse,
     metrics,
-    routing::middleware::{geoip, headers, policy, request_id, validate},
+    routing::middleware::{canister_match, geoip, headers, request_id, validate},
     tasks::TaskManager,
 };
+
+use self::middleware::denylist;
 
 use {
     canister::{Canister, ResolvesCanister},
@@ -143,13 +145,25 @@ pub fn setup_router(
         })
         .transpose()?;
 
-    // Policy
-    let (policy_state, denylist_runner) =
-        policy::PolicyState::new(cli, http_client.clone(), registry)?;
-    let policy_mw = policy_state.map(|x| from_fn_with_state(Arc::new(x), policy::middleware));
-    if let Some(v) = denylist_runner {
-        tasks.add("denylist_runner", v);
-    }
+    // Denylist
+    let denylist_mw = if cli.policy.denylist_seed.is_some() || cli.policy.denylist_url.is_some() {
+        Some(from_fn_with_state(
+            denylist::DenylistState::new(cli, tasks, http_client.clone(), registry)?,
+            denylist::middleware,
+        ))
+    } else {
+        None
+    };
+
+    // CLI makes sure that domains_system is also set
+    let canister_match_mw = if !cli.domain.domains_app.is_empty() {
+        Some(from_fn_with_state(
+            canister_match::CanisterMatcherState::new(cli)?,
+            canister_match::middleware,
+        ))
+    } else {
+        None
+    };
 
     // Metrics
     let metrics_mw = from_fn_with_state(
@@ -169,7 +183,8 @@ pub fn setup_router(
         .layer(metrics_mw)
         .layer(option_layer(geoip_mw))
         .layer(from_fn_with_state(canister_resolver, validate::middleware))
-        .layer(option_layer(policy_mw));
+        .layer(option_layer(denylist_mw))
+        .layer(option_layer(canister_match_mw));
 
     let router = axum::Router::new()
         .route("/", get(handler))
