@@ -1,7 +1,7 @@
 pub mod body;
 
 use std::{
-    sync::Arc,
+    sync::{atomic::Ordering, Arc},
     time::{Duration, Instant},
 };
 
@@ -285,11 +285,17 @@ pub async fn middleware(
     let response_callback = move |response_size: u64, _: Result<(), String>| {
         let duration_full = start.elapsed();
 
-        let (tls_version, tls_cipher) = conn_info
+        let (tls_version, tls_cipher, tls_handshake) = conn_info
             .tls
             .as_ref()
-            .map(|x| (x.protocol.as_str().unwrap(), x.cipher.as_str().unwrap()))
-            .unwrap_or(("no", "no"));
+            .map(|x| {
+                (
+                    x.protocol.as_str().unwrap(),
+                    x.cipher.as_str().unwrap(),
+                    x.handshake,
+                )
+            })
+            .unwrap_or(("no", "no", Duration::ZERO));
         let domain = ctx
             .as_ref()
             .map(|x| x.canister.domain.to_string())
@@ -342,6 +348,7 @@ pub async fn middleware(
             status,
             tls_version,
             tls_cipher,
+            tls_handshake = tls_handshake.as_millis(),
             domain,
             host,
             path,
@@ -351,6 +358,9 @@ pub async fn middleware(
             resp_size = response_size,
             dur = duration.as_millis(),
             dur_full = duration_full.as_millis(),
+            dur_conn = conn_info.accepted_at.elapsed().as_millis(),
+            conn_rcvd = conn_info.stats.rcvd(),
+            conn_sent = conn_info.stats.sent(),
         );
 
         if let Some(v) = &state.clickhouse {

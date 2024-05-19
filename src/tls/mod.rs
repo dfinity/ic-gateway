@@ -100,11 +100,7 @@ async fn setup_acme(
     );
 
     let resolver = match challenge {
-        acme::Challenge::Alpn => {
-            let (run, resolver) = acme::alpn::AcmeAlpn::new(opts)?;
-            tasks.add("acme_alpn_runner", run);
-            resolver
-        }
+        acme::Challenge::Alpn => acme::alpn::AcmeAlpn::new(opts, tasks)?,
 
         acme::Challenge::Dns => {
             let dns_backend = match cli.acme.acme_dns_backend {

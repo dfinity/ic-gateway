@@ -19,12 +19,12 @@ use tokio::{
     net::{TcpListener, TcpSocket, TcpStream},
     select,
 };
-use tokio_rustls::{server::TlsStream, TlsAcceptor};
+use tokio_rustls::TlsAcceptor;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tower_service::Service;
 use tracing::{debug, warn};
 
-use super::is_http_alpn;
+use super::{is_http_alpn, AsyncCounter, Stats};
 
 // Blanket async read+write trait to box streams
 trait AsyncReadWrite: AsyncRead + AsyncWrite + Send + Sync + Unpin {}
@@ -46,6 +46,7 @@ pub struct TlsInfo {
     pub alpn: String,
     pub protocol: ProtocolVersion,
     pub cipher: CipherSuite,
+    pub handshake: Duration,
 }
 
 impl TryFrom<&ServerConnection> for TlsInfo {
@@ -53,6 +54,8 @@ impl TryFrom<&ServerConnection> for TlsInfo {
 
     fn try_from(c: &ServerConnection) -> Result<Self, Self::Error> {
         Ok(Self {
+            handshake: Duration::ZERO,
+
             sni: c
                 .server_name()
                 .ok_or_else(|| anyhow!("No SNI found"))
@@ -74,11 +77,12 @@ impl TryFrom<&ServerConnection> for TlsInfo {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ConnInfo {
     pub accepted_at: Instant,
     pub local_addr: SocketAddr,
     pub remote_addr: SocketAddr,
+    pub stats: Arc<Stats>,
     pub tls: Option<TlsInfo>,
 }
 
@@ -95,8 +99,8 @@ struct Conn {
 impl Conn {
     async fn tls_handshake(
         &self,
-        stream: TcpStream,
-    ) -> Result<(TlsStream<TcpStream>, TlsInfo), Error> {
+        stream: impl AsyncReadWrite,
+    ) -> Result<(impl AsyncReadWrite, TlsInfo), Error> {
         debug!(
             "Server {}: {}: performing TLS handshake",
             self.addr, self.remote_addr
@@ -107,7 +111,8 @@ impl Conn {
         let latency = start.elapsed();
 
         let conn = stream.get_ref().1;
-        let tls_info = TlsInfo::try_from(conn)?;
+        let mut tls_info = TlsInfo::try_from(conn)?;
+        tls_info.handshake = latency;
 
         debug!(
             "Server {}: {}: handshake finished in {}ms (server: {}, proto: {:?}, cipher: {:?}, ALPN: {})",
@@ -134,6 +139,10 @@ impl Conn {
         // Disable Nagle's algo
         stream.set_nodelay(true)?;
 
+        // Wrap with counting
+        let stats = Arc::new(Stats::new());
+        let stream = AsyncCounter::new(stream, stats.clone());
+
         // Perform TLS handshake if we're in TLS mode
         let (stream, tls_info): (Box<dyn AsyncReadWrite>, _) = if self.tls_acceptor.is_some() {
             let (mut stream, tls_info) = self.tls_handshake(stream).await?;
@@ -141,7 +150,10 @@ impl Conn {
             // Close the connection if agreed ALPN is not HTTP - probably it was an ACME challenge
             if !is_http_alpn(tls_info.alpn.as_bytes()) {
                 debug!("Not HTTP ALPN ('{}') - closing connection", tls_info.alpn);
-                stream.shutdown().await.context("error in shutdown()")?;
+                stream
+                    .shutdown()
+                    .await
+                    .context("unable to shutdown stream")?;
                 return Ok(());
             }
 
@@ -156,6 +168,7 @@ impl Conn {
             accepted_at,
             local_addr: self.addr,
             remote_addr: self.remote_addr,
+            stats,
             tls: tls_info,
         };
         let conn_info = Arc::new(conn_info);

@@ -9,31 +9,28 @@ use tokio::{select, sync::Mutex};
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
 
-use crate::tasks::Run;
+use crate::tasks::{Run, TaskManager};
 
 use super::AcmeOptions;
 
-pub struct AcmeAlpn {
-    // Mutex here is only to make it Sync
-    state: Mutex<AcmeState<IoError, IoError>>,
-}
+// Mutex here is only to make it Sync
+pub struct AcmeAlpn(Mutex<AcmeState<IoError, IoError>>);
 
 impl AcmeAlpn {
-    #[allow(clippy::all)]
-    pub fn new(opts: AcmeOptions) -> Result<(Arc<dyn Run>, Arc<dyn ResolvesServerCert>), Error> {
+    #[allow(clippy::new_ret_no_self)]
+    pub fn new(
+        opts: AcmeOptions,
+        tasks: &mut TaskManager,
+    ) -> Result<Arc<dyn ResolvesServerCert>, Error> {
         let state = AcmeConfig::new(opts.domains)
             .contact_push(opts.contact)
             .directory_lets_encrypt(!opts.staging);
 
         let state = state.cache(DirCache::new(opts.cache_path)).state();
         let resolver = state.resolver();
+        tasks.add("acme_alpn_runner", Arc::new(Self(Mutex::new(state))));
 
-        Ok((
-            Arc::new(Self {
-                state: Mutex::new(state),
-            }),
-            resolver,
-        ))
+        Ok(resolver)
     }
 }
 
@@ -41,24 +38,24 @@ impl AcmeAlpn {
 impl Run for AcmeAlpn {
     async fn run(&self, token: CancellationToken) -> Result<(), Error> {
         #[allow(clippy::significant_drop_tightening)]
-        let mut state = self.state.lock().await;
+        let mut state = self.0.lock().await;
 
-        warn!("ACMEALPN: started");
+        warn!("ACME-ALPN: started");
         loop {
             select! {
                 biased; // Poll top-down
 
                 () = token.cancelled() => {
-                    warn!("ACMEALPN: shutting down");
+                    warn!("ACME-ALPN: exiting");
                     return Ok(());
                 },
 
                 // Kick the ACME process forward
                 res = state.next() => {
                     match res {
-                        Some(Ok(v)) => warn!("ACMEALPN: success: {v:?}"),
-                        Some(Err(e)) => warn!("ACMEALPN: error: {e}"),
-                        _ => warn!("ACMEALPN: unexpected None"),
+                        Some(Ok(v)) => warn!("ACME-ALPN: success: {v:?}"),
+                        Some(Err(e)) => warn!("ACME-ALPN: error: {e}"),
+                        _ => warn!("ACME-ALPN: unexpected None"),
                     }
                 }
             }

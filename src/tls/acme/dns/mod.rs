@@ -108,33 +108,33 @@ impl AcmeDns {
         let cert = self.acme.load().await?;
         let ckey = pem_convert_to_rustls(&cert.key, &cert.cert)?;
         self.cert.store(Some(ckey.cert));
-        warn!("ACMEDNS: Certificate loaded");
+        warn!("ACME-DNS: Certificate loaded");
         Ok(())
     }
 
     // Checks if certificate is still valid & reissues if needed
     async fn refresh(&self) {
         match self.acme.is_valid().await {
-            Err(e) => warn!("ACMEDNS: Unable to check validity: {e}"),
+            Err(e) => warn!("ACME-DNS: Unable to check validity: {e}"),
 
             Ok(Validity::Valid) => {
-                warn!("ACMEDNS: Certificate is still valid");
+                warn!("ACME-DNS: Certificate is still valid");
 
                 if self.cert.load_full().is_none() {
                     if let Err(e) = self.reload().await {
-                        error!("ACMEDNS: Unable to load certificate: {e}");
+                        error!("ACME-DNS: Unable to load certificate: {e}");
                     }
                 }
             }
 
             Ok(v) => {
-                warn!("ACMEDNS: Certificate needs to be renewed ({v})");
+                warn!("ACME-DNS: Certificate needs to be renewed ({v})");
                 if let Err(e) = self.acme.issue().await {
-                    error!("ACMEDNS: Unable to issue a certificate: {e}");
+                    error!("ACME-DNS: Unable to issue a certificate: {e}");
                 }
 
                 if let Err(e) = self.reload().await {
-                    error!("ACMEDNS: Unable to load certificate: {e}");
+                    error!("ACME-DNS: Unable to load certificate: {e}");
                 }
             }
         }
@@ -166,7 +166,7 @@ impl Run for AcmeDns {
                 biased;
 
                 () = token.cancelled() => {
-                    warn!("ACMEDNS: Runner exiting");
+                    warn!("ACME-DNS: exiting");
                     return Ok(());
                 }
 
