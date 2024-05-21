@@ -17,6 +17,7 @@ pub struct Row {
     pub date: time::OffsetDateTime,
     #[serde(with = "clickhouse::serde::uuid")]
     pub request_id: uuid::Uuid,
+    pub conn_id: uuid::Uuid,
     pub method: String,
     pub http_version: String,
     pub status: u16,
@@ -27,8 +28,10 @@ pub struct Row {
     pub error_cause: String,
     pub tls_version: String,
     pub tls_cipher: String,
-    pub request_size: u64,
-    pub response_size: u64,
+    pub req_sent: u64,
+    pub req_rcvd: u64,
+    pub conn_sent: u64,
+    pub conn_rcvd: u64,
     pub duration: f64,
     pub duration_full: f64,
     pub duration_conn: f64,
@@ -129,7 +132,7 @@ impl ClickhouseActor {
                 // If the thresholds are not reached - it doesn't do anything.
                 _ = interval.tick() => {
                     match self.inserter.commit().await {
-                        Ok(v) => debug!("Clickhouse: {} rows inserted", v.entries),
+                        Ok(v) => debug!("Clickhouse: rows inserted: {}", v.entries),
                         Err(e) => error!("Clickhouse: unable to commit: {e}"),
                     }
                 }

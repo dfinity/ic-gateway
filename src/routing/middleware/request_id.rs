@@ -28,6 +28,6 @@ pub async fn middleware(mut request: Request, next: Next) -> Response {
 
 impl Display for RequestId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0.hyphenated())
+        write!(f, "{}", self.0)
     }
 }

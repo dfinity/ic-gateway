@@ -28,7 +28,10 @@ use tower_http::compression::CompressionLayer;
 use tracing::{debug, info, warn};
 
 use crate::{
-    http::{calc_headers_size, http_version, server::ConnInfo},
+    http::{
+        calc_headers_size, http_version,
+        server::{ConnInfo, TlsInfo},
+    },
     log::clickhouse::{Clickhouse, Row},
     routing::{error_cause::ErrorCause, middleware::request_id::RequestId, RequestCtx},
     tasks::{Run, TaskManager},
@@ -247,6 +250,7 @@ impl HttpMetrics {
 pub async fn middleware(
     State(state): State<Arc<HttpMetrics>>,
     Extension(conn_info): Extension<Arc<ConnInfo>>,
+    tls_info: Option<Extension<Arc<TlsInfo>>>,
     Extension(request_id): Extension<RequestId>,
     request: Request,
     next: Next,
@@ -285,8 +289,7 @@ pub async fn middleware(
     let response_callback = move |response_size: u64, _: Result<(), String>| {
         let duration_full = start.elapsed();
 
-        let (tls_version, tls_cipher, tls_handshake) = conn_info
-            .tls
+        let (tls_version, tls_cipher, tls_handshake) = tls_info
             .as_ref()
             .map(|x| {
                 (
@@ -340,9 +343,14 @@ pub async fn middleware(
             .map(|x| x.canister.id.to_string())
             .unwrap_or_else(|| "unknown".into());
 
+        let conn_rcvd = conn_info.traffic.rcvd();
+        let conn_sent = conn_info.traffic.sent();
+        let conn_req_count = conn_info.req_count.load(Ordering::SeqCst);
+
         // Log the request
         info!(
             request_id = request_id.to_string(),
+            conn_id = conn_info.id.to_string(),
             method = method.as_str(),
             http = http_version,
             status,
@@ -359,8 +367,9 @@ pub async fn middleware(
             dur = duration.as_millis(),
             dur_full = duration_full.as_millis(),
             dur_conn = conn_info.accepted_at.elapsed().as_millis(),
-            conn_rcvd = conn_info.stats.rcvd(),
-            conn_sent = conn_info.stats.sent(),
+            conn_rcvd,
+            conn_sent,
+            conn_reqs = conn_req_count,
         );
 
         if let Some(v) = &state.clickhouse {
@@ -369,6 +378,7 @@ pub async fn middleware(
                 hostname: state.hostname.clone(),
                 date: timestamp,
                 request_id: request_id.0,
+                conn_id: conn_info.id,
                 method: method.as_str().to_string(),
                 http_version: http_version.to_string(),
                 status,
@@ -379,8 +389,10 @@ pub async fn middleware(
                 error_cause,
                 tls_version: tls_version.into(),
                 tls_cipher: tls_cipher.into(),
-                request_size,
-                response_size,
+                req_rcvd: request_size,
+                req_sent: response_size,
+                conn_rcvd,
+                conn_sent,
                 duration: duration.as_secs_f64(),
                 duration_full: duration_full.as_secs_f64(),
                 duration_conn: conn_info.accepted_at.elapsed().as_secs_f64(),

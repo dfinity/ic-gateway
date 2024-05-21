@@ -1,10 +1,11 @@
 use std::path::PathBuf;
 
-use crate::tls::cert::{pem_convert_to_rustls, providers::ProvidesCertificates, CertKey};
 use anyhow::{Context, Error};
 use async_trait::async_trait;
 use tokio::fs::read_dir;
-use tracing::info;
+use tracing::debug;
+
+use crate::tls::cert::{pem_convert_to_rustls, providers::ProvidesCertificates, CertKey};
 
 // It searches for .pem files in the given directory and tries to find the
 // corresponding .key files with the same base name.
@@ -55,7 +56,7 @@ impl ProvidesCertificates for Provider {
             certs.push(cert);
         }
 
-        info!(
+        debug!(
             "Dir provider ({}): {} certs loaded",
             self.path.to_string_lossy(),
             certs.len()

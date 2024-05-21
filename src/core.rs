@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Error};
+use itertools::Itertools;
 use prometheus::Registry;
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
@@ -26,6 +27,12 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         return Err(anyhow!(
             "No domains to serve specified (use --domain/--domain-system/--domain-app)"
         ));
+    }
+
+    for (&d, &c) in &domains.iter().counts() {
+        if c > 1 {
+            return Err(anyhow!("Domain '{d}' specified more than once"));
+        }
     }
 
     // Install crypto-provider
@@ -78,11 +85,14 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         clickhouse.clone(),
     )?;
 
+    let metrics = http::server::Metrics::new(&registry);
+
     // Set up HTTP
     let http_server = Arc::new(http::Server::new(
         cli.http_server.http,
         router.clone(),
         (&cli.http_server).into(),
+        metrics.clone(),
         None,
     ));
     tasks.add("http_server", http_server);
@@ -103,6 +113,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         cli.http_server.https,
         router,
         (&cli.http_server).into(),
+        metrics.clone(),
         Some(rustls_cfg),
     ));
     tasks.add("https_server", https_server);
@@ -115,12 +126,13 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
             addr,
             router,
             (&cli.http_server).into(),
+            metrics.clone(),
             None,
         ));
         tasks.add("metrics_server", srv);
     }
 
-    // Spawn & track runners
+    // Spawn & track tasks
     tasks.start(&token);
 
     warn!("Service is running, waiting for the shutdown signal");

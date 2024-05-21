@@ -17,7 +17,7 @@ use http::{HeaderMap, Version};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 pub use client::{Client, ReqwestClient};
-pub use server::{ConnInfo, Server};
+pub use server::{ConnInfo, Server, TlsInfo};
 
 pub const ALPN_H1: &[u8] = b"http/1.1";
 pub const ALPN_H2: &[u8] = b"h2";

@@ -7,7 +7,7 @@ use axum::{
 };
 
 use crate::{
-    http::ConnInfo,
+    http::TlsInfo,
     routing::{ErrorCause, RequestCtx},
 };
 
@@ -15,8 +15,8 @@ use super::extract_authority;
 use crate::routing::canister::ResolvesCanister;
 
 pub async fn middleware(
-    Extension(conn_info): Extension<Arc<ConnInfo>>,
     State(resolver): State<Arc<dyn ResolvesCanister>>,
+    tls_info: Option<Extension<Arc<TlsInfo>>>,
     mut request: Request,
     next: Next,
 ) -> Result<impl IntoResponse, ErrorCause> {
@@ -27,7 +27,7 @@ pub async fn middleware(
     };
 
     // If it's a TLS request - check that authority matches SNI
-    if let Some(v) = &conn_info.tls {
+    if let Some(v) = tls_info {
         if v.sni != authority {
             return Err(ErrorCause::SNIMismatch);
         }

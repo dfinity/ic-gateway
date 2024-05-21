@@ -15,7 +15,7 @@ use futures::future::join_all;
 use rustls::{crypto::aws_lc_rs, sign::CertifiedKey};
 use tokio::select;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 use x509_parser::prelude::*;
 
 use crate::tasks::Run;
@@ -186,9 +186,9 @@ impl Run for Aggregator {
                         Ok(v) => v,
                     };
 
-                    info!("CertAggregator: {} certs fetched", certs.len());
+                    debug!("CertAggregator: {} certs fetched:", certs.len());
                     for v in &certs {
-                        debug!("CertAggregator: cert loaded: {:?}", v.san);
+                        debug!("CertAggregator: {:?}", v.san);
                     }
 
                     if let Err(e) = self.storage.store(certs) {
