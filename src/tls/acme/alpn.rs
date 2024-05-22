@@ -1,4 +1,4 @@
-use std::{io::Error as IoError, sync::Arc};
+use std::{io, sync::Arc};
 
 use anyhow::Error;
 use async_trait::async_trait;
@@ -13,8 +13,8 @@ use crate::tasks::{Run, TaskManager};
 
 use super::AcmeOptions;
 
-// Mutex here is only to make it Sync
-pub struct AcmeAlpn(Mutex<AcmeState<IoError, IoError>>);
+// Mutex here is only to make it Send+Sync
+pub struct AcmeAlpn(Mutex<AcmeState<io::Error, io::Error>>);
 
 impl AcmeAlpn {
     #[allow(clippy::new_ret_no_self)]

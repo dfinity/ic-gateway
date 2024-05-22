@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Error};
+use axum::Router;
 use itertools::Itertools;
 use prometheus::Registry;
 use tokio_util::sync::CancellationToken;
@@ -75,8 +76,8 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         storage.clone(),
     )?;
 
-    // Create a router
-    let router = routing::setup_router(
+    // Create routers
+    let https_router = routing::setup_router(
         cli,
         &mut tasks,
         http_client.clone(),
@@ -84,15 +85,17 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         Arc::new(canister_resolver),
         clickhouse.clone(),
     )?;
+    let http_router = Router::new().fallback(routing::redirect_to_https);
 
-    let metrics = http::server::Metrics::new(&registry);
+    // HTTP server metrics
+    let http_metrics = http::server::Metrics::new(&registry);
 
     // Set up HTTP
     let http_server = Arc::new(http::Server::new(
         cli.http_server.http,
-        router.clone(),
+        http_router,
         (&cli.http_server).into(),
-        metrics.clone(),
+        http_metrics.clone(),
         None,
     ));
     tasks.add("http_server", http_server);
@@ -111,9 +114,9 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
 
     let https_server = Arc::new(http::Server::new(
         cli.http_server.https,
-        router,
+        https_router,
         (&cli.http_server).into(),
-        metrics.clone(),
+        http_metrics.clone(),
         Some(rustls_cfg),
     ));
     tasks.add("https_server", https_server);
@@ -126,7 +129,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
             addr,
             router,
             (&cli.http_server).into(),
-            metrics.clone(),
+            http_metrics,
             None,
         ));
         tasks.add("metrics_server", srv);

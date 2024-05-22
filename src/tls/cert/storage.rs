@@ -3,6 +3,7 @@ use std::{collections::HashMap, str::FromStr, sync::Arc};
 use anyhow::{anyhow, Error};
 use arc_swap::ArcSwapOption;
 use candid::Principal;
+use derive_new::new;
 use fqdn::{Fqdn, FQDN};
 use rustls::{server::ClientHello, sign::CertifiedKey};
 
@@ -20,20 +21,15 @@ struct StorageInner<T: Clone> {
 }
 
 // Generic shared certificate storage
-#[derive(Debug)]
+#[derive(Debug, new)]
 pub struct Storage<T: Clone> {
+    #[new(default)]
     inner: ArcSwapOption<StorageInner<T>>,
 }
 
 pub type StorageKey = Storage<Arc<CertifiedKey>>;
 
 impl<T: Clone> Storage<T> {
-    pub fn new() -> Self {
-        Self {
-            inner: ArcSwapOption::empty(),
-        }
-    }
-
     // Looks up cert by hostname in SubjectAlternativeName table
     fn lookup_cert(&self, hostname: &str) -> Option<T> {
         // Try to parse hostname as FQDN

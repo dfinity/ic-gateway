@@ -295,7 +295,7 @@ pub async fn middleware(
                 (
                     x.protocol.as_str().unwrap(),
                     x.cipher.as_str().unwrap(),
-                    x.handshake,
+                    x.handshake_dur,
                 )
             })
             .unwrap_or(("no", "no", Duration::ZERO));

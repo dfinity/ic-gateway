@@ -1,4 +1,5 @@
 use std::{
+    fmt::Display,
     net::SocketAddr,
     str::FromStr,
     sync::{
@@ -125,7 +126,7 @@ pub struct TlsInfo {
     pub alpn: String,
     pub protocol: ProtocolVersion,
     pub cipher: CipherSuite,
-    pub handshake: Duration,
+    pub handshake_dur: Duration,
 }
 
 impl TryFrom<&ServerConnection> for TlsInfo {
@@ -133,7 +134,7 @@ impl TryFrom<&ServerConnection> for TlsInfo {
 
     fn try_from(c: &ServerConnection) -> Result<Self, Self::Error> {
         Ok(Self {
-            handshake: Duration::ZERO,
+            handshake_dur: Duration::ZERO,
 
             sni: c
                 .server_name()
@@ -177,28 +178,31 @@ struct Conn {
     tls_acceptor: Option<TlsAcceptor>,
 }
 
+impl Display for Conn {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Server {}: {}", self.addr, self.remote_addr,)
+    }
+}
+
 impl Conn {
     async fn tls_handshake(
         &self,
         stream: impl AsyncReadWrite,
     ) -> Result<(impl AsyncReadWrite, TlsInfo), Error> {
-        debug!(
-            "Server {}: {}: performing TLS handshake",
-            self.addr, self.remote_addr
-        );
+        debug!("{}: performing TLS handshake", self);
 
+        // Perform the TLS handshake
         let start = Instant::now();
         let stream = self.tls_acceptor.as_ref().unwrap().accept(stream).await?;
         let duration = start.elapsed();
 
         let conn = stream.get_ref().1;
         let mut tls_info = TlsInfo::try_from(conn)?;
-        tls_info.handshake = duration;
+        tls_info.handshake_dur = duration;
 
         debug!(
-            "Server {}: {}: handshake finished in {}ms (server: {}, proto: {:?}, cipher: {:?}, ALPN: {})",
-            self.addr,
-            self.remote_addr,
+            "{}: handshake finished in {}ms (server: {}, proto: {:?}, cipher: {:?}, ALPN: {})",
+            self,
             duration.as_millis(),
             tls_info.sni,
             tls_info.protocol,
@@ -212,10 +216,7 @@ impl Conn {
     async fn handle(&self, stream: TcpStream) -> Result<(), Error> {
         let accepted_at = Instant::now();
 
-        debug!(
-            "Server {}: {}: got a new connection",
-            self.addr, self.remote_addr
-        );
+        debug!("{}: got a new connection", self);
 
         // Prepare metric labels
         let addr = self.addr.to_string();
@@ -236,7 +237,7 @@ impl Conn {
         self.metrics.conns_open.with_label_values(labels).inc();
 
         // Disable Nagle's algo
-        stream.set_nodelay(true)?;
+        stream.set_nodelay(true).context("unable to set NODELAY")?;
 
         // Wrap with traffic counter
         let stats = Arc::new(Stats::new());
@@ -278,8 +279,8 @@ impl Conn {
             .observe(reqs as f64);
 
         debug!(
-            "Server {}: {} ({}): connection closed (rcvd: {}, sent: {}, reqs: {}, duration: {})",
-            self.addr, self.remote_addr, conn_info.id, rcvd, sent, reqs, dur,
+            "{}: connection closed (rcvd: {}, sent: {}, reqs: {}, duration: {})",
+            self, rcvd, sent, reqs, dur,
         );
 
         result
@@ -297,8 +298,8 @@ impl Conn {
             // Close the connection if agreed ALPN is not HTTP - probably it was an ACME challenge
             if !is_http_alpn(tls_info.alpn.as_bytes()) {
                 debug!(
-                    "Server {}: {}: Not HTTP ALPN ('{}') - closing connection",
-                    self.addr, self.remote_addr, tls_info.alpn
+                    "{}: Not HTTP ALPN ('{}') - closing connection",
+                    self, tls_info.alpn
                 );
 
                 stream

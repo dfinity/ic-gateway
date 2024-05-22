@@ -103,11 +103,11 @@ pub struct Dns {
 #[derive(Args)]
 pub struct HttpServer {
     /// Where to listen for HTTP
-    #[clap(long = "http-server-listen-plain", default_value = "[::1]:8080")]
+    #[clap(long = "http-server-plain", default_value = "127.0.0.1:8080")]
     pub http: SocketAddr,
 
     /// Where to listen for HTTPS
-    #[clap(long = "http-server-listen-tls", default_value = "[::1]:8443")]
+    #[clap(long = "http-server-tls", default_value = "127.0.0.1:8443")]
     pub https: SocketAddr,
 
     /// Backlog of incoming connections to set on the listening socket.

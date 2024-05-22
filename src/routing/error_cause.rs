@@ -187,3 +187,31 @@ impl From<anyhow::Error> for ErrorCause {
         Self::Other(e.to_string())
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_error_cause() {
+        let err = anyhow::Error::new(rustls::Error::NoCertificatesPresented);
+        assert!(matches!(
+            ErrorCause::from(err),
+            ErrorCause::BackendTLSErrorCert(_)
+        ));
+
+        let err = anyhow::Error::new(rustls::Error::InvalidCertificate(
+            rustls::CertificateError::ApplicationVerificationFailure,
+        ));
+        assert!(matches!(
+            ErrorCause::from(err),
+            ErrorCause::BackendTLSErrorCert(_)
+        ));
+
+        let err = anyhow::Error::new(rustls::Error::BadMaxFragmentSize);
+        assert!(matches!(
+            ErrorCause::from(err),
+            ErrorCause::BackendTLSErrorOther(_)
+        ));
+    }
+}
