@@ -29,5 +29,7 @@ async fn main() -> Result<(), Error> {
     log::setup_logging(&cli.log).context("unable to setup logging")?;
     warn!("Env: {}, Hostname: {}", cli.misc.env, cli.misc.hostname);
 
+    //tls::ocsp::req().await;
+
     core::main(&cli).await
 }

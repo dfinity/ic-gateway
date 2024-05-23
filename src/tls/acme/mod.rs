@@ -11,16 +11,19 @@ use anyhow::{anyhow, Context, Error};
 use async_trait::async_trait;
 use derive_new::new;
 use instant_acme::{
-    Account, AccountCredentials, Authorization, AuthorizationStatus, ChallengeType, Identifier,
-    LetsEncrypt, NewAccount, NewOrder, Order, OrderStatus,
+    Account, AccountCredentials, AuthorizationStatus, ChallengeType, Identifier, LetsEncrypt,
+    NewAccount, NewOrder, Order, OrderStatus,
 };
-use itertools::Itertools;
 use rcgen::{CertificateParams, DistinguishedName, KeyPair};
 use strum_macros::{Display, EnumString};
 use tokio::fs;
-use tracing::info;
+use tracing::{debug, info};
+use x509_parser::prelude::*;
 
-use crate::tls::cert::{extract_san_from_der, extract_validity_from_der};
+use crate::tls::cert::extract_sans;
+
+const FILE_CERT: &str = "cert.pem";
+const FILE_KEY: &str = "cert.key";
 
 #[derive(Clone, Display, EnumString, PartialEq, Eq)]
 #[strum(serialize_all = "snake_case")]
@@ -185,7 +188,7 @@ impl Acme {
         Ok(order)
     }
 
-    async fn process_authorizations(&self, order: &mut Order) -> Result<Vec<Authorization>, Error> {
+    async fn process_authorizations(&self, order: &mut Order) -> Result<(), Error> {
         let authorizations = order
             .authorizations()
             .await
@@ -221,11 +224,12 @@ impl Acme {
                 .await
                 .context("unable to set challenge token")?;
 
+            debug!("ACME: token '{token}' for challenge id '{id}' set");
             challenges.push((id, token, &challenge.url));
         }
 
         // Give it a bit time to settle
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        tokio::time::sleep(Duration::from_secs(30)).await;
 
         // Verify that the tokens are set & mark challenges as ready
         for (id, token, url) in challenges {
@@ -234,34 +238,27 @@ impl Acme {
                 .await
                 .context("unable to verify that the token is set")?;
 
+            debug!("ACME: token '{token}' for challenge id '{id}' verified, marking ready");
+
             order
                 .set_challenge_ready(url)
                 .await
                 .context("unable to set challenge as ready")?;
         }
 
-        Ok(authorizations)
+        Ok(())
     }
 
-    async fn cleanup(&self, authorizations: Vec<Authorization>) -> Result<(), Error> {
-        let ids = authorizations
-            .into_iter()
-            .map(|x| {
-                let Identifier::Dns(v) = x.identifier;
-                v
-            })
-            .unique()
-            .collect::<Vec<_>>();
-
-        for id in ids {
-            self.token_manager.unset(&id).await?;
+    async fn cleanup(&self) -> Result<(), Error> {
+        for id in &self.domains {
+            self.token_manager.unset(id).await?;
         }
 
         Ok(())
     }
 
-    // Poll the order with increasing intervals until it reaches some final state
-    // backoff crate does not work here nicely because of &mut
+    // Poll the order with increasing intervals until it reaches some final state.
+    // backoff crate does not work here nicely because of &mut.
     async fn poll_order(&self, order: &mut Order, expect: OrderStatus) -> Result<(), Error> {
         let mut delay = Duration::from_millis(500);
         let mut retries = 8;
@@ -273,7 +270,7 @@ impl Acme {
                 }
 
                 if state.status == OrderStatus::Invalid {
-                    return Err(anyhow!("order is in invalid state"));
+                    return Err(anyhow!("order is in Invalid state"));
                 }
             }
 
@@ -287,8 +284,8 @@ impl Acme {
 
     pub async fn load(&self) -> Result<Cert, Error> {
         Ok(Cert {
-            cert: tokio::fs::read(self.cache_path.join("cert.pem")).await?,
-            key: tokio::fs::read(self.cache_path.join("cert.key")).await?,
+            cert: tokio::fs::read(self.cache_path.join(FILE_CERT)).await?,
+            key: tokio::fs::read(self.cache_path.join(FILE_KEY)).await?,
         })
     }
 
@@ -303,17 +300,18 @@ impl Acme {
                 return Ok(Validity::NoCertsFound);
             }
 
-            let cert = certs[0].as_ref();
+            let cert = X509Certificate::from_der(certs[0].as_ref())
+                .context("Unable to parse DER-encoded certificate")?
+                .1;
 
             // Check if it's time to renew
-            let validity = extract_validity_from_der(cert)?;
             let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-            if now > validity.not_after.timestamp() as u64 - self.renew_before.as_secs() {
+            if now > cert.validity().not_after.timestamp() as u64 - self.renew_before.as_secs() {
                 return Ok(Validity::Expires);
             }
 
             // Check if cert's SANs match the domains that we have
-            let mut sans = extract_san_from_der(cert)?;
+            let mut sans = extract_sans(&cert)?;
             let mut names = self.generate_names();
             sans.sort();
             names.sort();
@@ -328,12 +326,25 @@ impl Acme {
     }
 
     pub async fn issue(&self) -> Result<(), Error> {
+        let res = self.issue_inner().await;
+
+        // Cleanup the tokens
+        info!("ACME: Cleaning up");
+        self.cleanup().await.context("unable to cleanup tokens")?;
+
+        res
+    }
+
+    async fn issue_inner(&self) -> Result<(), Error> {
         let mut order = self.prepare_order().await?;
-        info!("ACME: Order for {:?} obtained", self.domains);
+        info!(
+            "ACME: Order for {:?} obtained (status: {:?})",
+            self.domains,
+            order.state().status
+        );
 
         // Process authorizations and fulfill their challenges
-        let authorizations = self
-            .process_authorizations(&mut order)
+        self.process_authorizations(&mut order)
             .await
             .context("unable to process authorizations")?;
 
@@ -374,18 +385,12 @@ impl Acme {
             .ok_or_else(|| anyhow!("certificate not found"))?;
 
         // Store the resulting cert & key
-        tokio::fs::write(self.cache_path.join("cert.pem"), cert)
+        tokio::fs::write(self.cache_path.join(FILE_CERT), cert)
             .await
             .context("unable to store certificate")?;
-        tokio::fs::write(self.cache_path.join("cert.key"), key_pair.serialize_pem())
+        tokio::fs::write(self.cache_path.join(FILE_KEY), key_pair.serialize_pem())
             .await
             .context("unable to store private key")?;
-
-        // Cleanup the tokens
-        info!("ACME: Cleaning up");
-        self.cleanup(authorizations)
-            .await
-            .context("unable to cleanup tokens")?;
 
         Ok(())
     }

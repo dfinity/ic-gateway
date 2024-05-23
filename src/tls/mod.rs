@@ -27,7 +27,10 @@ use crate::{
     },
 };
 
-use self::acme::Challenge;
+use self::{
+    acme::Challenge,
+    cert::ocsp::{Stapler, Staples},
+};
 
 use {
     acme::{
@@ -104,9 +107,7 @@ async fn setup_acme(
 
         acme::Challenge::Dns => {
             let dns_backend = match cli.acme.acme_dns_backend {
-                None => return Err(anyhow!("No DNS backend set")),
-
-                Some(DnsBackend::Cloudflare) => {
+                DnsBackend::Cloudflare => {
                     let path = cli
                         .acme
                         .acme_dns_cloudflare_token
@@ -181,7 +182,20 @@ pub async fn setup(
     ));
     tasks.add("cert_aggregator", cert_aggregator);
 
-    let resolve_aggregator = Arc::new(AggregatingResolver::new(acme_resolver, vec![storage]));
+    let ocsp_stapler = if !cli.cert.ocsp_stapling_disable {
+        let stapler = Arc::new(Stapler::new());
+        tasks.add("ocsp_stapler", stapler.clone());
+        Some(stapler as Arc<dyn Staples>)
+    } else {
+        None
+    };
+
+    let resolve_aggregator = Arc::new(AggregatingResolver::new(
+        acme_resolver,
+        vec![storage],
+        ocsp_stapler,
+    ));
+
     let config = prepare_server_config(
         resolve_aggregator,
         cli.acme.acme_challenge == Some(Challenge::Alpn),
@@ -194,7 +208,7 @@ pub async fn setup(
 mod test {
     use fqdn::fqdn;
 
-    use crate::tls::sni_matches;
+    use super::*;
 
     #[test]
     fn test_sni_matches() {

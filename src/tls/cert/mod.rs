@@ -1,3 +1,4 @@
+pub mod ocsp;
 pub mod providers;
 pub mod storage;
 
@@ -13,6 +14,7 @@ use candid::Principal;
 use fqdn::Fqdn;
 use futures::future::join_all;
 use rustls::{crypto::aws_lc_rs, sign::CertifiedKey};
+use sha1::Digest;
 use tokio::select;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
@@ -32,7 +34,7 @@ pub struct CustomDomain {
 // Generic certificate and a list of its SANs
 #[derive(Clone, Debug)]
 pub struct Cert<T: Clone + Send + Sync> {
-    san: Vec<String>,
+    pub san: Vec<String>,
     pub cert: T,
     pub custom: Option<CustomDomain>,
 }
@@ -71,21 +73,9 @@ fn parse_general_name(name: &GeneralName<'_>) -> Result<Option<String>, Error> {
     Ok(Some(name))
 }
 
-pub fn extract_validity_from_der(cert: &[u8]) -> Result<Validity, Error> {
-    let cert = X509Certificate::from_der(cert)
-        .context("Unable to parse DER-encoded certificate")?
-        .1;
-
-    Ok(cert.validity().to_owned())
-}
-
 // Extracts a list of SubjectAlternativeName from a single certificate, formatted as strings.
 // Skips everything except DNSName and IPAddress
-pub fn extract_san_from_der(cert: &[u8]) -> Result<Vec<String>, Error> {
-    let cert = X509Certificate::from_der(cert)
-        .context("Unable to parse DER-encoded certificate")?
-        .1;
-
+pub fn extract_sans(cert: &X509Certificate) -> Result<Vec<String>, Error> {
     for ext in cert.extensions() {
         if let ParsedExtension::SubjectAlternativeName(san) = ext.parsed_extension() {
             let names = san
@@ -117,20 +107,28 @@ pub fn pem_convert_to_rustls(key: &[u8], certs: &[u8]) -> Result<CertKey, Error>
         return Err(anyhow!("No certificates found"));
     }
 
+    let cert = X509Certificate::from_der(certs[0].as_ref())
+        .context("Unable to parse DER-encoded certificate")?
+        .1;
+
     // Extract a list of SANs from the 1st certificate in the chain (the leaf one)
-    let san = extract_san_from_der(certs[0].as_ref())?;
+    let san = extract_sans(&cert)?;
     if san.is_empty() {
         return Err(anyhow!(
             "No supported names found in SubjectAlternativeName extension"
         ));
     }
 
+    // Hash entire cert body to use as Id
+    let hash = sha1::Sha1::digest(certs[0].as_ref()).to_vec();
+
     // Parse key
     let key = aws_lc_rs::sign::any_supported_type(&key)?;
+    let cert_key = CertifiedKey::new(certs, key);
 
     Ok(Cert {
         san,
-        cert: Arc::new(CertifiedKey::new(certs, key)),
+        cert: Arc::new(cert_key),
         custom: None,
     })
 }
@@ -156,7 +154,8 @@ impl Aggregator {
         // Flatten them into a single vector
         let certs = certs
             .into_iter()
-            .collect::<Result<Vec<_>, _>>()?
+            .collect::<Result<Vec<_>, _>>()
+            .context("unable to fetch certificates")?
             .into_iter()
             .flatten()
             .collect::<Vec<_>>();

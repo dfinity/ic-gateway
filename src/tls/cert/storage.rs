@@ -1,4 +1,4 @@
-use std::{collections::HashMap, str::FromStr, sync::Arc};
+use std::{collections::BTreeMap, str::FromStr, sync::Arc};
 
 use anyhow::{anyhow, Error};
 use arc_swap::ArcSwapOption;
@@ -15,23 +15,25 @@ pub trait StoresCertificates<T: Clone + Send + Sync>: Send + Sync {
 }
 
 #[derive(Debug)]
-struct StorageInner<T: Clone> {
-    certs: HashMap<String, T>,
-    canisters: HashMap<FQDN, Principal>,
+struct StorageInner<T: Clone + Send + Sync> {
+    // BTreeMap seems to be faster than HashMap
+    // for smaller datasets due to cache locality
+    certs: BTreeMap<String, Arc<Cert<T>>>,
+    canisters: BTreeMap<FQDN, Principal>,
 }
 
 // Generic shared certificate storage
 #[derive(Debug, new)]
-pub struct Storage<T: Clone> {
+pub struct Storage<T: Clone + Send + Sync> {
     #[new(default)]
     inner: ArcSwapOption<StorageInner<T>>,
 }
 
 pub type StorageKey = Storage<Arc<CertifiedKey>>;
 
-impl<T: Clone> Storage<T> {
+impl<T: Clone + Send + Sync> Storage<T> {
     // Looks up cert by hostname in SubjectAlternativeName table
-    fn lookup_cert(&self, hostname: &str) -> Option<T> {
+    fn lookup_cert(&self, hostname: &str) -> Option<Arc<Cert<T>>> {
         // Try to parse hostname as FQDN
         let fqdn = FQDN::from_str(hostname).ok()?;
 
@@ -52,13 +54,13 @@ impl<T: Clone> Storage<T> {
 
 impl<T: Clone + Send + Sync> StoresCertificates<T> for Storage<T> {
     // Update storage contents with a new list of Certs
-    fn store(&self, cert_list: Vec<Cert<T>>) -> Result<(), Error> {
-        let mut certs = HashMap::new();
-        let mut canisters = HashMap::new();
+    fn store(&self, certs_in: Vec<Cert<T>>) -> Result<(), Error> {
+        let mut certs = BTreeMap::new();
+        let mut canisters = BTreeMap::new();
 
-        for c in cert_list {
+        for cert in certs_in {
             // Take note of the canister ID
-            if let Some(v) = c.custom {
+            if let Some(v) = &cert.custom {
                 if canisters
                     .insert(FQDN::from_str(&v.name)?, v.canister_id)
                     .is_some()
@@ -67,8 +69,9 @@ impl<T: Clone + Send + Sync> StoresCertificates<T> for Storage<T> {
                 }
             }
 
-            for san in &c.san {
-                if certs.insert(san.clone(), c.cert.clone()).is_some() {
+            let cert = Arc::new(cert.clone());
+            for san in &cert.san {
+                if certs.insert(san.clone(), cert.clone()).is_some() {
                     return Err(anyhow!("Duplicate SAN detected: {san}"));
                 };
             }
@@ -92,7 +95,7 @@ impl resolver::ResolvesServerCert for StorageKey {
 
         // See if client provided us with an SNI
         let sni = ch.server_name()?;
-        self.lookup_cert(sni)
+        self.lookup_cert(sni).map(|x| x.cert.clone())
     }
 }
 
@@ -134,7 +137,6 @@ pub mod test {
         ];
 
         storage.store(certs).unwrap();
-
         storage
     }
 
@@ -144,27 +146,27 @@ pub mod test {
         let storage = create_test_storage();
 
         // Check SAN
-        assert_eq!(storage.lookup_cert("foo.bar"), Some("foo.bar.cert".into()));
+        assert_eq!(storage.lookup_cert("foo.bar").unwrap().cert, "foo.bar.cert");
         assert_eq!(
-            storage.lookup_cert("blah.foo.bar"),
-            Some("foo.bar.cert".into())
+            storage.lookup_cert("blah.foo.bar").unwrap().cert,
+            "foo.bar.cert",
         );
         assert_eq!(
-            storage.lookup_cert("blahblah.foo.bar"),
-            Some("foo.bar.cert".into())
+            storage.lookup_cert("blahblah.foo.bar").unwrap().cert,
+            "foo.bar.cert"
         );
-        assert_eq!(storage.lookup_cert("blah.blah.foo.bar"), None);
-        assert_eq!(storage.lookup_cert("foo.baz"), Some("foo.baz.cert".into()));
+        assert!(storage.lookup_cert("blah.blah.foo.bar").is_none());
+        assert_eq!(storage.lookup_cert("foo.baz").unwrap().cert, "foo.baz.cert");
         assert_eq!(
-            storage.lookup_cert("bar.foo.baz"),
-            Some("foo.baz.cert".into())
+            storage.lookup_cert("bar.foo.baz").unwrap().cert,
+            "foo.baz.cert"
         );
         assert_eq!(
-            storage.lookup_cert("blah.foo.baz"),
-            Some("foo.baz.cert".into())
+            storage.lookup_cert("blah.foo.baz").unwrap().cert,
+            "foo.baz.cert"
         );
-        assert_eq!(storage.lookup_cert("foo.foo"), None);
-        assert_eq!(storage.lookup_cert("bad:hostname"), None);
+        assert!(storage.lookup_cert("foo.foo").is_none());
+        assert!(storage.lookup_cert("bad:hostname").is_none());
 
         // Ensure that duplicate SAN fails
         let certs = vec![Cert {
@@ -173,7 +175,7 @@ pub mod test {
             custom: None,
         }];
 
-        assert!(matches!(storage.store(certs), Err(_)));
+        assert!(storage.store(certs).is_err());
 
         // Ensure that duplicate custom domain name fails
         let certs = vec![
@@ -195,14 +197,14 @@ pub mod test {
             },
         ];
 
-        assert!(matches!(storage.store(certs), Err(_)));
+        assert!(storage.store(certs).is_err());
 
         // Check custom domain lookup
         assert_eq!(
             storage.lookup_custom_domain(&fqdn!("foo.baz")),
             Some(canister_id)
         );
-        assert_eq!(storage.lookup_custom_domain(&fqdn!("foo.bar")), None);
+        assert!(storage.lookup_custom_domain(&fqdn!("foo.bar")).is_none());
 
         Ok(())
     }

@@ -145,6 +145,10 @@ pub struct Cert {
     /// How frequently to poll providers for certificates
     #[clap(long = "cert-poll-interval", default_value = "10s", value_parser = parse_duration)]
     pub poll_interval: Duration,
+
+    /// Disable OCSP stapling
+    #[clap(long = "cert-ocsp-stapling-disable")]
+    pub ocsp_stapling_disable: bool,
 }
 
 #[derive(Args)]
@@ -207,8 +211,8 @@ pub struct Acme {
     pub acme_cache_path: Option<PathBuf>,
 
     /// DNS backend to use when using DNS challenge. Currently only "cloudflare" is supported.
-    #[clap(long = "acme-dns-backend")]
-    pub acme_dns_backend: Option<acme::dns::DnsBackend>,
+    #[clap(long = "acme-dns-backend", default_value = "cloudflare")]
+    pub acme_dns_backend: acme::dns::DnsBackend,
 
     /// Cloudflare API URL
     #[clap(

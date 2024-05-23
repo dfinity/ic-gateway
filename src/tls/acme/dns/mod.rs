@@ -1,6 +1,6 @@
 pub mod cloudflare;
 
-use anyhow::Error;
+use anyhow::{Context, Error};
 use arc_swap::ArcSwapOption;
 use async_trait::async_trait;
 use backoff::ExponentialBackoffBuilder;
@@ -14,7 +14,7 @@ use rustls::{
 use std::{str::FromStr, sync::Arc, time::Duration};
 use strum_macros::{Display, EnumString};
 use tokio_util::sync::CancellationToken;
-use tracing::{error, warn};
+use tracing::{debug, error, warn};
 
 use super::{Acme, TokenManager, Validity};
 use crate::{
@@ -113,31 +113,33 @@ impl AcmeDns {
     }
 
     // Checks if certificate is still valid & reissues if needed
-    async fn refresh(&self) {
-        match self.acme.is_valid().await {
-            Err(e) => warn!("ACME-DNS: Unable to check validity: {e}"),
+    async fn refresh(&self) -> Result<(), Error> {
+        let validity = self
+            .acme
+            .is_valid()
+            .await
+            .context("unable to check validity")?;
 
-            Ok(Validity::Valid) => {
-                warn!("ACME-DNS: Certificate is still valid");
+        match validity {
+            Validity::Valid => {
+                debug!("ACME-DNS: Certificate is still valid");
 
                 if self.cert.load_full().is_none() {
-                    if let Err(e) = self.reload().await {
-                        error!("ACME-DNS: Unable to load certificate: {e}");
-                    }
+                    self.reload().await.context("unable to load certificate")?;
                 }
             }
 
-            Ok(v) => {
-                warn!("ACME-DNS: Certificate needs to be renewed ({v})");
-                if let Err(e) = self.acme.issue().await {
-                    error!("ACME-DNS: Unable to issue a certificate: {e}");
-                }
-
-                if let Err(e) = self.reload().await {
-                    error!("ACME-DNS: Unable to load certificate: {e}");
-                }
+            _ => {
+                warn!("ACME-DNS: Certificate needs to be renewed ({validity})");
+                self.acme
+                    .issue()
+                    .await
+                    .context("unable to issue a certificate")?;
+                self.reload().await.context("unable to load certificate")?;
             }
         }
+
+        Ok(())
     }
 }
 
@@ -170,7 +172,11 @@ impl Run for AcmeDns {
                     return Ok(());
                 }
 
-                _ = interval.tick() => self.refresh().await,
+                _ = interval.tick() => {
+                    if let Err(e) = self.refresh().await {
+                        error!("ACME-DNS: unable to refresh: {e:#}");
+                    }
+                },
             }
         }
     }

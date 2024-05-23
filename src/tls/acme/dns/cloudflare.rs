@@ -101,7 +101,7 @@ impl Cloudflare {
 impl DnsManager for Cloudflare {
     async fn create(&self, zone: &str, name: &str, record: Record, ttl: u32) -> Result<(), Error> {
         // Search zone
-        let zone_id = self.find_zone(zone).await?;
+        let zone_id = self.find_zone(zone).await.context("unable to find zone")?;
 
         // Create record
         let content = match record {
@@ -126,12 +126,13 @@ impl DnsManager for Cloudflare {
 
     async fn delete(&self, zone: &str, name: &str) -> Result<(), Error> {
         // Search zone
-        let zone_id = self.find_zone(zone).await?;
+        let zone_id = self.find_zone(zone).await.context("unable to find zone")?;
 
         // Find records
         let resp = self
             .find_record(&zone_id, format!("{}.{}", name, zone))
-            .await?;
+            .await
+            .context("unable to find records")?;
 
         // Delete all matching records
         for record in resp.result {
