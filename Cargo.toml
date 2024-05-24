@@ -52,6 +52,7 @@ maxminddb = "0.24"
 mockall = "0.12"
 moka = { version = "0.12", features = ["sync", "future"] }
 num-bigint = { version = "0.4.5", features = ["serde"] }
+ocsp-stapler = "0.1"
 once_cell = "1.19"
 prometheus = "0.13"
 rand = "0.8"

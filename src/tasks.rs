@@ -6,7 +6,7 @@ use derive_new::new;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::error;
 
-use crate::http;
+use crate::{http, tls::cert};
 
 // Long running task that can be cancelled by a token
 #[async_trait]
@@ -52,5 +52,14 @@ impl TaskManager {
 impl Run for http::Server {
     async fn run(&self, token: CancellationToken) -> Result<(), Error> {
         self.serve(token).await
+    }
+}
+
+#[async_trait]
+impl Run for ocsp_stapler::Stapler {
+    async fn run(&self, token: CancellationToken) -> Result<(), Error> {
+        token.cancelled().await;
+        self.stop().await;
+        Ok(())
     }
 }

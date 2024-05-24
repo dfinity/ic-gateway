@@ -1,4 +1,3 @@
-pub mod ocsp;
 pub mod providers;
 pub mod storage;
 
@@ -22,8 +21,9 @@ use x509_parser::prelude::*;
 
 use crate::tasks::Run;
 use providers::ProvidesCertificates;
-pub use storage::Storage;
 use storage::StoresCertificates;
+
+pub use storage::Storage;
 
 #[derive(Clone, Debug)]
 pub struct CustomDomain {

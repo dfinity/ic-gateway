@@ -7,6 +7,7 @@ use std::{fs, sync::Arc};
 use anyhow::{anyhow, Context, Error};
 use fqdn::{Fqdn, FQDN};
 use instant_acme::ChallengeType;
+use ocsp_stapler::Stapler;
 use rustls::{
     client::{ClientConfig, ClientSessionMemoryCache, Resumption},
     server::{
@@ -27,10 +28,7 @@ use crate::{
     },
 };
 
-use self::{
-    acme::Challenge,
-    cert::ocsp::{Stapler, Staples},
-};
+use self::acme::Challenge;
 
 use {
     acme::{
@@ -182,22 +180,19 @@ pub async fn setup(
     ));
     tasks.add("cert_aggregator", cert_aggregator);
 
-    let ocsp_stapler = if !cli.cert.ocsp_stapling_disable {
-        let stapler = Arc::new(Stapler::new());
+    let certificate_resolver = Arc::new(AggregatingResolver::new(acme_resolver, vec![storage]));
+
+    let certificate_resolver: Arc<dyn ResolvesServerCertRustls> = if !cli.cert.ocsp_stapling_disable
+    {
+        let stapler = Arc::new(Stapler::new(certificate_resolver));
         tasks.add("ocsp_stapler", stapler.clone());
-        Some(stapler as Arc<dyn Staples>)
+        stapler
     } else {
-        None
+        certificate_resolver
     };
 
-    let resolve_aggregator = Arc::new(AggregatingResolver::new(
-        acme_resolver,
-        vec![storage],
-        ocsp_stapler,
-    ));
-
     let config = prepare_server_config(
-        resolve_aggregator,
+        certificate_resolver,
         cli.acme.acme_challenge == Some(Challenge::Alpn),
     );
 
