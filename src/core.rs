@@ -108,6 +108,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         http_client.clone(),
         storage,
         Arc::new(dns_resolver),
+        &registry,
     )
     .await
     .context("unable to setup TLS")?;

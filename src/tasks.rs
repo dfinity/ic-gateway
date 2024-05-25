@@ -6,7 +6,7 @@ use derive_new::new;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::error;
 
-use crate::{http, tls::cert};
+use crate::http;
 
 // Long running task that can be cancelled by a token
 #[async_trait]

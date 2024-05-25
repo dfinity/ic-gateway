@@ -13,7 +13,6 @@ use candid::Principal;
 use fqdn::Fqdn;
 use futures::future::join_all;
 use rustls::{crypto::aws_lc_rs, sign::CertifiedKey};
-use sha1::Digest;
 use tokio::select;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
@@ -118,9 +117,6 @@ pub fn pem_convert_to_rustls(key: &[u8], certs: &[u8]) -> Result<CertKey, Error>
             "No supported names found in SubjectAlternativeName extension"
         ));
     }
-
-    // Hash entire cert body to use as Id
-    let hash = sha1::Sha1::digest(certs[0].as_ref()).to_vec();
 
     // Parse key
     let key = aws_lc_rs::sign::any_supported_type(&key)?;

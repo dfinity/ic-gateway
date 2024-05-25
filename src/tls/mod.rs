@@ -8,6 +8,7 @@ use anyhow::{anyhow, Context, Error};
 use fqdn::{Fqdn, FQDN};
 use instant_acme::ChallengeType;
 use ocsp_stapler::Stapler;
+use prometheus::Registry;
 use rustls::{
     client::{ClientConfig, ClientSessionMemoryCache, Resumption},
     server::{
@@ -48,7 +49,7 @@ pub fn sni_matches(host: &Fqdn, domains: &[FQDN], wildcard: bool) -> bool {
 
 pub fn prepare_server_config(
     resolver: Arc<dyn ResolvesServerCertRustls>,
-    acme: bool,
+    additional_alpn: Vec<Vec<u8>>,
 ) -> ServerConfig {
     let mut cfg = ServerConfig::builder_with_protocol_versions(&[&TLS13, &TLS12])
         .with_no_client_auth()
@@ -57,11 +58,7 @@ pub fn prepare_server_config(
     // Create custom session storage with higher limit to allow effective TLS session resumption
     cfg.session_storage = ServerSessionMemoryCache::new(131_072);
     cfg.alpn_protocols = vec![ALPN_H2.to_vec(), ALPN_H1.to_vec()];
-
-    // Support ACME challenge ALPN too if requested
-    if acme {
-        cfg.alpn_protocols.push(ACME_TLS_ALPN_NAME.to_vec());
-    }
+    cfg.alpn_protocols.extend_from_slice(&additional_alpn);
 
     cfg
 }
@@ -144,6 +141,7 @@ pub async fn setup(
     http_client: Arc<dyn Client>,
     storage: Arc<StorageKey>,
     dns_resolver: Arc<dyn Resolves>,
+    registry: &Registry,
 ) -> Result<ServerConfig, Error> {
     let mut providers: Vec<Arc<dyn ProvidesCertificates>> = vec![];
 
@@ -173,6 +171,7 @@ pub async fn setup(
         ));
     }
 
+    // Create certificate aggregator that combines all providers
     let cert_aggregator = Arc::new(Aggregator::new(
         providers,
         storage.clone(),
@@ -180,20 +179,27 @@ pub async fn setup(
     ));
     tasks.add("cert_aggregator", cert_aggregator);
 
+    // Set up certificate resolver
     let certificate_resolver = Arc::new(AggregatingResolver::new(acme_resolver, vec![storage]));
 
+    // Optionally wrap resolver with OCSP stapler
     let certificate_resolver: Arc<dyn ResolvesServerCertRustls> = if !cli.cert.ocsp_stapling_disable
     {
-        let stapler = Arc::new(Stapler::new(certificate_resolver));
+        let stapler = Arc::new(Stapler::new_with_registry(certificate_resolver, registry));
         tasks.add("ocsp_stapler", stapler.clone());
         stapler
     } else {
         certificate_resolver
     };
 
+    // Generate Rustls config
     let config = prepare_server_config(
         certificate_resolver,
-        cli.acme.acme_challenge == Some(Challenge::Alpn),
+        if cli.acme.acme_challenge == Some(Challenge::Alpn) {
+            vec![ACME_TLS_ALPN_NAME.to_vec()]
+        } else {
+            vec![]
+        },
     );
 
     Ok(config)
