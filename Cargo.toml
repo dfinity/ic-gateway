@@ -20,9 +20,13 @@ clap = { version = "4.5", features = ["derive", "string"] }
 clap_derive = "4.5"
 clickhouse = { version = "0.11", features = ["uuid", "time"] }
 ctrlc = { version = "3.4", features = ["termination"] }
-# cloudflare v0.11 is broken, master is fixed but unreleased yet.
-# see https://github.com/cloudflare/cloudflare-rs/issues/222
-cloudflare = { version = "0.10", feature = ["rustls-tls"] }
+# cloudflare v0.11 is broken, master is partly fixed but unreleased yet.
+# see:
+# - https://github.com/cloudflare/cloudflare-rs/issues/222
+# - https://github.com/cloudflare/cloudflare-rs/issues/236
+cloudflare = { git = "https://github.com/blind-oracle/cloudflare-rs.git", feature = [
+    "rustls-tls",
+] }
 dashmap = "5.5"
 derive-new = "0.6"
 fqdn = "0.3"

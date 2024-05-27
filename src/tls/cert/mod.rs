@@ -150,8 +150,7 @@ impl Aggregator {
         // Flatten them into a single vector
         let certs = certs
             .into_iter()
-            .collect::<Result<Vec<_>, _>>()
-            .context("unable to fetch certificates")?
+            .collect::<Result<Vec<_>, _>>()?
             .into_iter()
             .flatten()
             .collect::<Vec<_>>();
@@ -175,7 +174,7 @@ impl Run for Aggregator {
                 _ = interval.tick() => {
                     let certs = match self.fetch().await {
                         Err(e) => {
-                            warn!("CertAggregator: unable to fetch certificates: {e}");
+                            warn!("CertAggregator: unable to fetch certificates: {e:#}");
                             continue;
                         }
                         Ok(v) => v,

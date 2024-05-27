@@ -174,7 +174,6 @@ pub mod test {
             cert: "foo.bar.cert".into(),
             custom: None,
         }];
-
         assert!(storage.store(certs).is_err());
 
         // Ensure that duplicate custom domain name fails
@@ -196,7 +195,6 @@ pub mod test {
                 }),
             },
         ];
-
         assert!(storage.store(certs).is_err());
 
         // Check custom domain lookup

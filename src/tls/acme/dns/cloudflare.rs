@@ -9,10 +9,8 @@ use cloudflare::{
         zone::{ListZones, ListZonesParams, Zone},
     },
     framework::{
-        async_api::{ApiClient, Client},
-        auth::Credentials,
-        response::ApiSuccess,
-        Environment, HttpApiClientConfig,
+        async_api::Client, auth::Credentials, response::ApiSuccess, Environment,
+        HttpApiClientConfig,
     },
 };
 use url::Url;
@@ -100,8 +98,11 @@ impl Cloudflare {
 #[async_trait]
 impl DnsManager for Cloudflare {
     async fn create(&self, zone: &str, name: &str, record: Record, ttl: u32) -> Result<(), Error> {
-        // Search zone
-        let zone_id = self.find_zone(zone).await.context("unable to find zone")?;
+        // Find zone
+        let zone_id = self
+            .find_zone(zone)
+            .await
+            .context(format!("unable to find zone '{zone}'"))?;
 
         // Create record
         let content = match record {
@@ -125,8 +126,11 @@ impl DnsManager for Cloudflare {
     }
 
     async fn delete(&self, zone: &str, name: &str) -> Result<(), Error> {
-        // Search zone
-        let zone_id = self.find_zone(zone).await.context("unable to find zone")?;
+        // Find zone
+        let zone_id = self
+            .find_zone(zone)
+            .await
+            .context(format!("unable to find zone '{zone}'"))?;
 
         // Find records
         let resp = self
