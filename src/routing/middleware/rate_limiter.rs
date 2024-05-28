@@ -27,31 +27,26 @@ impl KeyExtractor for IpKeyExtractor {
     }
 }
 
-pub struct RateLimitMiddlewareBuilder;
+pub fn build_rate_limiter_middleware<T: KeyExtractor>(
+    rps: u32,
+    burst_size: u32,
+    key_extractor: T,
+) -> Option<ServiceBuilder<Stack<GovernorLayer<'static, T, NoOpMiddleware<QuantaInstant>>, Identity>>>
+{
+    let period = Duration::from_secs(1).checked_div(rps)?;
+    let governor_conf = Box::new(
+        GovernorConfigBuilder::default()
+            .period(period)
+            .burst_size(burst_size)
+            .key_extractor(key_extractor)
+            .finish()?,
+    );
 
-impl RateLimitMiddlewareBuilder {
-    pub fn build<T: KeyExtractor>(
-        rps: u32,
-        burst_size: u32,
-        key_extractor: T,
-    ) -> Option<
-        ServiceBuilder<Stack<GovernorLayer<'static, T, NoOpMiddleware<QuantaInstant>>, Identity>>,
-    > {
-        let period = Duration::from_secs(1).checked_div(rps)?;
-        let governor_conf = Box::new(
-            GovernorConfigBuilder::default()
-                .period(period)
-                .burst_size(burst_size)
-                .key_extractor(key_extractor)
-                .finish()?,
-        );
+    let gov_layer = GovernorLayer {
+        config: Box::leak(governor_conf),
+    };
 
-        let gov_layer = GovernorLayer {
-            config: Box::leak(governor_conf),
-        };
-
-        Some(ServiceBuilder::new().layer(gov_layer))
-    }
+    Some(ServiceBuilder::new().layer(gov_layer))
 }
 
 #[cfg(test)]
@@ -71,7 +66,7 @@ mod tests {
         http::{ConnInfo, Stats},
         routing::{
             error_cause::ErrorCause,
-            middleware::rate_limiter::{IpKeyExtractor, RateLimitMiddlewareBuilder},
+            middleware::rate_limiter::{build_rate_limiter_middleware, IpKeyExtractor},
         },
     };
 
@@ -100,7 +95,7 @@ mod tests {
         let rps = 1;
         let burst_size = 5;
 
-        let rate_limiter_mw = RateLimitMiddlewareBuilder::build(rps, burst_size, IpKeyExtractor)
+        let rate_limiter_mw = build_rate_limiter_middleware(rps, burst_size, IpKeyExtractor)
             .expect("failed to build middleware");
 
         let mut app = Router::new()
@@ -129,7 +124,7 @@ mod tests {
         let rps = 10;
         let burst_size = 1;
 
-        let rate_limiter_mw = RateLimitMiddlewareBuilder::build(rps, burst_size, IpKeyExtractor)
+        let rate_limiter_mw = build_rate_limiter_middleware(rps, burst_size, IpKeyExtractor)
             .expect("failed to build middleware");
 
         let mut app = Router::new()
@@ -162,7 +157,7 @@ mod tests {
         let rps = 1;
         let burst_size = 1;
 
-        let rate_limiter_mw = RateLimitMiddlewareBuilder::build(rps, burst_size, IpKeyExtractor)
+        let rate_limiter_mw = build_rate_limiter_middleware(rps, burst_size, IpKeyExtractor)
             .expect("failed to build middleware");
 
         let mut app = Router::new()
