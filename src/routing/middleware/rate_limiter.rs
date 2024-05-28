@@ -31,13 +31,13 @@ pub struct RateLimitMiddlewareBuilder;
 
 impl RateLimitMiddlewareBuilder {
     pub fn build<T: KeyExtractor>(
-        rps: u64,
+        rps: u32,
         burst_size: u32,
         key_extractor: T,
     ) -> Option<
         ServiceBuilder<Stack<GovernorLayer<'static, T, NoOpMiddleware<QuantaInstant>>, Identity>>,
     > {
-        let period = Duration::from_nanos((1_000_000_000.0 / rps as f64) as u64);
+        let period = Duration::from_secs(1).checked_div(rps)?;
         let governor_conf = Box::new(
             GovernorConfigBuilder::default()
                 .period(period)
