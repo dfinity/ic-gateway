@@ -2,6 +2,7 @@ use std::{net::IpAddr, sync::Arc, time::Duration};
 
 use ::governor::{clock::QuantaInstant, middleware::NoOpMiddleware};
 use axum::extract::Request;
+use http::StatusCode;
 use tower::{
     layer::util::{Identity, Stack},
     ServiceBuilder,
@@ -23,7 +24,11 @@ impl KeyExtractor for IpKeyExtractor {
         req.extensions()
             .get::<Arc<ConnInfo>>()
             .map(|x| x.remote_addr.ip())
-            .ok_or(GovernorError::UnableToExtractKey)
+            .ok_or(GovernorError::Other {
+                code: StatusCode::INTERNAL_SERVER_ERROR,
+                msg: Some("missing remote ip address in request".to_string()),
+                headers: None,
+            })
     }
 }
 
@@ -51,13 +56,19 @@ pub fn build_rate_limiter_middleware<T: KeyExtractor>(
 
 #[cfg(test)]
 mod tests {
+    use axum::{
+        body::{to_bytes, Body},
+        extract::Request,
+        response::IntoResponse,
+        routing::post,
+        Router,
+    };
+    use http::StatusCode;
     use std::{
         sync::{atomic::AtomicU64, Arc},
         time::Duration,
     };
 
-    use axum::{body::Body, extract::Request, response::IntoResponse, routing::post, Router};
-    use http::StatusCode;
     use tokio::time::sleep;
     use tower::Service;
     use uuid::Uuid;
@@ -169,5 +180,8 @@ mod tests {
         let result = app.call(request).await.unwrap();
 
         assert_eq!(result.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let res = to_bytes(result.into_body(), 100).await.unwrap().to_vec();
+        let msg = String::from_utf8(res).unwrap();
+        assert_eq!(msg, "missing remote ip address in request".to_string());
     }
 }
