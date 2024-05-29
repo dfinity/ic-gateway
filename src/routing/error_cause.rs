@@ -1,13 +1,19 @@
-use std::fmt;
+use std::{
+    error::Error as StdError,
+    fmt::{self},
+};
 
+use anyhow::anyhow;
 use axum::response::{IntoResponse, Response};
 use hickory_resolver::error::ResolveError;
 use http::StatusCode;
+use ic_agent::AgentError;
 use strum_macros::Display;
 
 // Process error chain trying to find given error type
-pub fn error_infer<E: std::error::Error + 'static>(error: &anyhow::Error) -> Option<&E> {
+pub fn error_infer<E: StdError + Send + Sync + 'static>(error: &anyhow::Error) -> Option<&E> {
     for cause in error.chain() {
+        println!("{:?}", cause);
         if let Some(e) = cause.downcast_ref() {
             return Some(e);
         }
@@ -30,6 +36,7 @@ pub enum ErrorCause {
     UnableToParseCBOR(String),
     UnableToParseHTTPArg(String),
     LoadShed,
+    RequestTooLarge,
     MalformedRequest(String),
     MalformedResponse(String),
     NoAuthority,
@@ -40,6 +47,7 @@ pub enum ErrorCause {
     NoRoutingTable,
     SubnetNotFound,
     NoHealthyNodes,
+    AgentError(String),
     BackendErrorDNS(String),
     BackendErrorConnect,
     BackendTimeout,
@@ -48,6 +56,7 @@ pub enum ErrorCause {
     BackendErrorOther(String),
     RateLimited(RateLimitCause),
     Other(String),
+    Unknown,
 }
 
 impl ErrorCause {
@@ -59,11 +68,13 @@ impl ErrorCause {
             Self::UnableToParseCBOR(_) => StatusCode::BAD_REQUEST,
             Self::UnableToParseHTTPArg(_) => StatusCode::BAD_REQUEST,
             Self::LoadShed => StatusCode::TOO_MANY_REQUESTS,
+            Self::RequestTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
             Self::MalformedRequest(_) => StatusCode::BAD_REQUEST,
             Self::MalformedResponse(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Self::NoAuthority => StatusCode::BAD_REQUEST,
             Self::CanisterIdNotFound => StatusCode::BAD_REQUEST,
             Self::SNIMismatch => StatusCode::BAD_REQUEST,
+            Self::AgentError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Self::DomainCanisterMismatch => StatusCode::FORBIDDEN,
             Self::Denylisted => StatusCode::UNAVAILABLE_FOR_LEGAL_REASONS,
             Self::NoRoutingTable => StatusCode::SERVICE_UNAVAILABLE,
@@ -76,6 +87,7 @@ impl ErrorCause {
             Self::BackendTLSErrorCert(_) => StatusCode::SERVICE_UNAVAILABLE,
             Self::BackendErrorOther(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Self::RateLimited(_) => StatusCode::TOO_MANY_REQUESTS,
+            Self::Unknown => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 
@@ -93,6 +105,7 @@ impl ErrorCause {
             Self::BackendTLSErrorOther(x) => Some(x.clone()),
             Self::BackendTLSErrorCert(x) => Some(x.clone()),
             Self::BackendErrorOther(x) => Some(x.clone()),
+            Self::AgentError(x) => Some(x.clone()),
             _ => None,
         }
     }
@@ -106,6 +119,14 @@ impl ErrorCause {
                 | Self::BackendTLSErrorCert(_)
         )
     }
+
+    pub fn from_boxed(e: Box<dyn StdError + Send + Sync>) -> Self {
+        anyhow!(e).into()
+    }
+
+    pub fn from_err(e: impl StdError + Send + Sync + 'static) -> Self {
+        anyhow::Error::new(e).into()
+    }
 }
 
 impl fmt::Display for ErrorCause {
@@ -117,6 +138,7 @@ impl fmt::Display for ErrorCause {
             Self::UnableToParseCBOR(_) => write!(f, "unable_to_parse_cbor"),
             Self::UnableToParseHTTPArg(_) => write!(f, "unable_to_parse_http_arg"),
             Self::LoadShed => write!(f, "load_shed"),
+            Self::RequestTooLarge => write!(f, "request_too_large"),
             Self::MalformedRequest(_) => write!(f, "malformed_request"),
             Self::MalformedResponse(_) => write!(f, "malformed_response"),
             Self::CanisterIdNotFound => write!(f, "canister_id_not_found"),
@@ -124,6 +146,7 @@ impl fmt::Display for ErrorCause {
             Self::DomainCanisterMismatch => write!(f, "domain_canister_mismatch"),
             Self::Denylisted => write!(f, "denylisted"),
             Self::NoAuthority => write!(f, "no_authority"),
+            Self::AgentError(_) => write!(f, "agent_error"),
             Self::NoRoutingTable => write!(f, "no_routing_table"),
             Self::SubnetNotFound => write!(f, "subnet_not_found"),
             Self::NoHealthyNodes => write!(f, "no_healthy_nodes"),
@@ -134,6 +157,7 @@ impl fmt::Display for ErrorCause {
             Self::BackendTLSErrorCert(_) => write!(f, "backend_tls_error_cert"),
             Self::BackendErrorOther(_) => write!(f, "backend_error_other"),
             Self::RateLimited(x) => write!(f, "rate_limited_{x}"),
+            Self::Unknown => write!(f, "unknown"),
         }
     }
 }
@@ -155,6 +179,10 @@ impl IntoResponse for ErrorCause {
 
 impl From<anyhow::Error> for ErrorCause {
     fn from(e: anyhow::Error) -> Self {
+        if let Some(e) = error_infer::<AgentError>(&e) {
+            return Self::AgentError(e.to_string());
+        }
+
         // Check if it's a DNS error
         if let Some(e) = error_infer::<ResolveError>(&e) {
             return Self::BackendErrorDNS(e.to_string());
@@ -182,6 +210,10 @@ impl From<anyhow::Error> for ErrorCause {
             if e.is_timeout() {
                 return Self::BackendTimeout;
             }
+        }
+
+        if error_infer::<http_body_util::LengthLimitError>(&e).is_some() {
+            return Self::RequestTooLarge;
         }
 
         Self::Other(e.to_string())
@@ -213,5 +245,17 @@ mod test {
             ErrorCause::from(err),
             ErrorCause::BackendTLSErrorOther(_)
         ));
+
+        let err = Box::new(rustls::Error::BadMaxFragmentSize) as Box<dyn StdError + Send + Sync>;
+        let err2 = anyhow!(err);
+        // let mut iter = err2.chain();
+        // println!("{:?}", iter.next());
+        // println!("{:?}", iter.next());
+
+        //let err = ErrorCause::from_boxed(err);
+        println!("{:?}", error_infer::<Box<rustls::Error>>(&err2));
+
+        assert!(false);
+        //assert!(matches!(err, ErrorCause::BackendTLSErrorOther(_)));
     }
 }

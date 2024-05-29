@@ -13,7 +13,7 @@ use crate::tasks::{Run, TaskManager};
 
 use super::AcmeOptions;
 
-// Mutex here is only to make it Send+Sync
+// Mutex here is only to make it Sync
 pub struct AcmeAlpn(Mutex<AcmeState<io::Error, io::Error>>);
 
 impl AcmeAlpn {

@@ -45,10 +45,8 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     let token = CancellationToken::new();
     let registry = Registry::new();
     let dns_resolver = http::dns::Resolver::new((&cli.dns).into());
-    let http_client = Arc::new(http::ReqwestClient::new(
-        (&cli.http_client).into(),
-        dns_resolver.clone(),
-    )?);
+    let reqwest_client = http::client::new((&cli.http_client).into(), dns_resolver.clone())?;
+    let http_client = Arc::new(http::ReqwestClient::new(reqwest_client.clone()));
     let clickhouse = if cli.log.clickhouse.log_clickhouse_url.is_some() {
         Some(Arc::new(
             log::clickhouse::Clickhouse::new(&cli.log.clickhouse)

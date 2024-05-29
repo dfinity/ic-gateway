@@ -308,7 +308,7 @@ pub struct Clickhouse {
     #[clap(long = "log-clickhouse-batch", default_value = "250000")]
     pub log_clickhouse_batch: u64,
 
-    /// Clickhouse flush interval
+    /// Clickhouse batch flush interval
     #[clap(long = "log-clickhouse-interval", value_parser = parse_duration, default_value = "5s")]
     pub log_clickhouse_interval: Duration,
 }

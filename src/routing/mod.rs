@@ -1,6 +1,7 @@
 pub mod body;
 pub mod canister;
 pub mod error_cause;
+pub mod handler;
 pub mod middleware;
 pub mod proxy;
 
@@ -8,7 +9,7 @@ use std::sync::Arc;
 
 use anyhow::Error;
 use axum::{
-    extract::{Host, OriginalUri, Request},
+    extract::{Host, OriginalUri},
     middleware::{from_fn, from_fn_with_state, FromFnLayer},
     response::{IntoResponse, Redirect},
     routing::{get, post},
@@ -17,6 +18,7 @@ use axum::{
 use axum_extra::middleware::option_layer;
 use fqdn::FQDN;
 use http::{uri::PathAndQuery, Uri};
+
 use prometheus::Registry;
 use tower::ServiceBuilder;
 
@@ -59,10 +61,6 @@ pub async fn redirect_to_https(
             .unwrap()
             .to_string(),
     )
-}
-
-async fn handler(_request: Request) -> impl IntoResponse {
-    "foobar"
 }
 
 pub fn setup_router(
@@ -126,8 +124,23 @@ pub fn setup_router(
         .layer(option_layer(denylist_mw))
         .layer(option_layer(canister_match_mw));
 
+    // Prepare the HTTP-IC library
+    let transport =
+        ic_agent::agent::http_transport::ReqwestTransport::create("https://icp-api.io")?;
+    let agent = ic_agent::Agent::builder()
+        .with_transport(transport)
+        .build()?;
+    let gw = ic_http_gateway::HttpGatewayClientBuilder::new()
+        .with_agent(agent)
+        .build()?;
+    let handler_state = Arc::new(handler::HandlerState::new(gw));
+
     let router = axum::Router::new()
-        .route("/", get(handler))
+        .fallback(
+            get(handler::handler)
+                .post(handler::handler)
+                .with_state(handler_state),
+        )
         .layer(common_layers);
 
     // Setup issuer proxy endpoint if we have them configured
