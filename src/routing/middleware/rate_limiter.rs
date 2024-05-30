@@ -1,8 +1,7 @@
 use std::{net::IpAddr, sync::Arc, time::Duration};
 
 use ::governor::{clock::QuantaInstant, middleware::NoOpMiddleware};
-use axum::extract::Request;
-use http::StatusCode;
+use axum::{extract::Request, response::IntoResponse};
 use tower::{
     layer::util::{Identity, Stack},
     ServiceBuilder,
@@ -10,8 +9,12 @@ use tower::{
 use tower_governor::{
     governor::GovernorConfigBuilder, key_extractor::KeyExtractor, GovernorError, GovernorLayer,
 };
+use tracing::debug;
 
-use crate::http::ConnInfo;
+use crate::{
+    http::ConnInfo,
+    routing::error_cause::{ErrorCause, RateLimitCause},
+};
 
 #[derive(Clone)]
 pub struct IpKeyExtractor;
@@ -24,11 +27,7 @@ impl KeyExtractor for IpKeyExtractor {
         req.extensions()
             .get::<Arc<ConnInfo>>()
             .map(|x| x.remote_addr.ip())
-            .ok_or(GovernorError::Other {
-                code: StatusCode::INTERNAL_SERVER_ERROR,
-                msg: Some("missing remote ip address in request".to_string()),
-                headers: None,
-            })
+            .ok_or(GovernorError::UnableToExtractKey)
     }
 }
 
@@ -42,6 +41,20 @@ pub fn build_rate_limiter_middleware<T: KeyExtractor>(
     let governor_conf = Box::new(
         GovernorConfigBuilder::default()
             .period(period)
+            .error_handler(|err| match err {
+                GovernorError::TooManyRequests { .. } => {
+                    ErrorCause::RateLimited(RateLimitCause::Normal).into_response()
+                }
+                GovernorError::UnableToExtractKey => {
+                    ErrorCause::RateLimited(RateLimitCause::UnableToExtractIpAddress)
+                        .into_response()
+                }
+                GovernorError::Other { code, msg, headers } => {
+                    let msg = format!("code={code}, msg={msg:?}, headers={headers:?}");
+                    debug!("Rate limiter failed unexpectedly: {msg}");
+                    ErrorCause::RateLimited(RateLimitCause::Other(msg)).into_response()
+                }
+            })
             .burst_size(burst_size)
             .key_extractor(key_extractor)
             .finish()?,
@@ -122,6 +135,8 @@ mod tests {
         // Once capacity is reached, request should fail with 429
         let result = send_request(&mut app).await.unwrap();
         assert_eq!(result.status(), StatusCode::TOO_MANY_REQUESTS);
+        let body = to_bytes(result.into_body(), 100).await.unwrap().to_vec();
+        assert_eq!(body, b"rate_limited_normal\n");
 
         // Wait so that requests can be accepted again.
         sleep(Duration::from_secs(1)).await;
@@ -155,6 +170,8 @@ mod tests {
         // This request is submitted without delay, thus 429.
         let result = send_request(&mut app).await.unwrap();
         assert_eq!(result.status(), StatusCode::TOO_MANY_REQUESTS);
+        let body = to_bytes(result.into_body(), 100).await.unwrap().to_vec();
+        assert_eq!(body, b"rate_limited_normal\n");
 
         // Wait so that requests can be accepted again.
         sleep(delay).await;
@@ -180,8 +197,7 @@ mod tests {
         let result = app.call(request).await.unwrap();
 
         assert_eq!(result.status(), StatusCode::INTERNAL_SERVER_ERROR);
-        let res = to_bytes(result.into_body(), 100).await.unwrap().to_vec();
-        let msg = String::from_utf8(res).unwrap();
-        assert_eq!(msg, "missing remote ip address in request".to_string());
+        let body = to_bytes(result.into_body(), 100).await.unwrap().to_vec();
+        assert_eq!(body, b"rate_limited_unable_to_extract_ip_address\n");
     }
 }
