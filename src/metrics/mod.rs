@@ -33,7 +33,10 @@ use crate::{
         server::{ConnInfo, TlsInfo},
     },
     log::clickhouse::{Clickhouse, Row},
-    routing::{error_cause::ErrorCause, middleware::request_id::RequestId, RequestCtx},
+    routing::{
+        error_cause::ErrorCause, ic::IcResponseStatus, middleware::request_id::RequestId,
+        RequestCtx,
+    },
     tasks::{Run, TaskManager},
 };
 use body::CountingBody;
@@ -278,6 +281,7 @@ pub async fn middleware(
 
     let ctx = response.extensions().get::<Arc<RequestCtx>>().cloned();
     let error_cause = response.extensions().get::<ErrorCause>().cloned();
+    let ic_status = response.extensions().get::<IcResponseStatus>().cloned();
     let status = response.status().as_u16();
 
     // By this time the channel should already have the data
@@ -347,6 +351,11 @@ pub async fn middleware(
         let conn_sent = conn_info.traffic.sent();
         let conn_req_count = conn_info.req_count.load(Ordering::SeqCst);
 
+        let (ic_streaming, ic_upgrade) = ic_status
+            .as_ref()
+            .map(|x| (x.streaming, x.metadata.upgraded_to_update_call))
+            .unwrap_or((false, false));
+
         // Log the request
         info!(
             request_id = request_id.to_string(),
@@ -361,6 +370,8 @@ pub async fn middleware(
             host,
             path,
             canister_id,
+            ic_streaming,
+            ic_upgrade,
             error = error_cause,
             req_size = request_size,
             resp_size = response_size,
@@ -386,6 +397,8 @@ pub async fn middleware(
                 host: host.into(),
                 path: path.into(),
                 canister_id,
+                ic_streaming,
+                ic_upgrade,
                 error_cause,
                 tls_version: tls_version.into(),
                 tls_cipher: tls_cipher.into(),

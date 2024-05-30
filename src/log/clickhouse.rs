@@ -25,6 +25,8 @@ pub struct Row {
     pub host: String,
     pub path: String,
     pub canister_id: String,
+    pub ic_streaming: bool,
+    pub ic_upgrade: bool,
     pub error_cause: String,
     pub tls_version: String,
     pub tls_cipher: String,

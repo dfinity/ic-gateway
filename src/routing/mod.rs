@@ -2,6 +2,7 @@ pub mod body;
 pub mod canister;
 pub mod error_cause;
 pub mod handler;
+pub mod ic;
 pub mod middleware;
 pub mod proxy;
 
@@ -18,7 +19,7 @@ use axum::{
 use axum_extra::middleware::option_layer;
 use fqdn::FQDN;
 use http::{uri::PathAndQuery, Uri};
-
+use ic_agent::agent::http_transport::route_provider::RoundRobinRouteProvider;
 use prometheus::Registry;
 use tower::ServiceBuilder;
 
@@ -125,17 +126,36 @@ pub fn setup_router(
         .layer(option_layer(canister_match_mw));
 
     // Prepare the HTTP-IC library
-    let transport =
-        ic_agent::agent::http_transport::ReqwestTransport::create("https://icp-api.io")?;
-    let agent = ic_agent::Agent::builder()
-        .with_transport(transport)
-        .build()?;
-    let gw = ic_http_gateway::HttpGatewayClientBuilder::new()
-        .with_agent(agent)
-        .build()?;
-    let handler_state = Arc::new(handler::HandlerState::new(gw));
+    let route_provider = Arc::new(RoundRobinRouteProvider::new(cli.ic.url.clone())?);
+    let client = ic::setup(cli, http_client.clone(), route_provider.clone())?;
+    let handler_state = Arc::new(handler::HandlerState::new(client));
 
-    let router = axum::Router::new()
+    let api_state = Arc::new(proxy::ApiProxyState::new(
+        http_client.clone(),
+        route_provider,
+    ));
+
+    let router = Router::new()
+        .route(
+            "/api/v2/canister/:id/query",
+            post(proxy::api_proxy).with_state(api_state.clone()),
+        )
+        .route(
+            "/api/v2/canister/:id/call",
+            post(proxy::api_proxy).with_state(api_state.clone()),
+        )
+        .route(
+            "/api/v2/canister/:id/read_state",
+            post(proxy::api_proxy).with_state(api_state.clone()),
+        )
+        .route(
+            "/api/v2/subnet/:id/read_state",
+            post(proxy::api_proxy).with_state(api_state.clone()),
+        )
+        .route(
+            "/api/v2/status",
+            get(proxy::api_proxy).with_state(api_state),
+        )
         .fallback(
             get(handler::handler)
                 .post(handler::handler)

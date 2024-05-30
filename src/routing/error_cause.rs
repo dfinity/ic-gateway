@@ -13,7 +13,6 @@ use strum_macros::Display;
 // Process error chain trying to find given error type
 pub fn error_infer<E: StdError + Send + Sync + 'static>(error: &anyhow::Error) -> Option<&E> {
     for cause in error.chain() {
-        println!("{:?}", cause);
         if let Some(e) = cause.downcast_ref() {
             return Some(e);
         }
@@ -245,17 +244,5 @@ mod test {
             ErrorCause::from(err),
             ErrorCause::BackendTLSErrorOther(_)
         ));
-
-        let err = Box::new(rustls::Error::BadMaxFragmentSize) as Box<dyn StdError + Send + Sync>;
-        let err2 = anyhow!(err);
-        // let mut iter = err2.chain();
-        // println!("{:?}", iter.next());
-        // println!("{:?}", iter.next());
-
-        //let err = ErrorCause::from_boxed(err);
-        println!("{:?}", error_infer::<Box<rustls::Error>>(&err2));
-
-        assert!(false);
-        //assert!(matches!(err, ErrorCause::BackendTLSErrorOther(_)));
     }
 }

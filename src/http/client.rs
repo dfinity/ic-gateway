@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{fmt, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use mockall::automock;
@@ -6,7 +6,7 @@ use reqwest::dns::Resolve;
 
 #[automock]
 #[async_trait]
-pub trait Client: Send + Sync {
+pub trait Client: Send + Sync + fmt::Debug {
     async fn execute(&self, req: reqwest::Request) -> Result<reqwest::Response, reqwest::Error>;
 }
 
@@ -43,11 +43,11 @@ pub fn new(
     Ok(client)
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ReqwestClient(reqwest::Client);
 
 impl ReqwestClient {
-    pub fn new(client: reqwest::Client) -> Self {
+    pub const fn new(client: reqwest::Client) -> Self {
         Self(client)
     }
 }

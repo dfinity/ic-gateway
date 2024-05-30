@@ -229,6 +229,7 @@ mod tests {
     use super::*;
     use async_trait::async_trait;
 
+    #[derive(Debug)]
     struct TestClient(reqwest::Client);
 
     #[async_trait]

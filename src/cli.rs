@@ -30,6 +30,9 @@ pub struct Cli {
     #[command(flatten, next_help_heading = "HTTP Server")]
     pub http_server: HttpServer,
 
+    #[command(flatten, next_help_heading = "IC")]
+    pub ic: Ic,
+
     #[command(flatten, next_help_heading = "Certificates")]
     pub cert: Cert,
 
@@ -129,6 +132,13 @@ pub struct HttpServer {
     /// How long to wait for the existing connections to finish before shutting down
     #[clap(long = "http-server-grace-period", default_value = "10s", value_parser = parse_duration)]
     pub grace_period: Duration,
+}
+
+#[derive(Args)]
+pub struct Ic {
+    /// URLs to use to connect to the IC network
+    #[clap(long = "ic-url")]
+    pub url: Vec<Url>,
 }
 
 #[derive(Args)]

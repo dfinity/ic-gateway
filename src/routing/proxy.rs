@@ -9,7 +9,9 @@ use axum::{
     extract::{Path, Request, State},
     response::{IntoResponse, Response},
 };
+use candid::Principal;
 use derive_new::new;
+use ic_agent::agent::http_transport::route_provider::RouteProvider;
 use regex::Regex;
 use url::Url;
 
@@ -45,6 +47,43 @@ async fn proxy(
         .status(response.status())
         .body(Body::from_stream(response.bytes_stream()))?;
     *response.headers_mut() = headers;
+
+    Ok(response)
+}
+
+#[derive(new)]
+pub struct ApiProxyState {
+    http_client: Arc<dyn Client>,
+    route_provider: Arc<dyn RouteProvider>,
+}
+
+// Proxies /api/v2/... endpoints to the IC
+pub async fn api_proxy(
+    State(state): State<Arc<ApiProxyState>>,
+    id: Option<Path<String>>,
+    request: Request,
+) -> Result<impl IntoResponse, ErrorCause> {
+    // Check principal for correctness
+    if let Some(v) = id {
+        Principal::from_text(v.0)
+            .map_err(|e| ErrorCause::MalformedRequest(format!("incorrect principal: {e}")))?;
+    }
+
+    // Obtain the next IC URL from the provider
+    let url = state
+        .route_provider
+        .route()
+        .map_err(|e| ErrorCause::Other(format!("unable to obtain route: {e}")))?;
+
+    // Append the query URL to the IC url
+    let url = url
+        .join(request.uri().path())
+        .map_err(|e| ErrorCause::MalformedRequest(format!("incorrect URL: {e}")))?;
+
+    // Proxy the request
+    let response = proxy(url, request, &state.http_client)
+        .await
+        .map_err(ErrorCause::from)?;
 
     Ok(response)
 }
