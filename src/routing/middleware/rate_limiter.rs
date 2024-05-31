@@ -35,15 +35,16 @@ pub fn build_rate_limiter_middleware<T: KeyExtractor>(
     rps: u32,
     burst_size: u32,
     key_extractor: T,
+    rate_limit_cause: RateLimitCause,
 ) -> Option<ServiceBuilder<Stack<GovernorLayer<'static, T, NoOpMiddleware<QuantaInstant>>, Identity>>>
 {
     let period = Duration::from_secs(1).checked_div(rps)?;
     let governor_conf = Box::new(
         GovernorConfigBuilder::default()
             .period(period)
-            .error_handler(|err| match err {
+            .error_handler(move |err| match err {
                 GovernorError::TooManyRequests { .. } => {
-                    ErrorCause::RateLimited(RateLimitCause::Normal).into_response()
+                    rate_limit_cause.clone().into_response()
                 }
                 GovernorError::UnableToExtractKey => {
                     ErrorCause::Other("UnableToExtractIpAddress".to_string()).into_response()
@@ -88,7 +89,7 @@ mod tests {
     use crate::{
         http::{ConnInfo, Stats},
         routing::{
-            error_cause::ErrorCause,
+            error_cause::{ErrorCause, RateLimitCause},
             middleware::rate_limiter::{build_rate_limiter_middleware, IpKeyExtractor},
         },
     };
@@ -118,8 +119,9 @@ mod tests {
         let rps = 1;
         let burst_size = 5;
 
-        let rate_limiter_mw = build_rate_limiter_middleware(rps, burst_size, IpKeyExtractor)
-            .expect("failed to build middleware");
+        let rate_limiter_mw =
+            build_rate_limiter_middleware(rps, burst_size, IpKeyExtractor, RateLimitCause::Normal)
+                .expect("failed to build middleware");
 
         let mut app = Router::new()
             .route("/", post(handler))
@@ -135,7 +137,7 @@ mod tests {
         let result = send_request(&mut app).await.unwrap();
         assert_eq!(result.status(), StatusCode::TOO_MANY_REQUESTS);
         let body = to_bytes(result.into_body(), 100).await.unwrap().to_vec();
-        assert_eq!(body, b"rate_limited_normal\n");
+        assert_eq!(body, b"rate_limited_normal: normal\n");
 
         // Wait so that requests can be accepted again.
         sleep(Duration::from_secs(1)).await;
@@ -149,8 +151,9 @@ mod tests {
         let rps = 10;
         let burst_size = 1;
 
-        let rate_limiter_mw = build_rate_limiter_middleware(rps, burst_size, IpKeyExtractor)
-            .expect("failed to build middleware");
+        let rate_limiter_mw =
+            build_rate_limiter_middleware(rps, burst_size, IpKeyExtractor, RateLimitCause::Normal)
+                .expect("failed to build middleware");
 
         let mut app = Router::new()
             .route("/", post(handler))
@@ -170,7 +173,7 @@ mod tests {
         let result = send_request(&mut app).await.unwrap();
         assert_eq!(result.status(), StatusCode::TOO_MANY_REQUESTS);
         let body = to_bytes(result.into_body(), 100).await.unwrap().to_vec();
-        assert_eq!(body, b"rate_limited_normal\n");
+        assert_eq!(body, b"rate_limited_normal: normal\n");
 
         // Wait so that requests can be accepted again.
         sleep(delay).await;
@@ -184,8 +187,9 @@ mod tests {
         let rps = 1;
         let burst_size = 1;
 
-        let rate_limiter_mw = build_rate_limiter_middleware(rps, burst_size, IpKeyExtractor)
-            .expect("failed to build middleware");
+        let rate_limiter_mw =
+            build_rate_limiter_middleware(rps, burst_size, IpKeyExtractor, RateLimitCause::Normal)
+                .expect("failed to build middleware");
 
         let mut app = Router::new()
             .route("/", post(handler))
