@@ -24,8 +24,6 @@ pub fn error_infer<E: StdError + Send + Sync + 'static>(error: &anyhow::Error) -
 #[strum(serialize_all = "snake_case")]
 pub enum RateLimitCause {
     Normal,
-    UnableToExtractIpAddress,
-    Other(String),
 }
 
 // Categorized possible causes for request processing failures
@@ -87,12 +85,8 @@ impl ErrorCause {
             Self::BackendTLSErrorOther(_) => StatusCode::SERVICE_UNAVAILABLE,
             Self::BackendTLSErrorCert(_) => StatusCode::SERVICE_UNAVAILABLE,
             Self::BackendErrorOther(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::RateLimited(_) => StatusCode::TOO_MANY_REQUESTS,
             Self::Unknown => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::RateLimited(cause) => match cause {
-                RateLimitCause::Normal => StatusCode::TOO_MANY_REQUESTS,
-                RateLimitCause::UnableToExtractIpAddress => StatusCode::INTERNAL_SERVER_ERROR,
-                RateLimitCause::Other(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            },
         }
     }
 

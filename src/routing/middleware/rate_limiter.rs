@@ -46,13 +46,12 @@ pub fn build_rate_limiter_middleware<T: KeyExtractor>(
                     ErrorCause::RateLimited(RateLimitCause::Normal).into_response()
                 }
                 GovernorError::UnableToExtractKey => {
-                    ErrorCause::RateLimited(RateLimitCause::UnableToExtractIpAddress)
-                        .into_response()
+                    ErrorCause::Other("UnableToExtractIpAddress".to_string()).into_response()
                 }
                 GovernorError::Other { code, msg, headers } => {
-                    let msg = format!("code={code}, msg={msg:?}, headers={headers:?}");
-                    debug!("Rate limiter failed unexpectedly: {msg}");
-                    ErrorCause::RateLimited(RateLimitCause::Other(msg)).into_response()
+                    let msg = format!("Rate limiter failed unexpectedly: code={code}, msg={msg:?}, headers={headers:?}");
+                    debug!("{msg}");
+                    ErrorCause::Other(msg).into_response()
                 }
             })
             .burst_size(burst_size)
@@ -198,6 +197,6 @@ mod tests {
 
         assert_eq!(result.status(), StatusCode::INTERNAL_SERVER_ERROR);
         let body = to_bytes(result.into_body(), 100).await.unwrap().to_vec();
-        assert_eq!(body, b"rate_limited_unable_to_extract_ip_address\n");
+        assert_eq!(body, b"general_error: UnableToExtractIpAddress\n");
     }
 }
