@@ -128,38 +128,29 @@ pub fn setup_router(
     // Prepare the HTTP-IC library
     let route_provider = Arc::new(RoundRobinRouteProvider::new(cli.ic.url.clone())?);
     let client = ic::setup(cli, http_client.clone(), route_provider.clone())?;
-    let handler_state = Arc::new(handler::HandlerState::new(client));
 
-    let api_state = Arc::new(proxy::ApiProxyState::new(
+    // Prepare the states
+    let state_handler = Arc::new(handler::HandlerState::new(client));
+    let state_api = Arc::new(proxy::ApiProxyState::new(
         http_client.clone(),
         route_provider,
     ));
 
+    // IC API proxy router
+    let router_api = Router::new()
+        .route("/canister/:principal/query", post(proxy::api_proxy))
+        .route("/canister/:principal/call", post(proxy::api_proxy))
+        .route("/canister/:principal/read_state", post(proxy::api_proxy))
+        .route("/subnet/:principal/read_state", post(proxy::api_proxy))
+        .route("/status", get(proxy::api_proxy))
+        .with_state(state_api);
+
     let router = Router::new()
-        .route(
-            "/api/v2/canister/:id/query",
-            post(proxy::api_proxy).with_state(api_state.clone()),
-        )
-        .route(
-            "/api/v2/canister/:id/call",
-            post(proxy::api_proxy).with_state(api_state.clone()),
-        )
-        .route(
-            "/api/v2/canister/:id/read_state",
-            post(proxy::api_proxy).with_state(api_state.clone()),
-        )
-        .route(
-            "/api/v2/subnet/:id/read_state",
-            post(proxy::api_proxy).with_state(api_state.clone()),
-        )
-        .route(
-            "/api/v2/status",
-            get(proxy::api_proxy).with_state(api_state),
-        )
+        .nest("/api/v2", router_api)
         .fallback(
             get(handler::handler)
                 .post(handler::handler)
-                .with_state(handler_state),
+                .with_state(state_handler),
         )
         .layer(common_layers);
 
@@ -173,19 +164,17 @@ pub fn setup_router(
         urls.iter_mut().for_each(|x| x.set_path(""));
 
         let state = Arc::new(proxy::IssuerProxyState::new(http_client, urls));
-
-        router
+        let router_issuer = Router::new()
             .route(
-                "/registrations/:id",
+                "/:id",
                 get(proxy::issuer_proxy)
                     .put(proxy::issuer_proxy)
-                    .delete(proxy::issuer_proxy)
-                    .with_state(state.clone()),
+                    .delete(proxy::issuer_proxy),
             )
-            .route(
-                "/registrations",
-                post(proxy::issuer_proxy).with_state(state),
-            )
+            .route("/", post(proxy::issuer_proxy))
+            .with_state(state);
+
+        router.nest("/registrations", router_issuer)
     } else {
         router
     };

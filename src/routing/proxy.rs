@@ -15,9 +15,8 @@ use ic_agent::agent::http_transport::route_provider::RouteProvider;
 use regex::Regex;
 use url::Url;
 
-use crate::http::Client;
-
 use super::{body, error_cause::ErrorCause};
+use crate::http::Client;
 
 lazy_static::lazy_static! {
     pub static ref REGEX_REG_ID: Regex = Regex::new(r"^[a-zA-Z0-9]+$").unwrap();
@@ -60,13 +59,12 @@ pub struct ApiProxyState {
 // Proxies /api/v2/... endpoints to the IC
 pub async fn api_proxy(
     State(state): State<Arc<ApiProxyState>>,
-    id: Option<Path<String>>,
+    principal: Option<Path<String>>,
     request: Request,
 ) -> Result<impl IntoResponse, ErrorCause> {
     // Check principal for correctness
-    if let Some(v) = id {
-        Principal::from_text(v.0)
-            .map_err(|e| ErrorCause::MalformedRequest(format!("incorrect principal: {e}")))?;
+    if let Some(v) = principal {
+        Principal::from_text(v.0).map_err(|_| ErrorCause::IncorrectPrincipal)?;
     }
 
     // Obtain the next IC URL from the provider
