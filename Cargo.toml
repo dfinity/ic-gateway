@@ -49,7 +49,8 @@ hyper = "1.3"
 hyper-util = "0.1"
 ic-agent = { version = "0.35", features = ["reqwest"] }
 #ic-http-gateway = { git = "https://github.com/dfinity/http-gateway" }
-ic-http-gateway = { path = "../http-gateway/packages/ic-http-gateway" }
+ic-http-gateway = { git = "https://github.com/blind-oracle/http-gateway" }
+#ic-http-gateway = { path = "../http-gateway/packages/ic-http-gateway" }
 ic-transport-types = "0.35"
 instant-acme = "0.4"
 jemallocator = "0.5"

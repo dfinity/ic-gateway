@@ -1,3 +1,5 @@
+#![allow(clippy::declare_interior_mutable_const)]
+
 use std::{cell::RefCell, pin::Pin, sync::Arc, time::Duration};
 
 use futures::Future;
@@ -21,6 +23,8 @@ use tokio::task_local;
 use crate::http::Client as HttpClient;
 
 type AgentFuture<'a, V> = Pin<Box<dyn Future<Output = Result<V, AgentError>> + Send + 'a>>;
+
+const CONTENT_TYPE_CBOR: HeaderValue = HeaderValue::from_static("application/cbor");
 
 pub struct PassHeaders {
     pub headers_in: HeaderMap<HeaderValue>,
@@ -123,7 +127,7 @@ impl ReqwestTransport {
         let mut http_request = Request::new(method, url);
         http_request
             .headers_mut()
-            .insert(CONTENT_TYPE, "application/cbor".parse().unwrap());
+            .insert(CONTENT_TYPE, CONTENT_TYPE_CBOR);
 
         // Add HTTP headers if requested
         let _ = PASS_HEADERS.try_with(|x| {
