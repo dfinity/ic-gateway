@@ -1,8 +1,10 @@
 pub mod acme;
 pub mod cert;
 pub mod resolver;
+pub mod sessions;
+pub mod tickets;
 
-use std::{fs, sync::Arc};
+use std::{fs, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Context, Error};
 use fqdn::{Fqdn, FQDN};
@@ -11,11 +13,9 @@ use ocsp_stapler::Stapler;
 use prometheus::Registry;
 use rustls::{
     client::{ClientConfig, ClientSessionMemoryCache, Resumption},
-    server::{
-        ResolvesServerCert as ResolvesServerCertRustls, ServerConfig, ServerSessionMemoryCache,
-    },
+    server::{ResolvesServerCert as ResolvesServerCertRustls, ServerConfig, StoresServerSessions},
     version::{TLS12, TLS13},
-    RootCertStore,
+    RootCertStore, TicketSwitcher,
 };
 use rustls_acme::acme::ACME_TLS_ALPN_NAME;
 
@@ -49,14 +49,25 @@ pub fn sni_matches(host: &Fqdn, domains: &[FQDN], wildcard: bool) -> bool {
 
 pub fn prepare_server_config(
     resolver: Arc<dyn ResolvesServerCertRustls>,
+    session_storage: Arc<dyn StoresServerSessions + Send + Sync>,
     additional_alpn: Vec<Vec<u8>>,
+    ticket_lifetime: Duration,
 ) -> ServerConfig {
     let mut cfg = ServerConfig::builder_with_protocol_versions(&[&TLS13, &TLS12])
         .with_no_client_auth()
         .with_cert_resolver(resolver);
 
-    // Create custom session storage with higher limit to allow effective TLS session resumption
-    cfg.session_storage = ServerSessionMemoryCache::new(131_072);
+    // Set custom session storage with to allow effective TLS session resumption
+    cfg.session_storage = session_storage;
+
+    // Enable ticketer
+    let ticketer = TicketSwitcher::new(ticket_lifetime.as_secs() as u32, || {
+        Ok(Box::new(tickets::Ticketer::new()))
+    })
+    .unwrap();
+    cfg.ticketer = Arc::new(ticketer);
+
+    // Enable tickets
     cfg.alpn_protocols = vec![ALPN_H2.to_vec(), ALPN_H1.to_vec()];
     cfg.alpn_protocols.extend_from_slice(&additional_alpn);
 
@@ -134,6 +145,7 @@ async fn setup_acme(
 }
 
 // Prepares the stuff needed for serving TLS
+#[allow(clippy::too_many_arguments)]
 pub async fn setup(
     cli: &Cli,
     tasks: &mut TaskManager,
@@ -141,6 +153,7 @@ pub async fn setup(
     http_client: Arc<dyn Client>,
     storage: Arc<StorageKey>,
     dns_resolver: Arc<dyn Resolves>,
+    tls_session_storage: Arc<dyn StoresServerSessions + Send + Sync>,
     registry: &Registry,
 ) -> Result<ServerConfig, Error> {
     let mut providers: Vec<Arc<dyn ProvidesCertificates>> = vec![];
@@ -195,11 +208,13 @@ pub async fn setup(
     // Generate Rustls config
     let config = prepare_server_config(
         certificate_resolver,
+        tls_session_storage,
         if cli.acme.acme_challenge == Some(Challenge::Alpn) {
             vec![ACME_TLS_ALPN_NAME.to_vec()]
         } else {
             vec![]
         },
+        cli.http_server.tls_ticket_lifetime,
     );
 
     Ok(config)

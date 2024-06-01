@@ -5,6 +5,7 @@ description = "HTTP-to-IC gateway"
 edition = "2021"
 
 [dependencies]
+ahash = "0.8"
 anyhow = "1.0"
 arc-swap = "1"
 async-scoped = { version = "0.8", features = ["use-tokio"] }
@@ -15,6 +16,7 @@ axum-server = { version = "0.6", features = ["tls-rustls"] }
 backoff = { version = "0.4", features = ["tokio"] }
 bytes = "1.5"
 candid = "0.10"
+chacha20poly1305 = "0.10"
 chrono = "0.4"
 clap = { version = "4.5", features = ["derive", "string"] }
 clap_derive = "4.5"
@@ -63,6 +65,7 @@ moka = { version = "0.12", features = ["sync", "future"] }
 num-bigint = { version = "0.4.5", features = ["serde"] }
 ocsp-stapler = "0.3"
 once_cell = "1.19"
+parse-size = { version = "1.0", features = ["std"] }
 prometheus = "0.13"
 rand = "0.8"
 rasn = "0.15"

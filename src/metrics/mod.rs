@@ -38,6 +38,7 @@ use crate::{
         RequestCtx,
     },
     tasks::{Run, TaskManager},
+    tls::sessions,
 };
 use body::CountingBody;
 
@@ -67,14 +68,23 @@ impl MetricsCache {
 pub struct MetricsRunner {
     metrics_cache: Arc<RwLock<MetricsCache>>,
     registry: Registry,
+    tls_session_cache: Arc<sessions::Storage>,
     encoder: TextEncoder,
+
+    // Metrics
     mem_allocated: IntGauge,
     mem_resident: IntGauge,
+    tls_session_cache_count: IntGauge,
+    tls_session_cache_size: IntGauge,
 }
 
 // Snapshots & encodes the metrics for the handler to export
 impl MetricsRunner {
-    pub fn new(metrics_cache: Arc<RwLock<MetricsCache>>, registry: &Registry) -> Self {
+    pub fn new(
+        metrics_cache: Arc<RwLock<MetricsCache>>,
+        registry: &Registry,
+        tls_session_cache: Arc<sessions::Storage>,
+    ) -> Self {
         let mem_allocated = register_int_gauge_with_registry!(
             format!("memory_allocated"),
             format!("Allocated memory in bytes"),
@@ -89,12 +99,29 @@ impl MetricsRunner {
         )
         .unwrap();
 
+        let tls_session_cache_count = register_int_gauge_with_registry!(
+            format!("tls_session_cache_count"),
+            format!("Number of TLS sessions in the cache"),
+            registry
+        )
+        .unwrap();
+
+        let tls_session_cache_size = register_int_gauge_with_registry!(
+            format!("tls_session_cache_size"),
+            format!("Size of TLS sessions in the cache"),
+            registry
+        )
+        .unwrap();
+
         Self {
             metrics_cache,
             registry: registry.clone(),
+            tls_session_cache,
             encoder: TextEncoder::new(),
             mem_allocated,
             mem_resident,
+            tls_session_cache_count,
+            tls_session_cache_size,
         }
     }
 }
@@ -107,6 +134,11 @@ impl MetricsRunner {
             .set(stats::allocated::read().unwrap() as i64);
         self.mem_resident
             .set(stats::resident::read().unwrap() as i64);
+
+        // Record TLS session stats
+        let stats = self.tls_session_cache.stats();
+        self.tls_session_cache_count.set(stats.entries as i64);
+        self.tls_session_cache_size.set(stats.size as i64);
 
         // Get a snapshot of metrics
         let metric_families = self.registry.gather();
@@ -158,9 +190,17 @@ async fn handler(State(state): State<Arc<RwLock<MetricsCache>>>) -> impl IntoRes
     )
 }
 
-pub fn setup(registry: &Registry, tasks: &mut TaskManager) -> Router {
+pub fn setup(
+    registry: &Registry,
+    tls_session_cache: Arc<sessions::Storage>,
+    tasks: &mut TaskManager,
+) -> Router {
     let cache = Arc::new(RwLock::new(MetricsCache::new(METRICS_CACHE_CAPACITY)));
-    let runner = Arc::new(MetricsRunner::new(cache.clone(), registry));
+    let runner = Arc::new(MetricsRunner::new(
+        cache.clone(),
+        registry,
+        tls_session_cache,
+    ));
     tasks.add("metrics_runner", runner);
 
     Router::new()

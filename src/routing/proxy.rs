@@ -6,7 +6,7 @@ use std::sync::{
 use anyhow::Error;
 use axum::{
     body::Body,
-    extract::{Path, Request, State},
+    extract::{OriginalUri, Path, Request, State},
     response::{IntoResponse, Response},
 };
 use candid::Principal;
@@ -59,6 +59,7 @@ pub struct ApiProxyState {
 // Proxies /api/v2/... endpoints to the IC
 pub async fn api_proxy(
     State(state): State<Arc<ApiProxyState>>,
+    OriginalUri(uri): OriginalUri,
     principal: Option<Path<String>>,
     request: Request,
 ) -> Result<impl IntoResponse, ErrorCause> {
@@ -75,7 +76,7 @@ pub async fn api_proxy(
 
     // Append the query URL to the IC url
     let url = url
-        .join(request.uri().path())
+        .join(uri.path())
         .map_err(|e| ErrorCause::MalformedRequest(format!("incorrect URL: {e}")))?;
 
     // Proxy the request
@@ -97,6 +98,7 @@ pub struct IssuerProxyState {
 // Proxies /registrations endpoint to the certificate issuers if they're defined
 pub async fn issuer_proxy(
     State(state): State<Arc<IssuerProxyState>>,
+    OriginalUri(uri): OriginalUri,
     id: Option<Path<String>>,
     request: Request,
 ) -> Result<impl IntoResponse, ErrorCause> {
@@ -109,15 +111,12 @@ pub async fn issuer_proxy(
         }
     }
 
-    // Extract path part from the request
-    let path = request.uri().path();
-
     // Pick next issuer using round-robin & generate request URL for it
     // TODO should we do retries here?
     let next = state.next.fetch_add(1, Ordering::SeqCst) % state.issuers.len();
     let url = state.issuers[next]
         .clone()
-        .join(path)
+        .join(uri.path())
         .map_err(|_| ErrorCause::MalformedRequest("unable to parse path as URL part".into()))?;
 
     let response = proxy(url, request, &state.http_client)

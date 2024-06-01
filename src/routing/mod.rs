@@ -145,7 +145,7 @@ pub fn setup_router(
         .route("/status", get(proxy::api_proxy))
         .with_state(state_api);
 
-    let router = Router::new()
+    let mut router = Router::new()
         .nest("/api/v2", router_api)
         .fallback(
             get(handler::handler)
@@ -155,15 +155,14 @@ pub fn setup_router(
         .layer(common_layers);
 
     // Setup issuer proxy endpoint if we have them configured
-    let router = if !cli.cert.issuer_urls.is_empty() {
+    if !cli.cert.issuer_urls.is_empty() {
         // Init it early to avoid threading races
         lazy_static::initialize(&proxy::REGEX_REG_ID);
 
-        // Strip possible path from URLs
-        let mut urls = cli.cert.issuer_urls.clone();
-        urls.iter_mut().for_each(|x| x.set_path(""));
-
-        let state = Arc::new(proxy::IssuerProxyState::new(http_client, urls));
+        let state = Arc::new(proxy::IssuerProxyState::new(
+            http_client,
+            cli.cert.issuer_urls.clone(),
+        ));
         let router_issuer = Router::new()
             .route(
                 "/:id",
@@ -174,10 +173,8 @@ pub fn setup_router(
             .route("/", post(proxy::issuer_proxy))
             .with_state(state);
 
-        router.nest("/registrations", router_issuer)
-    } else {
-        router
-    };
+        router = router.nest("/registrations", router_issuer)
+    }
 
     Ok(router)
 }
