@@ -122,6 +122,7 @@ url = "2.5"
 uuid = { version = "1.8", features = ["v7"] }
 webpki-roots = "0.26"
 x509-parser = "0.16"
+zeroize = { version = "1.8", features = ["derive"] }
 
 [dev-dependencies]
 hex-literal = "0.4"

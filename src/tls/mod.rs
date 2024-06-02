@@ -52,19 +52,24 @@ pub fn prepare_server_config(
     session_storage: Arc<dyn StoresServerSessions + Send + Sync>,
     additional_alpn: Vec<Vec<u8>>,
     ticket_lifetime: Duration,
+    registry: &Registry,
 ) -> ServerConfig {
     let mut cfg = ServerConfig::builder_with_protocol_versions(&[&TLS13, &TLS12])
         .with_no_client_auth()
         .with_cert_resolver(resolver);
 
     // Set custom session storage with to allow effective TLS session resumption
-    cfg.session_storage = session_storage;
+    let session_storage = sessions::WithMetrics(session_storage, sessions::Metrics::new(registry));
+    cfg.session_storage = Arc::new(session_storage);
 
-    // Enable ticketer
-    let ticketer = TicketSwitcher::new(ticket_lifetime.as_secs() as u32, || {
-        Ok(Box::new(tickets::Ticketer::new()))
-    })
-    .unwrap();
+    // Enable ticketer to encrypt/decrypt TLS tickets
+    let ticketer = tickets::WithMetrics(
+        TicketSwitcher::new(ticket_lifetime.as_secs() as u32, move || {
+            Ok(Box::new(tickets::Ticketer::new()))
+        })
+        .unwrap(),
+        tickets::Metrics::new(registry),
+    );
     cfg.ticketer = Arc::new(ticketer);
 
     // Enable tickets
@@ -215,6 +220,7 @@ pub async fn setup(
             vec![]
         },
         cli.http_server.tls_ticket_lifetime,
+        registry,
     );
 
     Ok(config)
