@@ -9,7 +9,7 @@ use axum::{
 
 use crate::{
     cli::Cli,
-    policy::{domain_canister::DomainCanisterMatcher, load_canister_list},
+    policy::{domain_canister::DomainCanisterMatcher, load_principal_list},
     routing::{ErrorCause, RequestCtx},
 };
 
@@ -19,7 +19,7 @@ pub struct CanisterMatcherState(Arc<DomainCanisterMatcher>);
 impl CanisterMatcherState {
     pub fn new(cli: &Cli) -> Result<Self, Error> {
         let pre_isolation_canisters = if let Some(v) = cli.policy.pre_isolation_canisters.as_ref() {
-            load_canister_list(v).context("unable to load pre-isolation canisters")?
+            load_principal_list(v).context("unable to load pre-isolation canisters")?
         } else {
             HashSet::new()
         };

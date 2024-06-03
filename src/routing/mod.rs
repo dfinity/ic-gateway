@@ -28,11 +28,11 @@ use crate::{
     http::Client,
     log::clickhouse::Clickhouse,
     metrics,
-    routing::middleware::{canister_match, geoip, headers, request_id, validate},
+    routing::middleware::{canister_match, geoip, headers, rate_limiter, request_id, validate},
     tasks::TaskManager,
 };
 
-use self::middleware::denylist;
+use self::{error_cause::RateLimitCause, middleware::denylist};
 
 use {
     canister::{Canister, ResolvesCanister},
@@ -164,6 +164,15 @@ pub fn setup_router(
             cli.cert.issuer_urls.clone(),
         ));
         let router_issuer = Router::new()
+            .layer(
+                rate_limiter::build_middleware(
+                    5,
+                    10,
+                    rate_limiter::IpKeyExtractor,
+                    RateLimitCause::Normal,
+                )
+                .unwrap(),
+            )
             .route(
                 "/:id",
                 get(proxy::issuer_proxy)

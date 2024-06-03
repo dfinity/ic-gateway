@@ -1,10 +1,11 @@
 use std::{net::IpAddr, sync::Arc, time::Duration};
 
 use ::governor::{clock::QuantaInstant, middleware::NoOpMiddleware};
+use anyhow::{anyhow, Error};
 use axum::{extract::Request, response::IntoResponse};
 use tower::{
     layer::util::{Identity, Stack},
-    ServiceBuilder,
+    Layer, Service, ServiceBuilder,
 };
 use tower_governor::{
     governor::GovernorConfigBuilder, key_extractor::KeyExtractor, GovernorError, GovernorLayer,
@@ -31,15 +32,17 @@ impl KeyExtractor for IpKeyExtractor {
     }
 }
 
-pub fn build_rate_limiter_middleware<T: KeyExtractor>(
+pub fn build_middleware<T: KeyExtractor + Send + Sync + 'static>(
     rps: u32,
     burst_size: u32,
     key_extractor: T,
     rate_limit_cause: RateLimitCause,
-) -> Option<ServiceBuilder<Stack<GovernorLayer<'static, T, NoOpMiddleware<QuantaInstant>>, Identity>>>
-{
-    let period = Duration::from_secs(1).checked_div(rps)?;
-    let governor_conf = Box::new(
+) -> Result<GovernorLayer<T, NoOpMiddleware<QuantaInstant>>, Error> {
+    let period = Duration::from_secs(1)
+        .checked_div(rps)
+        .ok_or_else(|| anyhow!("RPS is zero"))?;
+
+    let config = Arc::new(
         GovernorConfigBuilder::default()
             .period(period)
             .error_handler(move |err| match err {
@@ -51,20 +54,14 @@ pub fn build_rate_limiter_middleware<T: KeyExtractor>(
                 }
                 GovernorError::Other { code, msg, headers } => {
                     let msg = format!("Rate limiter failed unexpectedly: code={code}, msg={msg:?}, headers={headers:?}");
-                    debug!("{msg}");
                     ErrorCause::Other(msg).into_response()
                 }
             })
             .burst_size(burst_size)
             .key_extractor(key_extractor)
-            .finish()?,
-    );
+            .finish().ok_or_else(|| anyhow!("unable to build governor config"))?);
 
-    let gov_layer = GovernorLayer {
-        config: Box::leak(governor_conf),
-    };
-
-    Some(ServiceBuilder::new().layer(gov_layer))
+    Ok(GovernorLayer { config })
 }
 
 #[cfg(test)]

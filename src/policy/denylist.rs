@@ -18,7 +18,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 use url::Url;
 
-use super::load_canister_list;
+use super::load_principal_list;
 use crate::{http::Client, routing::middleware::geoip::CountryCode, tasks::Run};
 
 pub struct Denylist {
@@ -59,7 +59,7 @@ impl Denylist {
         registry: &Registry,
     ) -> Result<Self, Error> {
         let allowlist = if let Some(v) = allowlist {
-            let r = load_canister_list(&v).context("unable to read allowlist")?;
+            let r = load_principal_list(&v).context("unable to read allowlist")?;
             warn!("Denylist allowlist loaded: {}", r.len());
             r
         } else {
