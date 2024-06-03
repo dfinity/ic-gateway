@@ -27,7 +27,14 @@ impl KeyExtractor for IpKeyExtractor {
     }
 }
 
-pub fn build_middleware<T: KeyExtractor + Send + Sync + 'static>(
+pub fn layer_by_ip(
+    rps: u32,
+    burst_size: u32,
+) -> Result<GovernorLayer<IpKeyExtractor, NoOpMiddleware<QuantaInstant>>, Error> {
+    layer(rps, burst_size, IpKeyExtractor, RateLimitCause::Normal)
+}
+
+pub fn layer<T: KeyExtractor>(
     rps: u32,
     burst_size: u32,
     key_extractor: T,
@@ -82,7 +89,7 @@ mod tests {
         http::{ConnInfo, Stats},
         routing::{
             error_cause::{ErrorCause, RateLimitCause},
-            middleware::rate_limiter::{build_middleware, IpKeyExtractor},
+            middleware::rate_limiter::{layer, IpKeyExtractor},
         },
     };
 
@@ -111,9 +118,8 @@ mod tests {
         let rps = 1;
         let burst_size = 5;
 
-        let rate_limiter_mw =
-            build_middleware(rps, burst_size, IpKeyExtractor, RateLimitCause::Normal)
-                .expect("failed to build middleware");
+        let rate_limiter_mw = layer(rps, burst_size, IpKeyExtractor, RateLimitCause::Normal)
+            .expect("failed to build middleware");
 
         let mut app = Router::new()
             .route("/", post(handler))
@@ -143,9 +149,8 @@ mod tests {
         let rps = 10;
         let burst_size = 1;
 
-        let rate_limiter_mw =
-            build_middleware(rps, burst_size, IpKeyExtractor, RateLimitCause::Normal)
-                .expect("failed to build middleware");
+        let rate_limiter_mw = layer(rps, burst_size, IpKeyExtractor, RateLimitCause::Normal)
+            .expect("failed to build middleware");
 
         let mut app = Router::new()
             .route("/", post(handler))
@@ -179,9 +184,8 @@ mod tests {
         let rps = 1;
         let burst_size = 1;
 
-        let rate_limiter_mw =
-            build_middleware(rps, burst_size, IpKeyExtractor, RateLimitCause::Normal)
-                .expect("failed to build middleware");
+        let rate_limiter_mw = layer(rps, burst_size, IpKeyExtractor, RateLimitCause::Normal)
+            .expect("failed to build middleware");
 
         let mut app = Router::new()
             .route("/", post(handler))

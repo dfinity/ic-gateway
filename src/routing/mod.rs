@@ -164,15 +164,7 @@ pub fn setup_router(
             cli.cert.issuer_urls.clone(),
         ));
         let router_issuer = Router::new()
-            .layer(
-                rate_limiter::build_middleware(
-                    5,
-                    10,
-                    rate_limiter::IpKeyExtractor,
-                    RateLimitCause::Normal,
-                )
-                .unwrap(),
-            )
+            .layer(rate_limiter::layer_by_ip(5, 10).unwrap())
             .route(
                 "/:id",
                 get(proxy::issuer_proxy)
