@@ -3,14 +3,9 @@ use std::{net::IpAddr, sync::Arc, time::Duration};
 use ::governor::{clock::QuantaInstant, middleware::NoOpMiddleware};
 use anyhow::{anyhow, Error};
 use axum::{extract::Request, response::IntoResponse};
-use tower::{
-    layer::util::{Identity, Stack},
-    Layer, Service, ServiceBuilder,
-};
 use tower_governor::{
     governor::GovernorConfigBuilder, key_extractor::KeyExtractor, GovernorError, GovernorLayer,
 };
-use tracing::debug;
 
 use crate::{
     http::ConnInfo,
@@ -87,7 +82,7 @@ mod tests {
         http::{ConnInfo, Stats},
         routing::{
             error_cause::{ErrorCause, RateLimitCause},
-            middleware::rate_limiter::{build_rate_limiter_middleware, IpKeyExtractor},
+            middleware::rate_limiter::{build_middleware, IpKeyExtractor},
         },
     };
 
@@ -117,7 +112,7 @@ mod tests {
         let burst_size = 5;
 
         let rate_limiter_mw =
-            build_rate_limiter_middleware(rps, burst_size, IpKeyExtractor, RateLimitCause::Normal)
+            build_middleware(rps, burst_size, IpKeyExtractor, RateLimitCause::Normal)
                 .expect("failed to build middleware");
 
         let mut app = Router::new()
@@ -149,7 +144,7 @@ mod tests {
         let burst_size = 1;
 
         let rate_limiter_mw =
-            build_rate_limiter_middleware(rps, burst_size, IpKeyExtractor, RateLimitCause::Normal)
+            build_middleware(rps, burst_size, IpKeyExtractor, RateLimitCause::Normal)
                 .expect("failed to build middleware");
 
         let mut app = Router::new()
@@ -185,7 +180,7 @@ mod tests {
         let burst_size = 1;
 
         let rate_limiter_mw =
-            build_rate_limiter_middleware(rps, burst_size, IpKeyExtractor, RateLimitCause::Normal)
+            build_middleware(rps, burst_size, IpKeyExtractor, RateLimitCause::Normal)
                 .expect("failed to build middleware");
 
         let mut app = Router::new()
