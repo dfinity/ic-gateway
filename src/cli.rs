@@ -17,6 +17,10 @@ use crate::{
     tls::{self, acme},
 };
 
+fn parse_size(s: &str) -> Result<u64, parse_size::Error> {
+    parse_size::Config::new().with_binary().parse_size(s)
+}
+
 #[derive(Parser)]
 #[clap(name = SERVICE_NAME)]
 #[clap(author = AUTHOR_NAME)]
@@ -132,6 +136,18 @@ pub struct HttpServer {
     /// How long to wait for the existing connections to finish before shutting down
     #[clap(long = "http-server-grace-period", default_value = "10s", value_parser = parse_duration)]
     pub grace_period: Duration,
+
+    /// Maximum size of cache to store TLS sessions in memory
+    #[clap(long = "http-server-tls-session-cache-size", default_value = "256MB", value_parser = parse_size)]
+    pub tls_session_cache_size: u64,
+
+    /// Maximum time that a TLS session key can stay in cache without being requested (Time-to-Idle)
+    #[clap(long = "http-server-tls-session-cache-tti", default_value = "18h", value_parser = parse_duration)]
+    pub tls_session_cache_tti: Duration,
+
+    /// Lifetime of a TLS1.3 ticket, due to key rotation the actual lifetime will be twice than this.
+    #[clap(long = "http-server-tls-ticket-lifetime", default_value = "9h", value_parser = parse_duration)]
+    pub tls_ticket_lifetime: Duration,
 }
 
 #[derive(Args)]
@@ -243,7 +259,7 @@ pub struct Acme {
 
     /// Attempt to renew the certificates when less than this duration is left until expiration.
     /// This works only with DNS challenge, ALPN currently starts to renew after half of certificate
-    /// lifetime has passed.
+    /// lifetime has passed (45d for LetsEncrypt)
     #[clap(long = "acme-renew-before", value_parser = parse_duration, default_value = "30d")]
     pub acme_renew_before: Duration,
 

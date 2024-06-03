@@ -25,6 +25,7 @@ use crate::http::Client as HttpClient;
 type AgentFuture<'a, V> = Pin<Box<dyn Future<Output = Result<V, AgentError>> + Send + 'a>>;
 
 const CONTENT_TYPE_CBOR: HeaderValue = HeaderValue::from_static("application/cbor");
+const MAX_RESPONSE_SIZE: usize = 2 * 1_048_576;
 
 pub struct PassHeaders {
     pub headers_in: HeaderMap<HeaderValue>,
@@ -70,7 +71,7 @@ impl ReqwestTransport {
         Ok(Self {
             route_provider,
             client,
-            max_response_body_size: None,
+            max_response_body_size: Some(MAX_RESPONSE_SIZE),
         })
     }
 

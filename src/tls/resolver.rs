@@ -23,6 +23,8 @@ pub struct AggregatingResolver {
 // Implement certificate resolving for Rustls
 impl ResolvesServerCertRustls for AggregatingResolver {
     fn resolve(&self, ch: ClientHello) -> Option<Arc<CertifiedKey>> {
+        println!("{:?}", ch.server_name());
+
         // Iterate over our resolvers to find matching cert if any.
         self.resolvers
             .iter()

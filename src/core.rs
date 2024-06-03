@@ -47,6 +47,10 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     let dns_resolver = http::dns::Resolver::new((&cli.dns).into());
     let reqwest_client = http::client::new((&cli.http_client).into(), dns_resolver.clone())?;
     let http_client = Arc::new(http::ReqwestClient::new(reqwest_client.clone()));
+    let tls_session_cache = Arc::new(tls::sessions::Storage::new(
+        cli.http_server.tls_session_cache_size,
+        cli.http_server.tls_session_cache_tti,
+    ));
     let clickhouse = if cli.log.clickhouse.log_clickhouse_url.is_some() {
         Some(Arc::new(
             log::clickhouse::Clickhouse::new(&cli.log.clickhouse)
@@ -106,6 +110,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         http_client.clone(),
         storage,
         Arc::new(dns_resolver),
+        tls_session_cache.clone(),
         &registry,
     )
     .await
@@ -122,7 +127,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
 
     // Setup metrics
     if let Some(addr) = cli.metrics.listen {
-        let router = metrics::setup(&registry, &mut tasks);
+        let router = metrics::setup(&registry, tls_session_cache, &mut tasks);
 
         let srv = Arc::new(http::Server::new(
             addr,

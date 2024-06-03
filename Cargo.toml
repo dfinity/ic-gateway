@@ -5,6 +5,7 @@ description = "HTTP-to-IC gateway"
 edition = "2021"
 
 [dependencies]
+ahash = "0.8"
 anyhow = "1.0"
 arc-swap = "1"
 async-scoped = { version = "0.8", features = ["use-tokio"] }
@@ -15,6 +16,7 @@ axum-server = { version = "0.6", features = ["tls-rustls"] }
 backoff = { version = "0.4", features = ["tokio"] }
 bytes = "1.5"
 candid = "0.10"
+chacha20poly1305 = "0.10"
 chrono = "0.4"
 clap = { version = "4.5", features = ["derive", "string"] }
 clap_derive = "4.5"
@@ -33,6 +35,7 @@ fqdn = "0.3"
 futures = "0.3"
 futures-util = "0.3"
 futures-rustls = "0.26"
+governor = "0.6.3"
 hickory-proto = "0.24"
 hickory-resolver = { version = "0.24", features = [
     "dns-over-https-rustls",
@@ -63,6 +66,7 @@ moka = { version = "0.12", features = ["sync", "future"] }
 num-bigint = { version = "0.4.5", features = ["serde"] }
 ocsp-stapler = "0.3"
 once_cell = "1.19"
+parse-size = { version = "1.0", features = ["std"] }
 prometheus = "0.13"
 rand = "0.8"
 rasn = "0.15"
@@ -119,7 +123,7 @@ url = "2.5"
 uuid = { version = "1.8", features = ["v7"] }
 webpki-roots = "0.26"
 x509-parser = "0.16"
-governor = "0.6.3"
+zeroize = { version = "1.8", features = ["derive"] }
 
 [dev-dependencies]
 hex-literal = "0.4"
