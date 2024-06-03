@@ -2,6 +2,7 @@ pub mod canister_match;
 pub mod denylist;
 pub mod geoip;
 pub mod headers;
+pub mod rate_limiter;
 pub mod request_id;
 pub mod validate;
 

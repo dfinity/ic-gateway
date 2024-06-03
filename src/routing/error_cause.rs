@@ -107,6 +107,7 @@ impl ErrorCause {
             Self::BackendTLSErrorCert(x) => Some(x.clone()),
             Self::BackendErrorOther(x) => Some(x.clone()),
             Self::AgentError(x) => Some(x.clone()),
+            Self::RateLimited(x) => Some(x.to_string()),
             _ => None,
         }
     }
@@ -176,6 +177,13 @@ impl IntoResponse for ErrorCause {
         let mut resp = (self.status_code(), format!("{body}\n")).into_response();
         resp.extensions_mut().insert(self);
         resp
+    }
+}
+
+// Creates the response from RateLimitCause and injects itself into extensions to be visible by middleware
+impl IntoResponse for RateLimitCause {
+    fn into_response(self) -> Response {
+        ErrorCause::RateLimited(self).into_response()
     }
 }
 
