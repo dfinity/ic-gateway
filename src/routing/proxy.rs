@@ -72,12 +72,12 @@ pub async fn api_proxy(
     let url = state
         .route_provider
         .route()
-        .map_err(|e| ErrorCause::Other(format!("unable to obtain route: {e}")))?;
+        .map_err(|e| ErrorCause::Other(format!("unable to obtain route: {e:#}")))?;
 
     // Append the query URL to the IC url
     let url = url
         .join(uri.path())
-        .map_err(|e| ErrorCause::MalformedRequest(format!("incorrect URL: {e}")))?;
+        .map_err(|e| ErrorCause::MalformedRequest(format!("incorrect URL: {e:#}")))?;
 
     // Proxy the request
     let response = proxy(url, request, &state.http_client)

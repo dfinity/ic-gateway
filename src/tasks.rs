@@ -36,7 +36,7 @@ impl TaskManager {
             let token = token.child_token();
             self.tracker.spawn(async move {
                 if let Err(e) = task.1.run(token).await {
-                    error!("Runner '{}' exited with an error: {e}", task.0);
+                    error!("Runner '{}' exited with an error: {e:#}", task.0);
                 }
             });
         }

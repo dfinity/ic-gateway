@@ -12,7 +12,7 @@ use crate::{
     cli::Cli,
     http::Client,
     policy::denylist::Denylist,
-    routing::{middleware::geoip::CountryCode, ErrorCause, RequestCtx},
+    routing::{middleware::geoip::CountryCode, CanisterId, ErrorCause},
     tasks::TaskManager,
 };
 
@@ -47,15 +47,12 @@ impl DenylistState {
 pub async fn middleware(
     State(state): State<DenylistState>,
     country_code: Option<Extension<CountryCode>>,
-    Extension(ctx): Extension<Arc<RequestCtx>>,
+    Extension(CanisterId(canister_id)): Extension<CanisterId>,
     request: Request,
     next: Next,
 ) -> Result<Response, ErrorCause> {
     // Check denylisting if configured
-    if state
-        .0
-        .is_blocked(ctx.canister.id, country_code.map(|x| x.0))
-    {
+    if state.0.is_blocked(canister_id, country_code.map(|x| x.0)) {
         return Err(ErrorCause::Denylisted);
     }
 

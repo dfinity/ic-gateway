@@ -18,7 +18,7 @@ use super::{
         IcResponseStatus,
     },
     middleware::{self, request_id::RequestId},
-    RequestCtx,
+    CanisterId,
 };
 
 const MAX_REQUEST_BODY_SIZE: usize = 10 * 1_048_576;
@@ -30,10 +30,14 @@ pub struct HandlerState {
 
 pub async fn handler(
     State(state): State<Arc<HandlerState>>,
-    Extension(ctx): Extension<Arc<RequestCtx>>,
+    canister_id: Option<Extension<CanisterId>>,
     Extension(request_id): Extension<RequestId>,
     request: Request,
 ) -> Result<Response, ErrorCause> {
+    let canister_id = canister_id
+        .map(|x| (x.0).0)
+        .ok_or(ErrorCause::CanisterIdNotFound)?;
+
     let (mut parts, body) = request.into_parts();
 
     // Collect the request body up to the limit
@@ -57,7 +61,7 @@ pub async fn handler(
 
     let args = HttpGatewayRequestArgs {
         canister_request: CanisterRequest::from_parts(parts, body),
-        canister_id: ctx.canister.id,
+        canister_id,
     };
 
     // Pass headers in/out the IC request

@@ -13,7 +13,7 @@ use reqwest::Url;
 use crate::{
     core::{AUTHOR_NAME, SERVICE_NAME},
     http::dns,
-    routing::canister::CanisterAlias,
+    routing::domain::CanisterAlias,
     tls::{self, acme},
 };
 

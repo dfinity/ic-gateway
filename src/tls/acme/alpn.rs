@@ -54,7 +54,7 @@ impl Run for AcmeAlpn {
                 res = state.next() => {
                     match res {
                         Some(Ok(v)) => warn!("ACME-ALPN: success: {v:?}"),
-                        Some(Err(e)) => warn!("ACME-ALPN: error: {e}"),
+                        Some(Err(e)) => warn!("ACME-ALPN: error: {e:#}"),
                         _ => warn!("ACME-ALPN: unexpected None"),
                     }
                 }

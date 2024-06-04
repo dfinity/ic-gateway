@@ -12,10 +12,10 @@ use crate::{
 };
 
 use super::extract_authority;
-use crate::routing::canister::ResolvesCanister;
+use crate::routing::{domain::ResolvesDomain, CanisterId};
 
 pub async fn middleware(
-    State(resolver): State<Arc<dyn ResolvesCanister>>,
+    State(resolver): State<Arc<dyn ResolvesDomain>>,
     tls_info: Option<Extension<Arc<TlsInfo>>>,
     mut request: Request,
     next: Next,
@@ -33,19 +33,32 @@ pub async fn middleware(
         }
     }
 
-    // Resolve the canister
-    let canister = resolver
-        .resolve_canister(&authority)
-        .ok_or(ErrorCause::CanisterIdNotFound)?;
+    // Resolve the domain
+    let domain = resolver
+        .resolve(&authority)
+        .ok_or(ErrorCause::UnknownDomain)?;
 
+    // Inject canister_id separately if it was resolved
+    if let Some(v) = domain.canister_id {
+        request.extensions_mut().insert(CanisterId(v));
+    }
+
+    // Inject request context
+    // TODO remove Arc?
     let ctx = Arc::new(RequestCtx {
         authority,
-        canister,
+        domain: domain.clone(),
     });
     request.extensions_mut().insert(ctx.clone());
 
+    // Execute the request
     let mut response = next.run(request).await;
+
+    // Inject the same into the response
     response.extensions_mut().insert(ctx);
+    if let Some(v) = domain.canister_id {
+        response.extensions_mut().insert(CanisterId(v));
+    }
 
     Ok(response)
 }

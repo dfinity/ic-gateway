@@ -1,5 +1,5 @@
 pub mod body;
-pub mod canister;
+pub mod domain;
 pub mod error_cause;
 pub mod handler;
 pub mod ic;
@@ -10,18 +10,19 @@ use std::sync::Arc;
 
 use anyhow::Error;
 use axum::{
-    extract::{Host, OriginalUri},
+    extract::{Host, MatchedPath, OriginalUri, Request},
     middleware::{from_fn, from_fn_with_state, FromFnLayer},
     response::{IntoResponse, Redirect},
     routing::{get, post},
-    Router,
+    Extension, Router,
 };
 use axum_extra::middleware::option_layer;
+use candid::Principal;
 use fqdn::FQDN;
 use http::{uri::PathAndQuery, Uri};
 use ic_agent::agent::http_transport::route_provider::RoundRobinRouteProvider;
 use prometheus::Registry;
-use tower::ServiceBuilder;
+use tower::{ServiceBuilder, ServiceExt};
 
 use crate::{
     cli::Cli,
@@ -32,17 +33,27 @@ use crate::{
     tasks::TaskManager,
 };
 
-use self::{error_cause::RateLimitCause, middleware::denylist};
+use self::middleware::denylist;
 
 use {
-    canister::{Canister, ResolvesCanister},
+    domain::{Domain, ResolvesDomain},
     error_cause::ErrorCause,
 };
 
+#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
+pub struct CanisterId(pub Principal);
+
+#[derive(Clone)]
 pub struct RequestCtx {
     // HTTP2 authority or HTTP1 Host header
     pub authority: FQDN,
-    pub canister: Canister,
+    pub domain: Domain,
+}
+
+impl RequestCtx {
+    fn is_base_domain(&self) -> bool {
+        self.authority == self.domain.name
+    }
 }
 
 // Redirects any request to an HTTPS scheme
@@ -69,7 +80,7 @@ pub fn setup_router(
     tasks: &mut TaskManager,
     http_client: Arc<dyn Client>,
     registry: &Registry,
-    canister_resolver: Arc<dyn ResolvesCanister>,
+    domain_resolver: Arc<dyn ResolvesDomain>,
     clickhouse: Option<Arc<Clickhouse>>,
 ) -> Result<Router, Error> {
     // GeoIP
@@ -115,17 +126,7 @@ pub fn setup_router(
         metrics::middleware,
     );
 
-    // Compose common layers
-    let common_layers = ServiceBuilder::new()
-        .layer(from_fn(request_id::middleware))
-        .layer(from_fn(headers::middleware))
-        .layer(metrics_mw)
-        .layer(option_layer(geoip_mw))
-        .layer(from_fn_with_state(canister_resolver, validate::middleware))
-        .layer(option_layer(denylist_mw))
-        .layer(option_layer(canister_match_mw));
-
-    // Prepare the HTTP-IC library
+    // Prepare the HTTP->IC library
     let route_provider = Arc::new(RoundRobinRouteProvider::new(cli.ic.url.clone())?);
     let client = ic::setup(cli, http_client.clone(), route_provider.clone())?;
 
@@ -145,17 +146,20 @@ pub fn setup_router(
         .route("/status", get(proxy::api_proxy))
         .with_state(state_api);
 
-    let mut router = Router::new()
-        .nest("/api/v2", router_api)
-        .fallback(
-            get(handler::handler)
-                .post(handler::handler)
-                .with_state(state_handler),
-        )
-        .layer(common_layers);
+    // Layers for the main HTTP->IC route
+    let http_layers = ServiceBuilder::new()
+        .layer(option_layer(denylist_mw))
+        .layer(option_layer(canister_match_mw));
+
+    let router_http = Router::new().fallback(
+        post(handler::handler)
+            .get(handler::handler)
+            .layer(http_layers)
+            .with_state(state_handler),
+    );
 
     // Setup issuer proxy endpoint if we have them configured
-    if !cli.cert.issuer_urls.is_empty() {
+    let router_issuer = if !cli.cert.issuer_urls.is_empty() {
         // Init it early to avoid threading races
         lazy_static::initialize(&proxy::REGEX_REG_ID);
 
@@ -163,19 +167,48 @@ pub fn setup_router(
             http_client,
             cli.cert.issuer_urls.clone(),
         ));
-        let router_issuer = Router::new()
-            .layer(rate_limiter::layer_by_ip(5, 10).unwrap())
+        let router = Router::new()
             .route(
-                "/:id",
+                "/registrations/:id",
                 get(proxy::issuer_proxy)
                     .put(proxy::issuer_proxy)
                     .delete(proxy::issuer_proxy),
             )
-            .route("/", post(proxy::issuer_proxy))
+            .route("/registrations", post(proxy::issuer_proxy))
+            .layer(rate_limiter::layer_by_ip(1, 2)?)
             .with_state(state);
 
-        router = router.nest("/registrations", router_issuer)
-    }
+        Some(router)
+    } else {
+        None
+    };
 
+    // Common layers for all routes
+    let common_layers = ServiceBuilder::new()
+        .layer(from_fn(request_id::middleware))
+        .layer(from_fn(headers::middleware))
+        .layer(metrics_mw)
+        .layer(option_layer(geoip_mw))
+        .layer(from_fn_with_state(domain_resolver, validate::middleware));
+
+    // Top-level router
+    let router = Router::new()
+        .nest("/api/v2", router_api)
+        .fallback(
+            |ctx: Extension<Arc<RequestCtx>>, request: Request| async move {
+                // If there are issuers defined and the request came to the base domain -> proxy to them
+                if let Some(v) = router_issuer {
+                    if request.uri().path().starts_with("/registrations") && ctx.is_base_domain() {
+                        return v.oneshot(request).await;
+                    }
+                }
+
+                // Otherwise request goes to the canister
+                router_http.oneshot(request).await
+            },
+        )
+        .layer(common_layers);
+
+    // The layer that's added last is executed first
     Ok(router)
 }

@@ -172,7 +172,7 @@ impl Run for MetricsRunner {
                 _ = interval.tick() => {
                     let start = Instant::now();
                     if let Err(e) = self.update().await {
-                        warn!("Unable to update metrics: {e}");
+                        warn!("Unable to update metrics: {e:#}");
                     } else {
                         debug!("Metrics updated in {}ms", start.elapsed().as_millis());
                     }
@@ -345,7 +345,7 @@ pub async fn middleware(
             .unwrap_or(("no", "no", Duration::ZERO));
         let domain = ctx
             .as_ref()
-            .map(|x| x.canister.domain.to_string())
+            .map(|x| x.domain.name.to_string())
             .unwrap_or_else(|| "unknown".into());
         let error_cause = error_cause
             .clone()
@@ -384,7 +384,7 @@ pub async fn middleware(
         let path = uri.path();
         let canister_id = ctx
             .as_ref()
-            .map(|x| x.canister.id.to_string())
+            .and_then(|x| x.domain.canister_id.map(|v| v.to_string()))
             .unwrap_or_else(|| "unknown".into());
 
         let conn_rcvd = conn_info.traffic.rcvd();

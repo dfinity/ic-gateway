@@ -10,7 +10,7 @@ use tracing::warn;
 use crate::{
     cli::Cli,
     http, log, metrics,
-    routing::{self, canister::CanisterResolver},
+    routing::{self, domain::DomainResolver},
     tasks::TaskManager,
     tls::{self, cert::Storage},
 };
@@ -71,8 +71,8 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     // Prepare certificate storage
     let storage = Arc::new(Storage::new());
 
-    // Prepare canister resolver to infer canister_id from requests
-    let canister_resolver = CanisterResolver::new(
+    // Prepare domain resolver to resolve domains & infer canister_id from requests
+    let canister_resolver = DomainResolver::new(
         domains.clone(),
         cli.domain.canister_aliases.clone(),
         storage.clone(),

@@ -15,6 +15,12 @@ pub struct Provider {
     path: PathBuf,
 }
 
+impl std::fmt::Debug for Provider {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "DirProvider({})", self.path.to_str().unwrap_or(""))
+    }
+}
+
 #[async_trait]
 impl ProvidesCertificates for Provider {
     async fn get_certificates(&self) -> Result<Vec<CertKey>, Error> {

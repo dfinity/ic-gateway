@@ -55,7 +55,7 @@ impl Clickhouse {
         let tracker = TaskTracker::new();
         tracker.spawn(async move {
             if let Err(e) = actor.run(child_token).await {
-                error!("Clickhouse: error during run: {e}");
+                error!("Clickhouse: error during run: {e:#}");
             }
         });
 
@@ -100,7 +100,7 @@ impl ClickhouseActor {
                 &c.log_clickhouse_table
                     .ok_or_else(|| anyhow!("no table specified"))?,
             )?
-            .with_max_entries(c.log_clickhouse_batch)
+            .with_max_rows(c.log_clickhouse_batch)
             .with_period(Some(c.log_clickhouse_interval))
             .with_period_bias(0.1); // add 10% random variance to interval
 
@@ -121,7 +121,7 @@ impl ClickhouseActor {
 
                     // Drain remaining rows
                     while let Some(v) = self.rx.recv().await {
-                        self.inserter.write(&v).await.context("unable insert row")?;
+                        self.inserter.write(&v).context("unable insert row")?;
                     }
 
                     // Flush the buffer
@@ -134,15 +134,15 @@ impl ClickhouseActor {
                 // If the thresholds are not reached - it doesn't do anything.
                 _ = interval.tick() => {
                     match self.inserter.commit().await {
-                        Ok(v) => debug!("Clickhouse: rows inserted: {}", v.entries),
-                        Err(e) => error!("Clickhouse: unable to commit: {e}"),
+                        Ok(v) => debug!("Clickhouse: inserted rows: {}, bytes: {}", v.rows, v.bytes),
+                        Err(e) => error!("Clickhouse: unable to commit: {e:#}"),
                     }
                 }
 
                 row = self.rx.recv() => {
                     if let Some(v) = row {
-                        if let Err(e) = self.inserter.write(&v).await {
-                            error!("Clickhouse: unable to insert row: {e}");
+                        if let Err(e) = self.inserter.write(&v) {
+                            error!("Clickhouse: unable to insert row: {e:#}");
                         }
                     }
                 }

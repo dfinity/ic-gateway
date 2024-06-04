@@ -352,7 +352,7 @@ impl Conn {
                     () = tokio::time::sleep(self.options.grace_period) => {},
                     v = conn.as_mut() => {
                         if let Err(e) = v {
-                            return Err(anyhow!("Unable to serve connection: {e}"));
+                            return Err(anyhow!("Unable to serve connection: {e:#}"));
                         }
                     },
                 }
@@ -360,7 +360,7 @@ impl Conn {
 
             v = conn.as_mut() => {
                 if let Err(e) = v {
-                    return Err(anyhow!("Unable to serve connection: {e}"));
+                    return Err(anyhow!("Unable to serve connection: {e:#}"));
                 }
             },
         }
@@ -440,7 +440,7 @@ impl Server {
                     let (stream, remote_addr) = match v {
                         Ok(v) => v,
                         Err(e) => {
-                            warn!("Unable to accept connection: {e}");
+                            warn!("Unable to accept connection: {e:#}");
                             // Wait few ms just in case that there's an overflown backlog
                             // so that we don't run into infinite error loop
                             tokio::time::sleep(Duration::from_millis(10)).await;
@@ -465,7 +465,7 @@ impl Server {
                     // Spawn a task to handle connection & track it
                     self.tracker.spawn(async move {
                         if let Err(e) = conn.handle(stream).await {
-                            warn!("Server {}: {}: failed to handle connection: {e}", conn.addr, remote_addr);
+                            warn!("Server {}: {}: failed to handle connection: {e:#}", conn.addr, remote_addr);
                         }
 
                         debug!(

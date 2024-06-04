@@ -4,7 +4,15 @@ use anyhow::{anyhow, Context, Error};
 use candid::Principal;
 use fqdn::{Fqdn, FQDN};
 
-use crate::tls::cert::LooksupCustomDomain;
+// Resolves hostname to a canister id
+pub trait ResolvesDomain: Send + Sync {
+    fn resolve(&self, host: &Fqdn) -> Option<Domain>;
+}
+
+// Looks up custom domain canister id by hostname
+pub trait LooksupCustomDomain: Sync + Send {
+    fn lookup_custom_domain(&self, hostname: &Fqdn) -> Option<Principal>;
+}
 
 // Alias for a canister under all served domains.
 // E.g. an alias 'nns' would resolve under both 'nns.ic0.app' and 'nns.icp0.io'
@@ -37,24 +45,19 @@ impl FromStr for CanisterAlias {
 
 // Combination of canister id and whether we need to verify the response
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Canister {
-    pub id: Principal,
-    pub domain: FQDN,
+pub struct Domain {
+    pub name: FQDN,
+    pub canister_id: Option<Principal>,
     pub verify: bool,
 }
 
-// Resolves hostname to a canister id
-pub trait ResolvesCanister: Send + Sync {
-    fn resolve_canister(&self, host: &Fqdn) -> Option<Canister>;
-}
-
-pub struct CanisterResolver {
+pub struct DomainResolver {
     domains: Vec<FQDN>,
-    aliases: Vec<(FQDN, Canister)>,
+    aliases: Vec<(FQDN, Domain)>,
     custom_domains: Arc<dyn LooksupCustomDomain>,
 }
 
-impl CanisterResolver {
+impl DomainResolver {
     pub fn new(
         domains: Vec<FQDN>,
         aliases_in: Vec<CanisterAlias>,
@@ -66,9 +69,9 @@ impl CanisterResolver {
             for d in &domains {
                 aliases.push((
                     FQDN::from_str(&format!("{}.{d}", a.0))?,
-                    Canister {
-                        id: a.1,
-                        domain: d.clone(),
+                    Domain {
+                        name: d.clone(),
+                        canister_id: Some(a.1),
                         verify: true,
                     },
                 ));
@@ -85,55 +88,65 @@ impl CanisterResolver {
     // Iterate over aliases and see if given host is a subdomain of any.
     // Host is a subdomain of itself also so 'nns.ic0.app' will match the alias 'nns' and domain 'ic0.app'.
     // This will also match any subdomains of the alias - TODO discuss
-    fn resolve_alias(&self, host: &Fqdn) -> Option<Canister> {
+    fn resolve_alias(&self, host: &Fqdn) -> Option<Domain> {
         self.aliases
             .iter()
             .find(|x| host.is_subdomain_of(&x.0))
             .map(|x| x.1.clone())
     }
 
-    // Tries to resolve canister id from <id>.<domain> or <id>.raw.<domain> formatted hostname
-    fn resolve_domain(&self, host: &Fqdn) -> Option<Canister> {
-        let mut labels = host.labels();
+    // Tries to find the base domain that corresponds to the given host and resolve a canister id
+    // Expects <canister_id>.<domain> or <canister_id>.raw.<domain> where <canister_id> can have
+    // an optional prefix of `<foo>--` which is discarded
+    fn resolve_domain(&self, host: &Fqdn) -> Option<Domain> {
+        // Check if the host is a subdomain of any of our base domains.
+        // The host is also a subdomain of itself, so they can be equal.
+        let name = self
+            .domains
+            .iter()
+            .find(|&x| host.is_subdomain_of(x))?
+            .to_owned();
 
-        // Split by '--' if it has one and ignore the preceeding part
-        let canister = labels.next()?.split("--").last()?;
-
-        // Check if the first part of the hostname parses as Principal
-        let id = Principal::from_text(canister).ok()?;
-
-        // Check if the next part is "raw" then we don't need to verify the response
-        let mut labels = labels.peekable();
-        let verify = if labels.peek() == Some(&"raw") {
-            // Consume "raw"
-            labels.next();
-            false
-        } else {
-            true
-        };
-
-        // Construct the remaining part of the domain
-        let domain = FQDN::from_str(&labels.collect::<Vec<_>>().join(".")).ok()?;
-
-        // Check if the domain is known
-        if !self.domains.iter().any(|x| x == &domain) {
+        // Host can be 1 or 2 levels below base domain only: <id>.<domain> or <id>.raw.<domain>
+        // Fail the lookup if it's deeper.
+        let depth = host.labels().count() - name.labels().count();
+        if depth > 2 {
             return None;
         }
 
-        Some(Canister { id, domain, verify })
+        // Check if it's a raw domain
+        let raw = depth == 2 && host.labels().nth(1) == Some("raw");
+
+        // Attempt to extract canister_id
+        let label = host.labels().next()?.split("--").last()?;
+
+        // Do not allow cases like <id>.foo.ic0.app where
+        // the base subdomain is not raw or <id>.
+        // TODO discuss
+        let canister_id = if depth == 1 || (depth == 2 && raw) {
+            Principal::from_text(label).ok()
+        } else {
+            None
+        };
+
+        Some(Domain {
+            name,
+            canister_id,
+            verify: !raw,
+        })
     }
 }
 
-impl ResolvesCanister for CanisterResolver {
-    fn resolve_canister(&self, host: &Fqdn) -> Option<Canister> {
+impl ResolvesDomain for DomainResolver {
+    fn resolve(&self, host: &Fqdn) -> Option<Domain> {
         // Try to resolve canister using different sources
         self.resolve_alias(host)
             .or_else(|| self.resolve_domain(host))
             .or_else(|| {
                 let id = self.custom_domains.lookup_custom_domain(host)?;
-                Some(Canister {
-                    id,
-                    domain: host.to_owned(),
+                Some(Domain {
+                    name: host.to_owned(),
+                    canister_id: Some(id),
                     verify: true,
                 })
             })
@@ -191,24 +204,17 @@ mod test {
 
         let domains = vec![fqdn!("ic0.app"), fqdn!("icp0.io"), fqdn!("foo")];
         let storage = create_test_storage();
-
-        let resolver = CanisterResolver::new(
-            domains.clone(),
-            aliases.clone(),
-            Arc::new(storage) as Arc<dyn LooksupCustomDomain>,
-        )?;
+        let resolver = DomainResolver::new(domains.clone(), aliases.clone(), Arc::new(storage))?;
 
         // Check aliases
         for d in &domains {
             // Ensure all aliases resolve with all domains
             for a in &aliases {
-                let canister = resolver.resolve_alias(&fqdn!(&format!("{}.{d}", a.0)));
-
                 assert_eq!(
-                    canister,
-                    Some(Canister {
-                        id: a.1,
-                        domain: d.clone(),
+                    resolver.resolve_alias(&fqdn!(&format!("{}.{d}", a.0))),
+                    Some(Domain {
+                        name: d.clone(),
+                        canister_id: Some(a.1),
                         verify: true
                     })
                 );
@@ -230,23 +236,39 @@ mod test {
         let id = Principal::from_text("aaaaa-aa").unwrap();
 
         // No canister ID
-        assert_eq!(resolver.resolve_domain(&fqdn!("ic0.app")), None);
-        assert_eq!(resolver.resolve_domain(&fqdn!("raw.ic0.app")), None);
+        assert_eq!(
+            resolver.resolve_domain(&fqdn!("ic0.app")),
+            Some(Domain {
+                name: fqdn!("ic0.app"),
+                canister_id: None,
+                verify: true
+            })
+        );
+
+        // Some subdomain
+        assert_eq!(
+            resolver.resolve_domain(&fqdn!("raw.ic0.app")),
+            Some(Domain {
+                name: fqdn!("ic0.app"),
+                canister_id: None,
+                verify: true
+            })
+        );
 
         // Normal
         assert_eq!(
             resolver.resolve_domain(&fqdn!("aaaaa-aa.ic0.app")),
-            Some(Canister {
-                id,
-                domain: fqdn!("ic0.app"),
+            Some(Domain {
+                name: fqdn!("ic0.app"),
+                canister_id: Some(id),
                 verify: true
             })
         );
         assert_eq!(
             resolver.resolve_domain(&fqdn!("aaaaa-aa.icp0.io")),
-            Some(Canister {
-                id,
-                domain: fqdn!("icp0.io"),
+            Some(Domain {
+                name: fqdn!("icp0.io"),
+                canister_id: Some(id),
                 verify: true
             })
         );
@@ -254,17 +276,17 @@ mod test {
         // Raw
         assert_eq!(
             resolver.resolve_domain(&fqdn!("aaaaa-aa.raw.ic0.app")),
-            Some(Canister {
-                id,
-                domain: fqdn!("ic0.app"),
+            Some(Domain {
+                name: fqdn!("ic0.app"),
+                canister_id: Some(id),
                 verify: false
             })
         );
         assert_eq!(
             resolver.resolve_domain(&fqdn!("aaaaa-aa.raw.icp0.io")),
-            Some(Canister {
-                id,
-                domain: fqdn!("icp0.io"),
+            Some(Domain {
+                name: fqdn!("icp0.io"),
+                canister_id: Some(id),
                 verify: false
             })
         );
@@ -272,74 +294,82 @@ mod test {
         // foo-- <canister_id>
         assert_eq!(
             resolver.resolve_domain(&fqdn!("foo--aaaaa-aa.ic0.app")),
-            Some(Canister {
-                id,
-                domain: fqdn!("ic0.app"),
+            Some(Domain {
+                name: fqdn!("ic0.app"),
+                canister_id: Some(id),
                 verify: true
             })
         );
 
         assert_eq!(
             resolver.resolve_domain(&fqdn!("foo--bar--aaaaa-aa.ic0.app")),
-            Some(Canister {
-                id,
-                domain: fqdn!("ic0.app"),
+            Some(Domain {
+                name: fqdn!("ic0.app"),
+                canister_id: Some(id),
                 verify: true
             })
         );
 
-        // Nested subdomain should not match (?)
+        // Nested subdomain should not match canister id (?)
         assert_eq!(
             resolver.resolve_domain(&fqdn!("aaaaa-aa.foo.ic0.app")),
-            None
+            Some(Domain {
+                name: fqdn!("ic0.app"),
+                canister_id: None,
+                verify: true
+            })
         );
         assert_eq!(
             resolver.resolve_domain(&fqdn!("aaaaa-aa.foo.icp0.io")),
-            None
+            Some(Domain {
+                name: fqdn!("icp0.io"),
+                canister_id: None,
+                verify: true
+            })
         );
 
         // Check the trait
         // Resolve from alias
         assert_eq!(
-            resolver.resolve_canister(&fqdn!("nns.ic0.app")),
-            Some(Canister {
-                id: Principal::from_text("qoctq-giaaa-aaaaa-aaaea-cai").unwrap(),
-                domain: fqdn!("ic0.app"),
+            resolver.resolve(&fqdn!("nns.ic0.app")),
+            Some(Domain {
+                canister_id: Some(Principal::from_text("qoctq-giaaa-aaaaa-aaaea-cai").unwrap()),
+                name: fqdn!("ic0.app"),
                 verify: true
             })
         );
 
         // Resolve from hostname
         assert_eq!(
-            resolver.resolve_canister(&fqdn!("aaaaa-aa.ic0.app")),
-            Some(Canister {
-                id,
-                domain: fqdn!("ic0.app"),
+            resolver.resolve(&fqdn!("aaaaa-aa.ic0.app")),
+            Some(Domain {
+                name: fqdn!("ic0.app"),
+                canister_id: Some(id),
                 verify: true
             })
         );
 
         assert_eq!(
-            resolver.resolve_canister(&fqdn!("aaaaa-aa.raw.ic0.app")),
-            Some(Canister {
-                id,
-                domain: fqdn!("ic0.app"),
+            resolver.resolve(&fqdn!("aaaaa-aa.raw.ic0.app")),
+            Some(Domain {
+                name: fqdn!("ic0.app"),
+                canister_id: Some(id),
                 verify: false
             })
         );
 
         // Resolve custom domain
         assert_eq!(
-            resolver.resolve_canister(&fqdn!("foo.baz")),
-            Some(Canister {
-                id: Principal::from_text(TEST_CANISTER_ID).unwrap(),
-                domain: fqdn!("foo.baz"),
+            resolver.resolve(&fqdn!("foo.baz")),
+            Some(Domain {
+                name: fqdn!("foo.baz"),
+                canister_id: Some(Principal::from_text(TEST_CANISTER_ID).unwrap()),
                 verify: true,
             })
         );
 
         // Something that's not there
-        assert_eq!(resolver.resolve_canister(&fqdn!("blah.blah")), None);
+        assert_eq!(resolver.resolve(&fqdn!("blah.blah")), None);
 
         Ok(())
     }

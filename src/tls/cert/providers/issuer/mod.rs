@@ -51,6 +51,12 @@ pub struct CertificatesImporter {
     exporter_url: Url,
 }
 
+impl std::fmt::Debug for CertificatesImporter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "CertificatesImporter({})", self.exporter_url)
+    }
+}
+
 impl CertificatesImporter {
     pub fn new(http_client: Arc<dyn http::Client>, mut exporter_url: Url) -> Self {
         exporter_url.set_path("");

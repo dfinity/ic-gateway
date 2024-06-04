@@ -189,7 +189,7 @@ impl Run for Denylist {
 
                     let lbl = match res {
                         Err(e) => {
-                            warn!("Denylist update failed: {e}");
+                            warn!("Denylist update failed: {e:#}");
                             "fail"
                         }
                         Ok(v) => {

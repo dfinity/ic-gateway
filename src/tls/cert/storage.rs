@@ -7,8 +7,11 @@ use derive_new::new;
 use fqdn::{Fqdn, FQDN};
 use rustls::{server::ClientHello, sign::CertifiedKey};
 
-use super::{Cert, LooksupCustomDomain};
-use crate::tls::{self, resolver};
+use super::Cert;
+use crate::{
+    routing::domain::LooksupCustomDomain,
+    tls::{self, resolver},
+};
 
 pub trait StoresCertificates<T: Clone + Send + Sync>: Send + Sync {
     fn store(&self, cert_list: Vec<Cert<T>>) -> Result<(), Error>;

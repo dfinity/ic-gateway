@@ -10,7 +10,7 @@ use axum::{
 use crate::{
     cli::Cli,
     policy::{domain_canister::DomainCanisterMatcher, load_principal_list},
-    routing::{ErrorCause, RequestCtx},
+    routing::{CanisterId, ErrorCause, RequestCtx},
 };
 
 #[derive(Clone)]
@@ -37,10 +37,11 @@ impl CanisterMatcherState {
 pub async fn middleware(
     State(state): State<CanisterMatcherState>,
     Extension(ctx): Extension<Arc<RequestCtx>>,
+    Extension(CanisterId(canister_id)): Extension<CanisterId>,
     request: Request,
     next: Next,
 ) -> Result<Response, ErrorCause> {
-    if !state.0.check(ctx.canister.id, &ctx.authority) {
+    if !state.0.check(canister_id, &ctx.authority) {
         return Err(ErrorCause::DomainCanisterMismatch);
     }
 

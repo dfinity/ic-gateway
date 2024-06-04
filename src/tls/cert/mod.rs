@@ -10,10 +10,8 @@ use std::{
 use anyhow::{anyhow, Context, Error};
 use async_trait::async_trait;
 use candid::Principal;
-use fqdn::Fqdn;
-use futures::future::join_all;
 use rustls::{crypto::aws_lc_rs, sign::CertifiedKey};
-use tokio::select;
+use tokio::{select, sync::Mutex};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 use x509_parser::prelude::*;
@@ -40,11 +38,6 @@ pub struct Cert<T: Clone + Send + Sync> {
 
 // Commonly used concrete type of the above for Rustls
 pub type CertKey = Cert<Arc<CertifiedKey>>;
-
-// Looks up custom domain canister id by hostname
-pub trait LooksupCustomDomain: Sync + Send {
-    fn lookup_custom_domain(&self, hostname: &Fqdn) -> Option<Principal>;
-}
 
 fn parse_general_name(name: &GeneralName<'_>) -> Result<Option<String>, Error> {
     let name = match name {
@@ -130,32 +123,51 @@ pub fn pem_convert_to_rustls(key: &[u8], certs: &[u8]) -> Result<CertKey, Error>
 }
 
 // Collects certificates from providers and stores them in a given storage
-#[derive(derive_new::new)]
 pub struct Aggregator {
     providers: Vec<Arc<dyn ProvidesCertificates>>,
     storage: Arc<dyn StoresCertificates<Arc<CertifiedKey>>>,
+    data: Mutex<Vec<Option<Vec<CertKey>>>>,
     poll_interval: Duration,
 }
 
 impl Aggregator {
-    // Fetches certificates concurrently from all providers
-    async fn fetch(&self) -> Result<Vec<CertKey>, Error> {
-        let certs = join_all(
-            self.providers
-                .iter()
-                .map(|x| async { x.get_certificates().await }),
-        )
-        .await;
+    pub fn new(
+        providers: Vec<Arc<dyn ProvidesCertificates>>,
+        storage: Arc<dyn StoresCertificates<Arc<CertifiedKey>>>,
+        poll_interval: Duration,
+    ) -> Self {
+        let count = providers.len();
 
-        // Flatten them into a single vector
-        let certs = certs
-            .into_iter()
-            .collect::<Result<Vec<_>, _>>()?
-            .into_iter()
+        Self {
+            providers,
+            storage,
+            data: Mutex::new(vec![None; count]),
+            poll_interval,
+        }
+    }
+}
+
+impl Aggregator {
+    // Fetches certificates concurrently from all providers
+    async fn fetch(&self) -> Vec<CertKey> {
+        // Go over providers and try to fetch the certificates
+        let mut data = self.data.lock().await;
+        for (i, p) in self.providers.iter().enumerate() {
+            // Update the certificates in the cache on successful fetch, otherwise old version will be used
+            match p.get_certificates().await {
+                Ok(v) => data[i] = Some(v),
+                Err(e) => warn!("CertAggregator: failed to fetch from provider {p:?}: {e:#}"),
+            }
+        }
+
+        let certs = data
+            .iter()
+            .filter_map(|x| x.clone())
             .flatten()
             .collect::<Vec<_>>();
 
-        Ok(certs)
+        drop(data); // clippy
+        certs
     }
 }
 
@@ -172,13 +184,7 @@ impl Run for Aggregator {
                 },
 
                 _ = interval.tick() => {
-                    let certs = match self.fetch().await {
-                        Err(e) => {
-                            warn!("CertAggregator: unable to fetch certificates: {e:#}");
-                            continue;
-                        }
-                        Ok(v) => v,
-                    };
+                    let certs = self.fetch().await;
 
                     debug!("CertAggregator: {} certs fetched:", certs.len());
                     for v in &certs {
@@ -186,7 +192,7 @@ impl Run for Aggregator {
                     }
 
                     if let Err(e) = self.storage.store(certs) {
-                        warn!("CertAggregator: error storing certificates: {e}");
+                        warn!("CertAggregator: error storing certificates: {e:#}");
                     }
                 }
             }
@@ -300,6 +306,7 @@ pub mod test {
     -----END PRIVATE KEY-----\n\
     ";
 
+    #[derive(Debug)]
     struct TestProvider(CertKey);
 
     #[async_trait]
@@ -329,7 +336,7 @@ pub mod test {
             storage,
             Duration::from_secs(1),
         );
-        let certs = aggregator.fetch().await?;
+        let certs = aggregator.fetch().await;
 
         assert_eq!(certs.len(), 2);
         assert_eq!(certs[0].san, vec!["novg"]);
