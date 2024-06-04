@@ -6,9 +6,7 @@ use futures::Future;
 use futures_util::StreamExt;
 use ic_agent::{
     agent::{
-        agent_error::HttpErrorPayload,
-        http_transport::route_provider::{RoundRobinRouteProvider, RouteProvider},
-        Transport,
+        agent_error::HttpErrorPayload, http_transport::route_provider::RouteProvider, Transport,
     },
     export::Principal,
     AgentError, RequestId,
@@ -54,15 +52,6 @@ pub struct ReqwestTransport {
 }
 
 impl ReqwestTransport {
-    /// Creates a replica transport from a HTTP URL and a [`reqwest::Client`].
-    pub fn create_with_client<U: Into<String>>(
-        url: U,
-        client: Arc<dyn HttpClient>,
-    ) -> Result<Self, AgentError> {
-        let route_provider = Arc::new(RoundRobinRouteProvider::new(vec![url.into()])?);
-        Self::create_with_client_route(route_provider, client)
-    }
-
     /// Creates a replica transport from a [`RouteProvider`] and a [`reqwest::Client`].
     pub fn create_with_client_route(
         route_provider: Arc<dyn RouteProvider>,

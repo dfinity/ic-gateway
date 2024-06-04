@@ -21,6 +21,7 @@ clap = { version = "4.5", features = ["derive", "string"] }
 clap_derive = "4.5"
 # TODO lz4 feature requires C++ compiler to build, fails with MUSL
 clickhouse = { git = "https://github.com/blind-oracle/clickhouse.rs.git", default_features = false, features = [
+    "lz4",
     "inserter",
     "tls",
     "uuid",

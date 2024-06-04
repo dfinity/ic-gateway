@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use anyhow::Error;
 use axum::{
-    extract::{Host, MatchedPath, OriginalUri, Request},
+    extract::{Host, OriginalUri, Request},
     middleware::{from_fn, from_fn_with_state, FromFnLayer},
     response::{IntoResponse, Redirect},
     routing::{get, post},
