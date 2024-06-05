@@ -143,16 +143,15 @@ pub fn setup_router(
     );
 
     // Prepare the HTTP->IC library
+    let urls = cli
+        .ic
+        .url
+        .iter()
+        .map(|url| url.as_str())
+        .collect::<Vec<_>>();
     let route_provider = if !cli.ic.use_dynamic_routing {
-        info!(
-            "Using static URLs {:?} for routing",
-            cli.ic
-                .url
-                .iter()
-                .map(|url| url.as_str())
-                .collect::<Vec<_>>()
-        );
-        Arc::new(RoundRobinRouteProvider::new(cli.ic.url.clone())?) as Arc<dyn RouteProvider>
+        info!("Using static URLs {urls:?} for routing");
+        Arc::new(RoundRobinRouteProvider::new(urls)?) as Arc<dyn RouteProvider>
     } else {
         let api_seed_nodes = cli
             .ic
@@ -162,7 +161,7 @@ pub fn setup_router(
             .map(Node::new)
             .collect::<Vec<_>>();
 
-        info!("Using dynamically discovered routing URLs, seed API Nodes {api_seed_nodes:?}");
+        info!("Using dynamically discovered routing URLs, seed API URLs {urls:?}");
 
         if api_seed_nodes.is_empty() {
             return Err(anyhow!("Seed list of API Nodes can't be empty"));
