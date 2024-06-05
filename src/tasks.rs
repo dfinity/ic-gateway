@@ -3,9 +3,10 @@ use std::sync::Arc;
 use anyhow::Error;
 use async_trait::async_trait;
 use derive_new::new;
+use discower_bowndary::{route_provider::HealthCheckRouteProvider, snapshot::Snapshot};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::error;
-
+use std::fmt::Debug;
 use crate::http;
 
 // Long running task that can be cancelled by a token
@@ -60,6 +61,21 @@ impl Run for ocsp_stapler::Stapler {
     async fn run(&self, token: CancellationToken) -> Result<(), Error> {
         token.cancelled().await;
         self.stop().await;
+        Ok(())
+    }
+}
+
+pub struct TaskRouteProvider<S>(pub Arc<HealthCheckRouteProvider<S>>);
+
+#[async_trait]
+impl<S> Run for TaskRouteProvider<S>
+where
+    S: Send + Sync + Debug + Clone + Snapshot + 'static,
+{
+    async fn run(&self, token: CancellationToken) -> Result<(), Error> {
+        self.0.run().await;
+        token.cancelled().await;
+        self.0.stop().await;
         Ok(())
     }
 }
