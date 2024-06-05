@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
+use crate::http;
 use anyhow::Error;
 use async_trait::async_trait;
 use derive_new::new;
 use discower_bowndary::{route_provider::HealthCheckRouteProvider, snapshot::Snapshot};
+use std::fmt::Debug;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::error;
-use std::fmt::Debug;
-use crate::http;
 
 // Long running task that can be cancelled by a token
 #[async_trait]

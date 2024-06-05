@@ -1,3 +1,4 @@
+pub mod health_check;
 pub mod transport;
 
 use std::sync::Arc;

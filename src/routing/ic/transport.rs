@@ -2,11 +2,14 @@
 
 use std::{cell::RefCell, pin::Pin, sync::Arc, time::Duration};
 
+use discower_bowndary::transport::{TransportProvider, TransportProviderError};
 use futures::Future;
 use futures_util::StreamExt;
 use ic_agent::{
     agent::{
-        agent_error::HttpErrorPayload, http_transport::route_provider::RouteProvider, Transport,
+        agent_error::HttpErrorPayload,
+        http_transport::route_provider::{RoundRobinRouteProvider, RouteProvider},
+        Transport,
     },
     export::Principal,
     AgentError, RequestId,
@@ -17,6 +20,7 @@ use reqwest::{
     Body, Method, Request, StatusCode,
 };
 use tokio::task_local;
+use url::Url;
 
 use crate::http::Client as HttpClient;
 
@@ -236,5 +240,33 @@ impl Transport for ReqwestTransport {
 
     fn status(&self) -> AgentFuture<Vec<u8>> {
         Box::pin(async move { self.execute(Method::GET, "status", None).await })
+    }
+}
+
+#[derive(Debug)]
+pub struct TransportProviderImpl {
+    http_client: Arc<dyn HttpClient>,
+}
+
+impl TransportProviderImpl {
+    pub fn new(http_client: Arc<dyn HttpClient>) -> Self {
+        Self { http_client }
+    }
+}
+
+impl TransportProvider for TransportProviderImpl {
+    fn get_transport(&self, url: Url) -> Result<Arc<dyn Transport>, TransportProviderError> {
+        // Here we need to fetch API nodes via a single static url, thus use RoundRobinRouteProvider with just one url.
+        let route_provider = Arc::new(
+            RoundRobinRouteProvider::new(vec![url.as_str()])
+                .map_err(|err| TransportProviderError::UnableToGetTransport(err.to_string()))?,
+        ) as Arc<dyn RouteProvider>;
+
+        let transport = Arc::new(
+            ReqwestTransport::create_with_client_route(route_provider, self.http_client.clone())
+                .map_err(|err| TransportProviderError::UnableToGetTransport(err.to_string()))?,
+        );
+
+        Ok(transport as Arc<dyn Transport>)
     }
 }
