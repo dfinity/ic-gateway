@@ -28,7 +28,7 @@ use discower_bowndary::{
 };
 use fqdn::FQDN;
 use http::{uri::PathAndQuery, Uri};
-use ic::{health_check::HealthCheckImpl, transport::TransportProviderImpl};
+use ic::{health_check::HealthChecker, transport::ReqwestTransportProvider};
 use ic_agent::agent::http_transport::route_provider::{RoundRobinRouteProvider, RouteProvider};
 use prometheus::Registry;
 use tower::{ServiceBuilder, ServiceExt};
@@ -168,14 +168,14 @@ pub fn setup_router(
         }
 
         let route_provider = {
-            let transport_provider = Arc::new(TransportProviderImpl::new(http_client.clone()))
+            let transport_provider = Arc::new(ReqwestTransportProvider::new(http_client.clone()))
                 as Arc<dyn TransportProvider>;
 
             info!("Seed list of API Nodes = {api_seed_nodes:?}");
 
             let subnet_id = Principal::from_text(MAINNET_ROOT_SUBNET_ID).unwrap();
             let fetcher = Arc::new(NodesFetcherImpl::new(transport_provider, subnet_id));
-            let checker = Arc::new(HealthCheckImpl::new(
+            let checker = Arc::new(HealthChecker::new(
                 http_client.clone(),
                 API_NODE_HEALTH_TIMEOUT,
             ));

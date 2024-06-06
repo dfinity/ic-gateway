@@ -15,15 +15,15 @@ use url::Url;
 
 use crate::http::Client;
 
-const SERVICE_NAME: &str = "HealthCheckImpl";
+const SERVICE_NAME: &str = "HealthChecker";
 
 #[derive(Debug)]
-pub struct HealthCheckImpl {
+pub struct HealthChecker {
     http_client: Arc<dyn Client>,
     timeout: Duration,
 }
 
-impl HealthCheckImpl {
+impl HealthChecker {
     pub fn new(http_client: Arc<dyn Client>, timeout: Duration) -> Self {
         Self {
             http_client,
@@ -34,7 +34,7 @@ impl HealthCheckImpl {
 
 // NOTE: We can't use the implementation provided in the Discovery Library. It needs an http_client of concrete type.
 #[async_trait]
-impl HealthCheck for HealthCheckImpl {
+impl HealthCheck for HealthChecker {
     async fn check(&self, node: &Node) -> Result<HealthCheckResult, HealthCheckError> {
         let url = Url::parse(&format!("https://{}/health", node.domain))?;
 

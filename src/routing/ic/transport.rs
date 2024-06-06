@@ -244,17 +244,17 @@ impl Transport for ReqwestTransport {
 }
 
 #[derive(Debug)]
-pub struct TransportProviderImpl {
+pub struct ReqwestTransportProvider {
     http_client: Arc<dyn HttpClient>,
 }
 
-impl TransportProviderImpl {
+impl ReqwestTransportProvider {
     pub fn new(http_client: Arc<dyn HttpClient>) -> Self {
         Self { http_client }
     }
 }
 
-impl TransportProvider for TransportProviderImpl {
+impl TransportProvider for ReqwestTransportProvider {
     fn get_transport(&self, url: Url) -> Result<Arc<dyn Transport>, TransportProviderError> {
         // Here we need to fetch API nodes via a single static url, thus use RoundRobinRouteProvider with just one url.
         let route_provider = Arc::new(
@@ -267,6 +267,6 @@ impl TransportProvider for TransportProviderImpl {
                 .map_err(|err| TransportProviderError::UnableToGetTransport(err.to_string()))?,
         );
 
-        Ok(transport as Arc<dyn Transport>)
+        Ok(transport)
     }
 }
