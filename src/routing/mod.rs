@@ -40,7 +40,7 @@ use crate::{
     log::clickhouse::Clickhouse,
     metrics,
     routing::middleware::{canister_match, geoip, headers, rate_limiter, request_id, validate},
-    tasks::{TaskManager, TaskRouteProvider},
+    tasks::TaskManager,
 };
 
 use self::middleware::denylist;
@@ -171,8 +171,6 @@ pub fn setup_router(
             let transport_provider = Arc::new(ReqwestTransportProvider::new(http_client.clone()))
                 as Arc<dyn TransportProvider>;
 
-            info!("Seed list of API Nodes = {api_seed_nodes:?}");
-
             let subnet_id = Principal::from_text(MAINNET_ROOT_SUBNET_ID).unwrap();
             let fetcher = Arc::new(NodesFetcherImpl::new(transport_provider, subnet_id));
             let checker = Arc::new(HealthChecker::new(
@@ -193,8 +191,7 @@ pub fn setup_router(
         };
 
         // Start route_provider as a task, which will terminate the service gracefully.
-        let task_route_provider = TaskRouteProvider(Arc::clone(&route_provider));
-        tasks.add("route_provider", Arc::new(task_route_provider));
+        tasks.add("route_provider", route_provider.clone());
 
         route_provider as Arc<dyn RouteProvider>
     };

@@ -65,17 +65,15 @@ impl Run for ocsp_stapler::Stapler {
     }
 }
 
-pub struct TaskRouteProvider<S>(pub Arc<HealthCheckRouteProvider<S>>);
-
 #[async_trait]
-impl<S> Run for TaskRouteProvider<S>
+impl<S> Run for HealthCheckRouteProvider<S>
 where
     S: Send + Sync + Debug + Clone + Snapshot + 'static,
 {
     async fn run(&self, token: CancellationToken) -> Result<(), Error> {
-        self.0.run().await;
+        self.run().await;
         token.cancelled().await;
-        self.0.stop().await;
+        self.stop().await;
         Ok(())
     }
 }
