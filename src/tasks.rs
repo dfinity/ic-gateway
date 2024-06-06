@@ -71,7 +71,9 @@ where
     S: Send + Sync + Debug + Clone + Snapshot + 'static,
 {
     async fn run(&self, token: CancellationToken) -> Result<(), Error> {
+        // This run() should finish immediately and thus will not cause blocking.
         self.run().await;
+        // Here we wait for the token to be cancelled.
         token.cancelled().await;
         self.stop().await;
         Ok(())
