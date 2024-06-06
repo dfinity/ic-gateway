@@ -158,7 +158,7 @@ pub struct Ic {
 
     /// Whether to use static URLs or dynamically discovered URLs for routing.
     /// For the dynamic routing case, provided argument ic-url: Vec<Url> is used as a seed list of API Nodes.
-    #[clap(long = "ic_use_discovery")]
+    #[clap(long = "ic-use-discovery")]
     pub ic_use_discovery: bool,
 }
 
