@@ -149,7 +149,7 @@ pub fn setup_router(
         .iter()
         .map(|url| url.as_str())
         .collect::<Vec<_>>();
-    let route_provider = if !cli.ic.use_dynamic_routing {
+    let route_provider = if !cli.ic.ic_use_discovery {
         info!("Using static URLs {urls:?} for routing");
         Arc::new(RoundRobinRouteProvider::new(urls)?) as Arc<dyn RouteProvider>
     } else {
