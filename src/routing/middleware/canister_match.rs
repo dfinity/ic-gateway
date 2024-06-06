@@ -37,12 +37,15 @@ impl CanisterMatcherState {
 pub async fn middleware(
     State(state): State<CanisterMatcherState>,
     Extension(ctx): Extension<Arc<RequestCtx>>,
-    Extension(CanisterId(canister_id)): Extension<CanisterId>,
+    canister_id: Option<Extension<CanisterId>>,
     request: Request,
     next: Next,
 ) -> Result<Response, ErrorCause> {
-    if !state.0.check(canister_id, &ctx.authority) {
-        return Err(ErrorCause::DomainCanisterMismatch);
+    if let Some(v) = canister_id {
+        // Do not run for custom domains
+        if !ctx.domain.custom && !state.0.check(v.0.into(), &ctx.authority) {
+            return Err(ErrorCause::DomainCanisterMismatch);
+        }
     }
 
     Ok(next.run(request).await)

@@ -23,14 +23,16 @@ fn extract_authority(request: &Request) -> Option<FQDN> {
                 .headers()
                 .get(http::header::HOST)
                 .and_then(|x| x.to_str().ok())
+                // Split if it has a port
+                .and_then(|x| x.split(':').next())
         })
-        // Split if it has a port
-        .and_then(|x| x.split(':').next())
         .and_then(|x| FQDN::from_str(x).ok())
 }
 
 #[cfg(test)]
 mod test {
+    use std::collections::BTreeMap;
+
     use super::*;
     use anyhow::Error;
     use fqdn::fqdn;
@@ -95,6 +97,17 @@ mod test {
 
         let auth = extract_authority(&req);
         assert_eq!(auth, Some(fqdn!("foo.bar")));
+
+        // Test BTreeMap
+        let mut map = BTreeMap::new();
+        map.insert(fqdn!("foo.bar"), 1);
+        map.insert(fqdn!("foo.baz"), 2);
+        map.insert(fqdn!("foo.bzz"), 3);
+        map.insert(fqdn!("foo.zzz"), 4);
+        map.insert(fqdn!("foo.zaz"), 5);
+        map.insert(fqdn!("foo.bah"), 6);
+        map.insert(fqdn!("foo.hah"), 7);
+        assert!(map.get(&auth.unwrap()).is_some());
 
         // Badly formatted
         let mut req = axum::extract::Request::builder()

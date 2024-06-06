@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Request, State},
-    response::Response,
+    response::{IntoResponse, Response},
     Extension,
 };
 use bytes::Bytes;
@@ -13,7 +13,7 @@ use ic_http_gateway::{CanisterRequest, HttpGatewayClient, HttpGatewayRequestArgs
 use super::{
     error_cause::ErrorCause,
     ic::{
-        self,
+        convert_response,
         transport::{PassHeaders, PASS_HEADERS},
         IcResponseStatus,
     },
@@ -65,7 +65,7 @@ pub async fn handler(
     };
 
     // Pass headers in/out the IC request
-    let resp = PASS_HEADERS
+    let mut resp = PASS_HEADERS
         .scope(PassHeaders::new(), async {
             PASS_HEADERS.with(|x| {
                 let hdr =
@@ -88,9 +88,11 @@ pub async fn handler(
         .map_err(ErrorCause::from_err)?;
 
     let ic_status = IcResponseStatus::from(&resp);
-    let mut response = ic::convert_response(resp.canister_response);
+    let mut response = convert_response(resp.canister_response);
+
     response.extensions_mut().insert(ic_status);
 
     // Convert it into Axum response
+    //Ok(resp.canister_response.into_response())
     Ok(response)
 }

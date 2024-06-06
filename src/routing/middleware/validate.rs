@@ -26,7 +26,7 @@ pub async fn middleware(
         None => return Err(ErrorCause::NoAuthority),
     };
 
-    // If it's a TLS request - check that authority matches SNI
+    // If it's a TLS request - check that the authority matches SNI
     if let Some(v) = tls_info {
         if v.sni != authority {
             return Err(ErrorCause::SNIMismatch);

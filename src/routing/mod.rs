@@ -43,6 +43,12 @@ use {
 #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
 pub struct CanisterId(pub Principal);
 
+impl From<CanisterId> for Principal {
+    fn from(value: CanisterId) -> Self {
+        value.0
+    }
+}
+
 #[derive(Clone)]
 pub struct RequestCtx {
     // HTTP2 authority or HTTP1 Host header
@@ -52,7 +58,7 @@ pub struct RequestCtx {
 
 impl RequestCtx {
     fn is_base_domain(&self) -> bool {
-        self.authority == self.domain.name
+        !self.domain.custom && self.authority == self.domain.name
     }
 }
 
@@ -144,7 +150,9 @@ pub fn setup_router(
         .route("/canister/:principal/read_state", post(proxy::api_proxy))
         .route("/subnet/:principal/read_state", post(proxy::api_proxy))
         .route("/status", get(proxy::api_proxy))
-        .with_state(state_api);
+        .with_state(state_api.clone());
+
+    let router_health = Router::new().route("/health", get(proxy::api_proxy).with_state(state_api));
 
     // Layers for the main HTTP->IC route
     let http_layers = ServiceBuilder::new()
@@ -196,11 +204,17 @@ pub fn setup_router(
         .nest("/api/v2", router_api)
         .fallback(
             |ctx: Extension<Arc<RequestCtx>>, request: Request| async move {
+                let path = request.uri().path();
                 // If there are issuers defined and the request came to the base domain -> proxy to them
                 if let Some(v) = router_issuer {
-                    if request.uri().path().starts_with("/registrations") && ctx.is_base_domain() {
+                    if path.starts_with("/registrations") && ctx.is_base_domain() {
                         return v.oneshot(request).await;
                     }
+                }
+
+                // Proxy /health only from base domain and not custom ones
+                if path.starts_with("/health") && ctx.is_base_domain() {
+                    return router_health.oneshot(request).await;
                 }
 
                 // Otherwise request goes to the canister

@@ -1,3 +1,4 @@
+use core::fmt;
 use std::{collections::BTreeMap, str::FromStr, sync::Arc};
 
 use anyhow::{anyhow, Error};
@@ -5,31 +6,34 @@ use arc_swap::ArcSwapOption;
 use candid::Principal;
 use derive_new::new;
 use fqdn::{Fqdn, FQDN};
+use fqdn_trie::FqdnTrieMap;
 use rustls::{server::ClientHello, sign::CertifiedKey};
 
 use super::Cert;
-use crate::{
-    routing::domain::LooksupCustomDomain,
-    tls::{self, resolver},
-};
+use crate::{http::ACME_TLS_ALPN_NAME, routing::domain::LooksupCustomDomain, tls::resolver};
 
 pub trait StoresCertificates<T: Clone + Send + Sync>: Send + Sync {
     fn store(&self, cert_list: Vec<Cert<T>>) -> Result<(), Error>;
 }
 
-#[derive(Debug)]
 struct StorageInner<T: Clone + Send + Sync> {
     // BTreeMap seems to be faster than HashMap
     // for smaller datasets due to cache locality
     certs: BTreeMap<String, Arc<Cert<T>>>,
-    canisters: BTreeMap<FQDN, Principal>,
+    canisters: FqdnTrieMap<FQDN, Principal>,
 }
 
 // Generic shared certificate storage
-#[derive(Debug, new)]
+#[derive(new)]
 pub struct Storage<T: Clone + Send + Sync> {
     #[new(default)]
     inner: ArcSwapOption<StorageInner<T>>,
+}
+
+impl<T: Clone + Send + Sync> fmt::Debug for Storage<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Storage")
+    }
 }
 
 pub type StorageKey = Storage<Arc<CertifiedKey>>;
@@ -59,7 +63,8 @@ impl<T: Clone + Send + Sync> StoresCertificates<T> for Storage<T> {
     // Update storage contents with a new list of Certs
     fn store(&self, certs_in: Vec<Cert<T>>) -> Result<(), Error> {
         let mut certs = BTreeMap::new();
-        let mut canisters = BTreeMap::new();
+        // Root value does not matter here, just a placeholder
+        let mut canisters = FqdnTrieMap::new(Principal::management_canister());
 
         for cert in certs_in {
             // Take note of the canister ID
@@ -90,9 +95,13 @@ impl<T: Clone + Send + Sync> StoresCertificates<T> for Storage<T> {
 // Implement certificate resolving for Rustls
 impl resolver::ResolvesServerCert for StorageKey {
     fn resolve(&self, ch: &ClientHello) -> Option<Arc<CertifiedKey>> {
-        // Make sure we've got an ALPN list and they're all HTTP, otherwise refuse resolving.
-        // This is to make sure we don't answer to e.g. ACME challenges here
-        if !ch.alpn()?.all(tls::is_http_alpn) {
+        // If the ALPN is ACME - don't return anything to make sure
+        // we don't break ACME challenge
+        if ch
+            .alpn()
+            .map(|mut x| x.all(|x| x == ACME_TLS_ALPN_NAME))
+            .unwrap_or(false)
+        {
             return None;
         }
 

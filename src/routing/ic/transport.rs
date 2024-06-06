@@ -43,7 +43,7 @@ task_local! {
     pub static PASS_HEADERS: RefCell<PassHeaders>;
 }
 
-/// A [`Transport`] using [`reqwest`] to make HTTP calls to the Internet Computer.
+/// A [`Transport`] using [`HttpClient`] to make HTTP calls to the Internet Computer.
 #[derive(Debug)]
 pub struct ReqwestTransport {
     route_provider: Arc<dyn RouteProvider>,
@@ -52,7 +52,7 @@ pub struct ReqwestTransport {
 }
 
 impl ReqwestTransport {
-    /// Creates a replica transport from a [`RouteProvider`] and a [`reqwest::Client`].
+    /// Creates a transport for the agent from a [`RouteProvider`] and an [`HttpClient`].
     pub fn create_with_client_route(
         route_provider: Arc<dyn RouteProvider>,
         client: Arc<dyn HttpClient>,

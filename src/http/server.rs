@@ -1,6 +1,7 @@
 use std::{
     fmt::Display,
     net::SocketAddr,
+    ops::Add,
     str::FromStr,
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -33,7 +34,7 @@ use tower_service::Service;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
-use super::{is_http_alpn, AsyncCounter, Stats};
+use super::{AsyncCounter, Stats, ACME_TLS_ALPN_NAME};
 
 pub const CONN_DURATION_BUCKETS: &[f64] = &[1.0, 8.0, 32.0, 64.0, 256.0, 512.0, 1024.0];
 pub const CONN_REQUESTS: &[f64] = &[1.0, 4.0, 8.0, 16.0, 32.0, 64.0, 256.0];
@@ -123,7 +124,7 @@ pub struct Options {
 #[derive(Clone, Debug)]
 pub struct TlsInfo {
     pub sni: FQDN,
-    pub alpn: String,
+    pub alpn: Option<String>,
     pub protocol: ProtocolVersion,
     pub cipher: CipherSuite,
     pub handshake_dur: Duration,
@@ -142,10 +143,9 @@ impl TryFrom<&ServerConnection> for TlsInfo {
                 .and_then(|x| {
                     FQDN::from_str(x).map_err(|_| anyhow!("unable to parse SNI as FQDN"))
                 })?,
-            alpn: String::from_utf8_lossy(
-                c.alpn_protocol().ok_or_else(|| anyhow!("No SNI found"))?,
-            )
-            .to_string(),
+            alpn: c
+                .alpn_protocol()
+                .map(|x| String::from_utf8_lossy(x).to_string()),
             protocol: c
                 .protocol_version()
                 .ok_or_else(|| anyhow!("No TLS protocol found"))?,
@@ -201,7 +201,7 @@ impl Conn {
         tls_info.handshake_dur = duration;
 
         debug!(
-            "{}: handshake finished in {}ms (server: {}, proto: {:?}, cipher: {:?}, ALPN: {})",
+            "{}: handshake finished in {}ms (server: {}, proto: {:?}, cipher: {:?}, ALPN: {:?})",
             self,
             duration.as_millis(),
             tls_info.sni,
@@ -295,12 +295,14 @@ impl Conn {
         let (stream, tls_info): (Box<dyn AsyncReadWrite>, _) = if self.tls_acceptor.is_some() {
             let (mut stream, tls_info) = self.tls_handshake(stream).await?;
 
-            // Close the connection if agreed ALPN is not HTTP - probably it was an ACME challenge
-            if !is_http_alpn(tls_info.alpn.as_bytes()) {
-                debug!(
-                    "{}: Not HTTP ALPN ('{}') - closing connection",
-                    self, tls_info.alpn
-                );
+            // Close the connection if agreed ALPN is ACME - the handshake is enough for challenge
+            if tls_info
+                .alpn
+                .as_ref()
+                .map(|x| x.as_bytes() == ACME_TLS_ALPN_NAME)
+                .unwrap_or(false)
+            {
+                debug!("{}: ACME ALPN - closing connection", self);
 
                 stream
                     .shutdown()
@@ -346,15 +348,11 @@ impl Conn {
                 conn.as_mut().graceful_shutdown();
 
                 // Wait for the grace period to finish or connection to complete.
-                // Connection must still be polled for shutdown to proceed.
+                // Connection must still be polled for the shutdown to proceed.
                 select! {
                     biased;
-                    () = tokio::time::sleep(self.options.grace_period) => {},
-                    v = conn.as_mut() => {
-                        if let Err(e) = v {
-                            return Err(anyhow!("Unable to serve connection: {e:#}"));
-                        }
-                    },
+                    () = tokio::time::sleep(self.options.grace_period) => return Ok(()),
+                    _ = conn.as_mut() => {},
                 }
             }
 
@@ -429,7 +427,13 @@ impl Server {
 
                     warn!("Server {}: shutting down, waiting for the active connections to close for {}s", self.addr, self.options.grace_period.as_secs());
                     self.tracker.close();
-                    self.tracker.wait().await;
+
+                    select! {
+                        _ = tokio::time::sleep(self.options.grace_period + Duration::from_secs(5)) => {
+                            warn!("Server {}: connections didn't close in time, shutting down anyway", self.addr);
+                        },
+                        _ = self.tracker.wait() => {},
+                    }
 
                     warn!("Server {}: shut down", self.addr);
                     return Ok(());
@@ -486,6 +490,7 @@ pub fn listen_tcp_backlog(addr: SocketAddr, backlog: u32) -> Result<TcpListener,
         SocketAddr::V6(_) => TcpSocket::new_v6()?,
     };
 
+    socket.set_reuseaddr(true)?;
     socket.bind(addr)?;
     Ok(socket.listen(backlog)?)
 }

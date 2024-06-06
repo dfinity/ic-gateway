@@ -8,7 +8,7 @@ use candid::Principal;
 use mockall::automock;
 use reqwest::{Method, Request, StatusCode, Url};
 use serde::Deserialize;
-use tracing::info;
+use tracing::{debug, info};
 
 use crate::{
     http,
@@ -78,6 +78,12 @@ impl ProvidesCertificates for CertificatesImporter {
             .into_iter()
             .map(|x| -> Result<CertKey, anyhow::Error> {
                 let mut cert = pem_convert_to_rustls(&x.pair.0, &x.pair.1)?;
+
+                debug!(
+                    "IssuerProvider ({}): {} -> {}",
+                    self.exporter_url, x.canister, x.name
+                );
+
                 // Fill the custom domain info
                 cert.custom = Some(CustomDomain {
                     name: x.name,
@@ -88,7 +94,7 @@ impl ProvidesCertificates for CertificatesImporter {
             .collect::<Result<Vec<_>, _>>()?;
 
         info!(
-            "Issuer provider ({}): {} certs loaded",
+            "IssuerProvider ({}): {} certs loaded",
             self.exporter_url,
             certs.len()
         );

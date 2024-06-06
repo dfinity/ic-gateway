@@ -17,11 +17,10 @@ use rustls::{
     version::{TLS12, TLS13},
     RootCertStore, TicketSwitcher,
 };
-use rustls_acme::acme::ACME_TLS_ALPN_NAME;
 
 use crate::{
     cli::Cli,
-    http::{dns::Resolves, is_http_alpn, Client, ALPN_H1, ALPN_H2},
+    http::{dns::Resolves, Client, ACME_TLS_ALPN_NAME, ALPN_H1, ALPN_H2},
     tasks::TaskManager,
     tls::{
         cert::{providers, Aggregator},

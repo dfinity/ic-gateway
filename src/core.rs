@@ -72,7 +72,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     let storage = Arc::new(Storage::new());
 
     // Prepare domain resolver to resolve domains & infer canister_id from requests
-    let canister_resolver = DomainResolver::new(
+    let domain_resolver = DomainResolver::new(
         domains.clone(),
         cli.domain.canister_aliases.clone(),
         storage.clone(),
@@ -84,7 +84,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         &mut tasks,
         http_client.clone(),
         &registry,
-        Arc::new(canister_resolver),
+        Arc::new(domain_resolver),
         clickhouse.clone(),
     )?;
     let http_router = Router::new().fallback(routing::redirect_to_https);

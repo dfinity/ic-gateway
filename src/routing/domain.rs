@@ -49,6 +49,8 @@ pub struct Domain {
     pub name: FQDN,
     pub canister_id: Option<Principal>,
     pub verify: bool,
+    // Whether it's custom domain
+    pub custom: bool,
 }
 
 pub struct DomainResolver {
@@ -73,6 +75,7 @@ impl DomainResolver {
                         name: d.clone(),
                         canister_id: Some(a.1),
                         verify: true,
+                        custom: false,
                     },
                 ));
             }
@@ -133,6 +136,7 @@ impl DomainResolver {
             name,
             canister_id,
             verify: !raw,
+            custom: false,
         })
     }
 }
@@ -148,6 +152,7 @@ impl ResolvesDomain for DomainResolver {
                     name: host.to_owned(),
                     canister_id: Some(id),
                     verify: true,
+                    custom: true,
                 })
             })
     }
@@ -215,7 +220,8 @@ mod test {
                     Some(Domain {
                         name: d.clone(),
                         canister_id: Some(a.1),
-                        verify: true
+                        verify: true,
+                        custom: false,
                     })
                 );
             }
@@ -241,7 +247,8 @@ mod test {
             Some(Domain {
                 name: fqdn!("ic0.app"),
                 canister_id: None,
-                verify: true
+                verify: true,
+                custom: false,
             })
         );
 
@@ -251,7 +258,8 @@ mod test {
             Some(Domain {
                 name: fqdn!("ic0.app"),
                 canister_id: None,
-                verify: true
+                verify: true,
+                custom: false,
             })
         );
 
@@ -261,7 +269,8 @@ mod test {
             Some(Domain {
                 name: fqdn!("ic0.app"),
                 canister_id: Some(id),
-                verify: true
+                verify: true,
+                custom: false,
             })
         );
         assert_eq!(
@@ -269,7 +278,8 @@ mod test {
             Some(Domain {
                 name: fqdn!("icp0.io"),
                 canister_id: Some(id),
-                verify: true
+                verify: true,
+                custom: false,
             })
         );
 
@@ -279,7 +289,8 @@ mod test {
             Some(Domain {
                 name: fqdn!("ic0.app"),
                 canister_id: Some(id),
-                verify: false
+                verify: false,
+                custom: false,
             })
         );
         assert_eq!(
@@ -287,17 +298,19 @@ mod test {
             Some(Domain {
                 name: fqdn!("icp0.io"),
                 canister_id: Some(id),
-                verify: false
+                verify: false,
+                custom: false,
             })
         );
 
-        // foo-- <canister_id>
+        // foo--<canister_id>
         assert_eq!(
             resolver.resolve_domain(&fqdn!("foo--aaaaa-aa.ic0.app")),
             Some(Domain {
                 name: fqdn!("ic0.app"),
                 canister_id: Some(id),
-                verify: true
+                verify: true,
+                custom: false,
             })
         );
 
@@ -306,7 +319,8 @@ mod test {
             Some(Domain {
                 name: fqdn!("ic0.app"),
                 canister_id: Some(id),
-                verify: true
+                verify: true,
+                custom: false,
             })
         );
 
@@ -316,7 +330,8 @@ mod test {
             Some(Domain {
                 name: fqdn!("ic0.app"),
                 canister_id: None,
-                verify: true
+                verify: true,
+                custom: false,
             })
         );
         assert_eq!(
@@ -324,7 +339,8 @@ mod test {
             Some(Domain {
                 name: fqdn!("icp0.io"),
                 canister_id: None,
-                verify: true
+                verify: true,
+                custom: false,
             })
         );
 
@@ -335,7 +351,8 @@ mod test {
             Some(Domain {
                 canister_id: Some(Principal::from_text("qoctq-giaaa-aaaaa-aaaea-cai").unwrap()),
                 name: fqdn!("ic0.app"),
-                verify: true
+                verify: true,
+                custom: false,
             })
         );
 
@@ -345,7 +362,8 @@ mod test {
             Some(Domain {
                 name: fqdn!("ic0.app"),
                 canister_id: Some(id),
-                verify: true
+                verify: true,
+                custom: false,
             })
         );
 
@@ -354,7 +372,8 @@ mod test {
             Some(Domain {
                 name: fqdn!("ic0.app"),
                 canister_id: Some(id),
-                verify: false
+                verify: false,
+                custom: false,
             })
         );
 
@@ -365,6 +384,7 @@ mod test {
                 name: fqdn!("foo.baz"),
                 canister_id: Some(Principal::from_text(TEST_CANISTER_ID).unwrap()),
                 verify: true,
+                custom: true,
             })
         );
 

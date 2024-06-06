@@ -38,6 +38,7 @@ cloudflare = { git = "https://github.com/blind-oracle/cloudflare-rs.git", defaul
 dashmap = "5.5"
 derive-new = "0.6"
 fqdn = "0.3"
+fqdn-trie = "0.4"
 futures = "0.3"
 futures-util = "0.3"
 futures-rustls = "0.26"
@@ -56,7 +57,6 @@ itertools = "0.12"
 humantime = "2.1"
 hyper = "1.3"
 hyper-util = "0.1"
-hyper-rustls = "0.25"
 ic-agent = { version = "0.35", features = ["reqwest"] }
 #ic-http-gateway = { git = "https://github.com/dfinity/http-gateway" }
 ic-http-gateway = { git = "https://github.com/blind-oracle/http-gateway" }
@@ -81,10 +81,9 @@ rasn-ocsp = "0.15"
 rasn-pkix = "0.15"
 rcgen = { version = "0.13", features = ["aws_lc_rs"] }
 regex = "1.10"
-# TODO switch back when Reqwest upgrades to Rustls 0.23
-# https://github.com/seanmonstar/reqwest/pull/2225
+# TODO switch to release 0.13 when it's available
 #reqwest = { version = "0.12", features = ["rustls-tls"] }
-reqwest = { git = "https://github.com/blind-oracle/reqwest.git", default_features = false, features = [
+reqwest = { git = "https://github.com/seanmonstar/reqwest.git", default_features = false, features = [
     "http2",
     "rustls-tls",
     "deflate",

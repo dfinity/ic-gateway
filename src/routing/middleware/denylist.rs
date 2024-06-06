@@ -47,13 +47,15 @@ impl DenylistState {
 pub async fn middleware(
     State(state): State<DenylistState>,
     country_code: Option<Extension<CountryCode>>,
-    Extension(CanisterId(canister_id)): Extension<CanisterId>,
+    canister_id: Option<Extension<CanisterId>>,
     request: Request,
     next: Next,
 ) -> Result<Response, ErrorCause> {
     // Check denylisting if configured
-    if state.0.is_blocked(canister_id, country_code.map(|x| x.0)) {
-        return Err(ErrorCause::Denylisted);
+    if let Some(v) = canister_id {
+        if state.0.is_blocked(v.0.into(), country_code.map(|x| x.0)) {
+            return Err(ErrorCause::Denylisted);
+        }
     }
 
     Ok(next.run(request).await)
