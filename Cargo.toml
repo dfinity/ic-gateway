@@ -38,7 +38,6 @@ cloudflare = { git = "https://github.com/blind-oracle/cloudflare-rs.git", defaul
 dashmap = "5.5"
 derive-new = "0.6"
 fqdn = "0.3"
-fqdn-trie = "0.4"
 futures = "0.3"
 futures-util = "0.3"
 futures-rustls = "0.26"
@@ -112,6 +111,7 @@ tokio-rustls = "0.26"
 tower = "0.4"
 tower_governor = "0.4"
 tower-http = { version = "0.5", features = [
+    "cors",
     "trace",
     "request-id",
     "compression-full",

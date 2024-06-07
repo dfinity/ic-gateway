@@ -73,7 +73,7 @@ pub async fn handler(
 
                 x.borrow_mut()
                     .headers_out
-                    .insert(middleware::request_id::HEADER, hdr)
+                    .insert(middleware::request_id::X_REQUEST_ID, hdr)
             });
 
             // Execute the request

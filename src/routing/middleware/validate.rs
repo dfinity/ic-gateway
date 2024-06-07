@@ -1,22 +1,18 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::{Extension, Request, State},
+    extract::{Request, State},
     middleware::Next,
     response::IntoResponse,
 };
 
-use crate::{
-    http::TlsInfo,
-    routing::{ErrorCause, RequestCtx},
-};
+use crate::routing::{ErrorCause, RequestCtx};
 
 use super::extract_authority;
 use crate::routing::{domain::ResolvesDomain, CanisterId};
 
 pub async fn middleware(
     State(resolver): State<Arc<dyn ResolvesDomain>>,
-    tls_info: Option<Extension<Arc<TlsInfo>>>,
     mut request: Request,
     next: Next,
 ) -> Result<impl IntoResponse, ErrorCause> {
@@ -25,13 +21,6 @@ pub async fn middleware(
         Some(v) => v,
         None => return Err(ErrorCause::NoAuthority),
     };
-
-    // If it's a TLS request - check that the authority matches SNI
-    if let Some(v) = tls_info {
-        if v.sni != authority {
-            return Err(ErrorCause::SNIMismatch);
-        }
-    }
 
     // Resolve the domain
     let domain = resolver

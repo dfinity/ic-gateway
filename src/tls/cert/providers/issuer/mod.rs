@@ -129,6 +129,7 @@ impl ProvidesCertificates for CertificatesImporter {
     }
 }
 
+#[allow(clippy::significant_drop_tightening)]
 #[async_trait]
 impl Import for CertificatesImporter {
     async fn import(&self) -> Result<Vec<Package>, Error> {

@@ -1,4 +1,5 @@
 pub mod canister_match;
+pub mod cors;
 pub mod denylist;
 pub mod geoip;
 pub mod headers;

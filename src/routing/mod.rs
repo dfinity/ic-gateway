@@ -20,6 +20,7 @@ use axum_extra::middleware::option_layer;
 use candid::Principal;
 use domain::{CustomDomainStorage, DomainResolver, ProvidesCustomDomains};
 use fqdn::FQDN;
+use http::method::Method;
 use http::{uri::PathAndQuery, Uri};
 use ic_agent::agent::http_transport::route_provider::RoundRobinRouteProvider;
 use prometheus::Registry;
@@ -30,7 +31,9 @@ use crate::{
     http::Client,
     log::clickhouse::Clickhouse,
     metrics,
-    routing::middleware::{canister_match, geoip, headers, rate_limiter, request_id, validate},
+    routing::middleware::{
+        canister_match, cors, geoip, headers, rate_limiter, request_id, validate,
+    },
     tasks::TaskManager,
 };
 
@@ -158,16 +161,35 @@ pub fn setup_router(
         route_provider,
     ));
 
+    // Common CORS layers
+    let cors_post = cors::layer(&[Method::HEAD, Method::POST]);
+    let cors_get = cors::layer(&[Method::HEAD, Method::GET]);
+
     // IC API proxy router
     let router_api = Router::new()
-        .route("/canister/:principal/query", post(proxy::api_proxy))
-        .route("/canister/:principal/call", post(proxy::api_proxy))
-        .route("/canister/:principal/read_state", post(proxy::api_proxy))
-        .route("/subnet/:principal/read_state", post(proxy::api_proxy))
-        .route("/status", get(proxy::api_proxy))
+        .route(
+            "/canister/:principal/query",
+            post(proxy::api_proxy).layer(cors_post.clone()),
+        )
+        .route(
+            "/canister/:principal/call",
+            post(proxy::api_proxy).layer(cors_post.clone()),
+        )
+        .route(
+            "/canister/:principal/read_state",
+            post(proxy::api_proxy).layer(cors_post.clone()),
+        )
+        .route(
+            "/subnet/:principal/read_state",
+            post(proxy::api_proxy).layer(cors_post.clone()),
+        )
+        .route("/status", get(proxy::api_proxy).layer(cors_get.clone()))
         .with_state(state_api.clone());
 
-    let router_health = Router::new().route("/health", get(proxy::api_proxy).with_state(state_api));
+    let router_health = Router::new().route(
+        "/health",
+        get(proxy::api_proxy).layer(cors_get).with_state(state_api),
+    );
 
     // Layers for the main HTTP->IC route
     let http_layers = ServiceBuilder::new()
@@ -177,6 +199,7 @@ pub fn setup_router(
     let router_http = Router::new().fallback(
         post(handler::handler)
             .get(handler::handler)
+            .layer(cors::layer(&[Method::HEAD, Method::GET, Method::OPTIONS]))
             .layer(http_layers)
             .with_state(state_handler),
     );
@@ -195,9 +218,15 @@ pub fn setup_router(
                 "/registrations/:id",
                 get(proxy::issuer_proxy)
                     .put(proxy::issuer_proxy)
-                    .delete(proxy::issuer_proxy),
+                    .delete(proxy::issuer_proxy)
+                    .layer(cors::layer(&[
+                        Method::HEAD,
+                        Method::GET,
+                        Method::PUT,
+                        Method::DELETE,
+                    ])),
             )
-            .route("/registrations", post(proxy::issuer_proxy))
+            .route("/registrations", post(proxy::issuer_proxy).layer(cors_post))
             .layer(rate_limiter::layer_by_ip(1, 2)?)
             .with_state(state);
 

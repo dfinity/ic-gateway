@@ -34,10 +34,10 @@ impl AcmeAlpn {
     }
 }
 
+#[allow(clippy::significant_drop_tightening)]
 #[async_trait]
 impl Run for AcmeAlpn {
     async fn run(&self, token: CancellationToken) -> Result<(), Error> {
-        #[allow(clippy::significant_drop_tightening)]
         let mut state = self.0.lock().await;
 
         warn!("ACME-ALPN: started");

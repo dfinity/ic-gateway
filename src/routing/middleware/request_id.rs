@@ -6,7 +6,7 @@ use http::header::{HeaderName, HeaderValue};
 use uuid::Uuid;
 
 #[allow(clippy::declare_interior_mutable_const)]
-pub const HEADER: HeaderName = HeaderName::from_static("x-request-id");
+pub const X_REQUEST_ID: HeaderName = HeaderName::from_static("x-request-id");
 
 #[derive(Clone, Copy)]
 pub struct RequestId(pub Uuid);
@@ -18,11 +18,11 @@ pub async fn middleware(mut request: Request, next: Next) -> Response {
     let hdr = HeaderValue::from_maybe_shared(Bytes::from(hdr)).unwrap();
 
     request.extensions_mut().insert(request_id);
-    request.headers_mut().insert(HEADER, hdr.clone());
+    request.headers_mut().insert(X_REQUEST_ID, hdr.clone());
 
     let mut response = next.run(request).await;
     response.extensions_mut().insert(request_id);
-    response.headers_mut().insert(HEADER, hdr);
+    response.headers_mut().insert(X_REQUEST_ID, hdr);
     response
 }
 

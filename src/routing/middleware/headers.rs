@@ -6,7 +6,7 @@ use http::header::{HeaderName, HeaderValue, STRICT_TRANSPORT_SECURITY};
 
 use crate::routing::CanisterId;
 
-const HEADER_CANISTER_ID: HeaderName = HeaderName::from_static("x-ic-canister-id");
+pub const X_IC_CANISTER_ID: HeaderName = HeaderName::from_static("x-ic-canister-id");
 const HEADER_HSTS: HeaderValue = HeaderValue::from_static("max-age=31536000; includeSubDomains");
 
 // Add various headers
@@ -16,7 +16,7 @@ pub async fn middleware(request: Request, next: Next) -> Response {
     // Insert canister id into response if it was resolved
     if let Some(v) = response.extensions().get::<CanisterId>().cloned() {
         response.headers_mut().insert(
-            HEADER_CANISTER_ID,
+            X_IC_CANISTER_ID,
             HeaderValue::from_maybe_shared(Bytes::from(v.0.to_string())).unwrap(),
         );
     }
