@@ -154,7 +154,12 @@ pub struct HttpServer {
 pub struct Ic {
     /// URLs to use to connect to the IC network
     #[clap(long = "ic-url")]
-    pub url: Vec<Url>,
+    pub urls: Vec<Url>,
+
+    /// Whether to use static URLs or dynamically discovered URLs for routing.
+    /// For the dynamic routing case, provided argument ic-url: Vec<Url> is used as a seed list of API Nodes.
+    #[clap(long = "ic-use-discovery")]
+    pub ic_use_discovery: bool,
 }
 
 #[derive(Args)]

@@ -22,7 +22,7 @@ use domain::{CustomDomainStorage, DomainResolver, ProvidesCustomDomains};
 use fqdn::FQDN;
 use http::method::Method;
 use http::{uri::PathAndQuery, Uri};
-use ic_agent::agent::http_transport::route_provider::RoundRobinRouteProvider;
+use ic::route_provider::setup_route_provider;
 use prometheus::Registry;
 use tower::{ServiceBuilder, ServiceExt};
 
@@ -151,7 +151,12 @@ pub fn setup_router(
     );
 
     // Prepare the HTTP->IC library
-    let route_provider = Arc::new(RoundRobinRouteProvider::new(cli.ic.url.clone())?);
+    let route_provider = setup_route_provider(
+        cli.ic.urls.clone(),
+        http_client.clone(),
+        tasks,
+        cli.ic.ic_use_discovery,
+    )?;
     let client = ic::setup(cli, http_client.clone(), route_provider.clone())?;
 
     // Prepare the states
