@@ -6,9 +6,9 @@ pub mod ic;
 pub mod middleware;
 pub mod proxy;
 
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
-use anyhow::{anyhow, Error};
+use anyhow::Error;
 use axum::{
     extract::{Host, OriginalUri, Request},
     middleware::{from_fn, from_fn_with_state, FromFnLayer},
@@ -18,21 +18,11 @@ use axum::{
 };
 use axum_extra::middleware::option_layer;
 use candid::Principal;
-use discower_bowndary::{
-    check::HealthCheck,
-    fetch::{NodesFetcher, NodesFetcherImpl},
-    node::Node,
-    route_provider::HealthCheckRouteProvider,
-    snapshot_health_based::HealthBasedSnapshot,
-    transport::TransportProvider,
-};
 use fqdn::FQDN;
 use http::{uri::PathAndQuery, Uri};
-use ic::{health_check::HealthChecker, transport::ReqwestTransportProvider};
-use ic_agent::agent::http_transport::route_provider::{RoundRobinRouteProvider, RouteProvider};
+use ic::route_provider::setup_route_provider;
 use prometheus::Registry;
 use tower::{ServiceBuilder, ServiceExt};
-use tracing::info;
 
 use crate::{
     cli::Cli,
@@ -49,12 +39,6 @@ use {
     domain::{Domain, ResolvesDomain},
     error_cause::ErrorCause,
 };
-
-const MAINNET_ROOT_SUBNET_ID: &str =
-    "tdb26-jop6k-aogll-7ltgs-eruif-6kk7m-qpktf-gdiqx-mxtrf-vb5e6-eqe";
-const API_NODES_FETCH_PERIOD: Duration = Duration::from_secs(10);
-const API_NODE_HEALTH_TIMEOUT: Duration = Duration::from_secs(2);
-const API_NODE_HEALTH_CHECK_PERIOD: Duration = Duration::from_secs(1);
 
 #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
 pub struct CanisterId(pub Principal);
@@ -143,59 +127,12 @@ pub fn setup_router(
     );
 
     // Prepare the HTTP->IC library
-    let urls = cli
-        .ic
-        .url
-        .iter()
-        .map(|url| url.as_str())
-        .collect::<Vec<_>>();
-    let route_provider = if !cli.ic.ic_use_discovery {
-        info!("Using static URLs {urls:?} for routing");
-        Arc::new(RoundRobinRouteProvider::new(urls)?) as Arc<dyn RouteProvider>
-    } else {
-        let api_seed_nodes = cli
-            .ic
-            .url
-            .iter()
-            .filter_map(|url| url.domain())
-            .map(Node::new)
-            .collect::<Vec<_>>();
-
-        info!("Using dynamically discovered routing URLs, seed API URLs {urls:?}");
-
-        if api_seed_nodes.is_empty() {
-            return Err(anyhow!("Seed list of API Nodes can't be empty"));
-        }
-
-        let route_provider = {
-            let transport_provider = Arc::new(ReqwestTransportProvider::new(http_client.clone()))
-                as Arc<dyn TransportProvider>;
-
-            let subnet_id = Principal::from_text(MAINNET_ROOT_SUBNET_ID).unwrap();
-            let fetcher = Arc::new(NodesFetcherImpl::new(transport_provider, subnet_id));
-            let checker = Arc::new(HealthChecker::new(
-                http_client.clone(),
-                API_NODE_HEALTH_TIMEOUT,
-            ));
-            let snapshot = HealthBasedSnapshot::new();
-
-            let route_provider = HealthCheckRouteProvider::new(
-                snapshot,
-                Arc::clone(&fetcher) as Arc<dyn NodesFetcher>,
-                API_NODES_FETCH_PERIOD,
-                Arc::clone(&checker) as Arc<dyn HealthCheck>,
-                API_NODE_HEALTH_CHECK_PERIOD,
-                api_seed_nodes,
-            );
-            Arc::new(route_provider)
-        };
-
-        // Start route_provider as a task, which will terminate the service gracefully.
-        tasks.add("route_provider", route_provider.clone());
-
-        route_provider as Arc<dyn RouteProvider>
-    };
-
+    let route_provider = setup_route_provider(
+        cli.ic.urls.clone(),
+        http_client.clone(),
+        tasks,
+        cli.ic.ic_use_discovery,
+    )?;
     let client = ic::setup(cli, http_client.clone(), route_provider.clone())?;
 
     // Prepare the states

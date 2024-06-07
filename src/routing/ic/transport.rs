@@ -260,7 +260,7 @@ impl TransportProvider for ReqwestTransportProvider {
         let route_provider = Arc::new(
             RoundRobinRouteProvider::new(vec![url.as_str()])
                 .map_err(|err| TransportProviderError::UnableToGetTransport(err.to_string()))?,
-        ) as Arc<dyn RouteProvider>;
+        );
 
         let transport = Arc::new(
             ReqwestTransport::create_with_client_route(route_provider, self.http_client.clone())
