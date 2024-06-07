@@ -10,9 +10,9 @@ use tracing::warn;
 use crate::{
     cli::Cli,
     http, log, metrics,
-    routing::{self, domain::DomainResolver},
+    routing::{self},
     tasks::TaskManager,
-    tls::{self, cert::Storage},
+    tls::{self},
 };
 
 pub const SERVICE_NAME: &str = "ic_gateway";
@@ -68,23 +68,27 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     let handler_token = token.clone();
     ctrlc::set_handler(move || handler_token.cancel())?;
 
-    // Prepare certificate storage
-    let storage = Arc::new(Storage::new());
-
-    // Prepare domain resolver to resolve domains & infer canister_id from requests
-    let domain_resolver = DomainResolver::new(
+    // Prepare TLS related stuff
+    let (rustls_cfg, custom_domain_providers) = tls::setup(
+        cli,
+        &mut tasks,
         domains.clone(),
-        cli.domain.canister_aliases.clone(),
-        storage.clone(),
-    )?;
+        http_client.clone(),
+        Arc::new(dns_resolver),
+        tls_session_cache.clone(),
+        &registry,
+    )
+    .await
+    .context("unable to setup TLS")?;
 
     // Create routers
     let https_router = routing::setup_router(
         cli,
+        domains,
+        custom_domain_providers,
         &mut tasks,
         http_client.clone(),
         &registry,
-        Arc::new(domain_resolver),
         clickhouse.clone(),
     )?;
     let http_router = Router::new().fallback(routing::redirect_to_https);
@@ -101,20 +105,6 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         None,
     ));
     tasks.add("http_server", http_server);
-
-    // Set up HTTPS
-    let rustls_cfg = tls::setup(
-        cli,
-        &mut tasks,
-        domains,
-        http_client.clone(),
-        storage,
-        Arc::new(dns_resolver),
-        tls_session_cache.clone(),
-        &registry,
-    )
-    .await
-    .context("unable to setup TLS")?;
 
     let https_server = Arc::new(http::Server::new(
         cli.http_server.https,

@@ -1,22 +1,30 @@
 mod verify;
 
-use std::sync::Arc;
+use std::{
+    str::FromStr,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use anyhow::{anyhow, Context as AnyhowContext};
 use async_trait::async_trait;
 use candid::Principal;
+use fqdn::FQDN;
 use mockall::automock;
 use reqwest::{Method, Request, StatusCode, Url};
 use serde::Deserialize;
-use tracing::{debug, info};
+use tokio::sync::Mutex;
+use tracing::info;
 
 use crate::{
     http,
-    tls::cert::{pem_convert_to_rustls, CertKey, CustomDomain},
+    routing::domain::{CustomDomain, ProvidesCustomDomains},
 };
 use verify::{Verify, VerifyError, WithVerify};
 
-use super::ProvidesCertificates;
+use super::{Pem, ProvidesCertificates};
+
+const CACHE_TTL: Duration = Duration::from_secs(9);
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -46,9 +54,15 @@ pub trait Import: Sync + Send {
     async fn import(&self) -> Result<Vec<Package>, Error>;
 }
 
+struct Cache {
+    updated_at: Instant,
+    packages: Vec<Package>,
+}
+
 pub struct CertificatesImporter {
     http_client: Arc<dyn http::Client>,
     exporter_url: Url,
+    cache: Mutex<Cache>,
 }
 
 impl std::fmt::Debug for CertificatesImporter {
@@ -65,33 +79,45 @@ impl CertificatesImporter {
         Self {
             http_client,
             exporter_url,
+            cache: Mutex::new(Cache {
+                updated_at: Instant::now() - CACHE_TTL * 2,
+                packages: vec![],
+            }),
         }
     }
 }
 
 #[async_trait]
+impl ProvidesCustomDomains for CertificatesImporter {
+    async fn get_custom_domains(&self) -> Result<Vec<CustomDomain>, anyhow::Error> {
+        let domains = self
+            .import()
+            .await?
+            .into_iter()
+            .map(|x| -> Result<_, anyhow::Error> {
+                Ok(CustomDomain {
+                    name: FQDN::from_str(&x.name)?,
+                    canister_id: x.canister,
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(domains)
+    }
+}
+
+#[async_trait]
 impl ProvidesCertificates for CertificatesImporter {
-    async fn get_certificates(&self) -> Result<Vec<CertKey>, anyhow::Error> {
+    async fn get_certificates(&self) -> Result<Vec<Pem>, anyhow::Error> {
         let certs = self
             .import()
             .await?
             .into_iter()
-            .map(|x| -> Result<CertKey, anyhow::Error> {
-                let mut cert = pem_convert_to_rustls(&x.pair.0, &x.pair.1)?;
-
-                debug!(
-                    "IssuerProvider ({}): {} -> {}",
-                    self.exporter_url, x.canister, x.name
-                );
-
-                // Fill the custom domain info
-                cert.custom = Some(CustomDomain {
-                    name: x.name,
-                    canister_id: x.canister,
-                });
-                Ok(cert)
+            .map(|x| Pem {
+                cert: x.pair.1,
+                key: x.pair.0,
             })
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<Vec<_>>();
 
         info!(
             "IssuerProvider ({}): {} certs loaded",
@@ -106,8 +132,14 @@ impl ProvidesCertificates for CertificatesImporter {
 #[async_trait]
 impl Import for CertificatesImporter {
     async fn import(&self) -> Result<Vec<Package>, Error> {
-        let req = Request::new(Method::GET, self.exporter_url.clone());
+        // Return result from cache if available
+        let now = Instant::now();
+        let mut cache = self.cache.lock().await;
+        if cache.updated_at >= now - CACHE_TTL {
+            return Ok(cache.packages.clone());
+        }
 
+        let req = Request::new(Method::GET, self.exporter_url.clone());
         let response = self
             .http_client
             .execute(req)
@@ -127,6 +159,8 @@ impl Import for CertificatesImporter {
         let pkgs: Vec<Package> =
             serde_json::from_slice(&bs).context("failed to parse json body")?;
 
+        cache.packages.clone_from(&pkgs);
+        cache.updated_at = now;
         Ok(pkgs)
     }
 }

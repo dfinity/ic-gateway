@@ -9,7 +9,6 @@ use std::{
 
 use anyhow::{anyhow, Context, Error};
 use async_trait::async_trait;
-use candid::Principal;
 use rustls::{crypto::aws_lc_rs, sign::CertifiedKey};
 use tokio::{select, sync::Mutex};
 use tokio_util::sync::CancellationToken;
@@ -17,23 +16,15 @@ use tracing::{debug, warn};
 use x509_parser::prelude::*;
 
 use crate::tasks::Run;
-use providers::ProvidesCertificates;
+use providers::{Pem, ProvidesCertificates};
+pub use storage::Storage;
 use storage::StoresCertificates;
 
-pub use storage::Storage;
-
-#[derive(Clone, Debug)]
-pub struct CustomDomain {
-    name: String,
-    canister_id: Principal,
-}
-
 // Generic certificate and a list of its SANs
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Cert<T: Clone + Send + Sync> {
     pub san: Vec<String>,
     pub cert: T,
-    pub custom: Option<CustomDomain>,
 }
 
 // Commonly used concrete type of the above for Rustls
@@ -118,15 +109,20 @@ pub fn pem_convert_to_rustls(key: &[u8], certs: &[u8]) -> Result<CertKey, Error>
     Ok(Cert {
         san,
         cert: Arc::new(cert_key),
-        custom: None,
     })
+}
+
+fn parse_pem(pem: &[Pem]) -> Result<Vec<CertKey>, Error> {
+    pem.iter()
+        .map(|x| pem_convert_to_rustls(&x.key, &x.cert))
+        .collect::<Result<Vec<_>, _>>()
 }
 
 // Collects certificates from providers and stores them in a given storage
 pub struct Aggregator {
     providers: Vec<Arc<dyn ProvidesCertificates>>,
     storage: Arc<dyn StoresCertificates<Arc<CertifiedKey>>>,
-    data: Mutex<Vec<Option<Vec<CertKey>>>>,
+    data: Mutex<Vec<Option<Vec<Pem>>>>,
     poll_interval: Duration,
 }
 
@@ -149,25 +145,33 @@ impl Aggregator {
 
 impl Aggregator {
     // Fetches certificates concurrently from all providers
-    async fn fetch(&self) -> Vec<CertKey> {
+    async fn fetch(&self) -> (Vec<Pem>, Vec<CertKey>) {
+        // Get a snapshot of current data to update
+        let mut data = self.data.lock().await.clone();
+        let mut parsed = vec![];
+
         // Go over providers and try to fetch the certificates
-        let mut data = self.data.lock().await;
         for (i, p) in self.providers.iter().enumerate() {
-            // Update the certificates in the cache on successful fetch, otherwise old version will be used
+            // Update the certificates on successful fetch & parse, otherwise old version will be used if any
             match p.get_certificates().await {
-                Ok(v) => data[i] = Some(v),
+                Ok(v) => {
+                    // Try to parse them first to make sure they're valid
+                    match parse_pem(&v) {
+                        Ok(x) => {
+                            parsed.push(x);
+                            data[i] = Some(v);
+                        },
+                        Err(e) => warn!("CertAggregator: failed to parse certificates from provider {p:?}: {e:#}"),
+                    }
+                }
                 Err(e) => warn!("CertAggregator: failed to fetch from provider {p:?}: {e:#}"),
             }
         }
 
-        let certs = data
-            .iter()
-            .filter_map(|x| x.clone())
-            .flatten()
-            .collect::<Vec<_>>();
-
-        drop(data); // clippy
-        certs
+        (
+            data.into_iter().flatten().flatten().collect(),
+            parsed.into_iter().flatten().collect(),
+        )
     }
 }
 
@@ -184,11 +188,17 @@ impl Run for Aggregator {
                 },
 
                 _ = interval.tick() => {
-                    let certs = self.fetch().await;
+                    let pem_old = self.data.lock().await.clone().into_iter().flatten().flatten().collect::<Vec<_>>();
+                    let (pem, certs) = self.fetch().await;
 
                     debug!("CertAggregator: {} certs fetched:", certs.len());
                     for v in &certs {
                         debug!("CertAggregator: {:?}", v.san);
+                    }
+
+                    if pem == pem_old {
+                        debug!("CertAggregator: certs haven't changed, not updating");
+                        continue
                     }
 
                     if let Err(e) = self.storage.store(certs) {
@@ -202,6 +212,8 @@ impl Run for Aggregator {
 
 #[cfg(test)]
 pub mod test {
+    use providers::Pem;
+
     use super::*;
 
     // Some snakeoil certs
@@ -307,11 +319,11 @@ pub mod test {
     ";
 
     #[derive(Debug)]
-    struct TestProvider(CertKey);
+    struct TestProvider(Pem);
 
     #[async_trait]
     impl ProvidesCertificates for TestProvider {
-        async fn get_certificates(&self) -> Result<Vec<CertKey>, Error> {
+        async fn get_certificates(&self) -> Result<Vec<Pem>, Error> {
             Ok(vec![self.0.clone()])
         }
     }
@@ -327,8 +339,14 @@ pub mod test {
 
     #[tokio::test]
     async fn test_aggregator() -> Result<(), Error> {
-        let prov1 = TestProvider(pem_convert_to_rustls(KEY_1, CERT_1)?);
-        let prov2 = TestProvider(pem_convert_to_rustls(KEY_2, CERT_2)?);
+        let prov1 = TestProvider(Pem {
+            key: KEY_1.to_vec(),
+            cert: CERT_1.to_vec(),
+        });
+        let prov2 = TestProvider(Pem {
+            key: KEY_2.to_vec(),
+            cert: CERT_2.to_vec(),
+        });
 
         let storage = Arc::new(storage::StorageKey::new());
         let aggregator = Aggregator::new(
@@ -336,7 +354,7 @@ pub mod test {
             storage,
             Duration::from_secs(1),
         );
-        let certs = aggregator.fetch().await;
+        let (_, certs) = aggregator.fetch().await;
 
         assert_eq!(certs.len(), 2);
         assert_eq!(certs[0].san, vec!["novg"]);

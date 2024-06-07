@@ -7,6 +7,7 @@ pub mod tickets;
 use std::{fs, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Context, Error};
+use cert::Storage;
 use fqdn::{Fqdn, FQDN};
 use instant_acme::ChallengeType;
 use ocsp_stapler::Stapler;
@@ -21,6 +22,7 @@ use rustls::{
 use crate::{
     cli::Cli,
     http::{dns::Resolves, Client, ACME_TLS_ALPN_NAME, ALPN_H1, ALPN_H2},
+    routing::domain::ProvidesCustomDomains,
     tasks::TaskManager,
     tls::{
         cert::{providers, Aggregator},
@@ -35,7 +37,7 @@ use {
         dns::{AcmeDns, DnsBackend, DnsManager, TokenManagerDns},
         Acme, AcmeOptions,
     },
-    cert::{providers::ProvidesCertificates, storage::StorageKey},
+    cert::providers::ProvidesCertificates,
 };
 
 // Checks if given host matches any of domains
@@ -149,30 +151,32 @@ async fn setup_acme(
 }
 
 // Prepares the stuff needed for serving TLS
-#[allow(clippy::too_many_arguments)]
 pub async fn setup(
     cli: &Cli,
     tasks: &mut TaskManager,
     domains: Vec<FQDN>,
     http_client: Arc<dyn Client>,
-    storage: Arc<StorageKey>,
     dns_resolver: Arc<dyn Resolves>,
     tls_session_storage: Arc<dyn StoresServerSessions + Send + Sync>,
     registry: &Registry,
-) -> Result<ServerConfig, Error> {
-    let mut providers: Vec<Arc<dyn ProvidesCertificates>> = vec![];
+) -> Result<(ServerConfig, Vec<Arc<dyn ProvidesCustomDomains>>), Error> {
+    // Prepare certificate storage
+    let cert_storage = Arc::new(Storage::new());
+
+    let mut cert_providers: Vec<Arc<dyn ProvidesCertificates>> = vec![];
+    let mut custom_domain_providers: Vec<Arc<dyn ProvidesCustomDomains>> = vec![];
 
     // Create Dir providers
     for v in &cli.cert.dir {
-        providers.push(Arc::new(providers::Dir::new(v.clone())));
+        cert_providers.push(Arc::new(providers::Dir::new(v.clone())));
     }
 
     // Create CertIssuer providers
+    // It's a custom domain & cert provider at the same time.
     for v in &cli.cert.issuer_urls {
-        providers.push(Arc::new(providers::Issuer::new(
-            http_client.clone(),
-            v.clone(),
-        )));
+        let issuer = Arc::new(providers::Issuer::new(http_client.clone(), v.clone()));
+        cert_providers.push(issuer.clone());
+        custom_domain_providers.push(issuer);
     }
 
     // Prepare ACME if configured
@@ -182,7 +186,7 @@ pub async fn setup(
         None
     };
 
-    if acme_resolver.is_none() && providers.is_empty() {
+    if acme_resolver.is_none() && cert_providers.is_empty() {
         return Err(anyhow!(
             "No ACME or certificate providers specified - HTTPS cannot be used"
         ));
@@ -190,14 +194,15 @@ pub async fn setup(
 
     // Create certificate aggregator that combines all providers
     let cert_aggregator = Arc::new(Aggregator::new(
-        providers,
-        storage.clone(),
+        cert_providers,
+        cert_storage.clone(),
         cli.cert.poll_interval,
     ));
     tasks.add("cert_aggregator", cert_aggregator);
 
     // Set up certificate resolver
-    let certificate_resolver = Arc::new(AggregatingResolver::new(acme_resolver, vec![storage]));
+    let certificate_resolver =
+        Arc::new(AggregatingResolver::new(acme_resolver, vec![cert_storage]));
 
     // Optionally wrap resolver with OCSP stapler
     let certificate_resolver: Arc<dyn ResolvesServerCertRustls> = if !cli.cert.ocsp_stapling_disable
@@ -222,7 +227,7 @@ pub async fn setup(
         registry,
     );
 
-    Ok(config)
+    Ok((config, custom_domain_providers))
 }
 
 #[cfg(test)]

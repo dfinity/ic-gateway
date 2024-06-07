@@ -5,7 +5,8 @@ use async_trait::async_trait;
 use tokio::fs::read_dir;
 use tracing::debug;
 
-use crate::tls::cert::{pem_convert_to_rustls, providers::ProvidesCertificates, CertKey};
+use super::Pem;
+use crate::tls::cert::providers::ProvidesCertificates;
 
 // It searches for .pem files in the given directory and tries to find the
 // corresponding .key files with the same base name.
@@ -23,7 +24,7 @@ impl std::fmt::Debug for Provider {
 
 #[async_trait]
 impl ProvidesCertificates for Provider {
-    async fn get_certificates(&self) -> Result<Vec<CertKey>, Error> {
+    async fn get_certificates(&self) -> Result<Vec<Pem>, Error> {
         let mut files = read_dir(&self.path).await?;
 
         let mut certs = vec![];
@@ -49,17 +50,14 @@ impl ProvidesCertificates for Provider {
             let keyfile = self.path.join(format!("{base}.key"));
 
             // Load key & cert
-            let chain = tokio::fs::read(v.path()).await?;
+            let cert = tokio::fs::read(v.path()).await?;
             let key = tokio::fs::read(&keyfile).await.context(format!(
                 "Corresponding key file '{}' for '{}' could not be read",
                 keyfile.to_string_lossy(),
                 v.path().to_string_lossy()
             ))?;
 
-            let cert = pem_convert_to_rustls(&key, &chain)
-                .context("unable to parse certificate/key pair")?;
-
-            certs.push(cert);
+            certs.push(Pem { cert, key });
         }
 
         debug!(
@@ -94,7 +92,8 @@ mod test {
         let certs = prov.get_certificates().await?;
 
         assert_eq!(certs.len(), 1);
-        assert_eq!(certs[0].san, vec!["novg"]);
+        assert_eq!(certs[0].key, KEY_1);
+        assert_eq!(certs[0].cert, CERT_1);
 
         Ok(())
     }

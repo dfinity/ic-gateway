@@ -1,17 +1,44 @@
-use std::{str::FromStr, sync::Arc};
+use std::{collections::BTreeMap, str::FromStr, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Context, Error};
+use arc_swap::ArcSwapOption;
+use async_trait::async_trait;
 use candid::Principal;
 use fqdn::{Fqdn, FQDN};
+use tokio::select;
+use tokio_util::sync::CancellationToken;
+use tracing::warn;
+
+use crate::tasks::Run;
+
+#[macro_export]
+macro_rules! principal {
+    ($id:expr) => {{
+        #[allow(unused_mut)]
+        Principal::from_text($id).unwrap()
+    }};
+}
 
 // Resolves hostname to a canister id
 pub trait ResolvesDomain: Send + Sync {
     fn resolve(&self, host: &Fqdn) -> Option<Domain>;
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CustomDomain {
+    pub name: FQDN,
+    pub canister_id: Principal,
+}
+
+// Provides a list of custom domains
+#[async_trait]
+pub trait ProvidesCustomDomains: Sync + Send {
+    async fn get_custom_domains(&self) -> Result<Vec<CustomDomain>, Error>;
+}
+
 // Looks up custom domain canister id by hostname
 pub trait LooksupCustomDomain: Sync + Send {
-    fn lookup_custom_domain(&self, hostname: &Fqdn) -> Option<Principal>;
+    fn lookup_custom_domain(&self, hostname: &Fqdn) -> Option<CustomDomain>;
 }
 
 // Alias for a canister under all served domains.
@@ -40,6 +67,72 @@ impl FromStr for CanisterAlias {
 
             None => Err(anyhow!(INVALID_ALIAS_FORMAT)),
         }
+    }
+}
+
+struct CustomDomainStorageInner {
+    // BTreeMap seems to be faster than HashMap
+    // for smaller datasets due to cache locality
+    custom_domains: BTreeMap<FQDN, CustomDomain>,
+}
+
+// Custom domain storage
+#[derive(derive_new::new)]
+pub struct CustomDomainStorage {
+    providers: Vec<Arc<dyn ProvidesCustomDomains>>,
+    poll_interval: Duration,
+    #[new(default)]
+    inner: ArcSwapOption<CustomDomainStorageInner>,
+}
+
+impl CustomDomainStorage {
+    async fn refresh(&self) -> Result<(), Error> {
+        let mut buf = vec![];
+        for p in &self.providers {
+            buf.push(p.get_custom_domains().await?);
+        }
+
+        let inner = CustomDomainStorageInner {
+            custom_domains: BTreeMap::from_iter(
+                buf.into_iter().flatten().map(|x| (x.name.clone(), x)),
+            ),
+        };
+        self.inner.store(Some(Arc::new(inner)));
+
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl Run for CustomDomainStorage {
+    async fn run(&self, token: CancellationToken) -> Result<(), Error> {
+        let mut interval = tokio::time::interval(self.poll_interval);
+
+        loop {
+            select! {
+                () = token.cancelled() => {
+                    warn!("CustomDomainStorage: exiting");
+                    return Ok(());
+                },
+
+                _ = interval.tick() => {
+                    if let Err(e) = self.refresh().await {
+                        warn!("CustomDomainStorage: unable to refresh: {e:#}");
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Implement looking up custom domain canister id by hostname
+impl LooksupCustomDomain for CustomDomainStorage {
+    fn lookup_custom_domain(&self, hostname: &Fqdn) -> Option<CustomDomain> {
+        self.inner
+            .load_full()?
+            .custom_domains
+            .get(hostname)
+            .cloned()
     }
 }
 
@@ -147,10 +240,10 @@ impl ResolvesDomain for DomainResolver {
         self.resolve_alias(host)
             .or_else(|| self.resolve_domain(host))
             .or_else(|| {
-                let id = self.custom_domains.lookup_custom_domain(host)?;
+                let custom = self.custom_domains.lookup_custom_domain(host)?;
                 Some(Domain {
                     name: host.to_owned(),
-                    canister_id: Some(id),
+                    canister_id: Some(custom.canister_id),
                     verify: true,
                     custom: true,
                 })
@@ -163,7 +256,8 @@ mod test {
     use fqdn::fqdn;
 
     use super::*;
-    use crate::tls::cert::storage::test::{create_test_storage, TEST_CANISTER_ID};
+
+    const TEST_CANISTER_ID: &str = "s6hwe-laaaa-aaaab-qaeba-cai";
 
     #[test]
     fn test_canister_alias() -> Result<(), Error> {
@@ -196,8 +290,17 @@ mod test {
         Ok(())
     }
 
-    #[test]
-    fn test_resolver() -> Result<(), Error> {
+    struct TestCustomDomainProvider(CustomDomain);
+
+    #[async_trait]
+    impl ProvidesCustomDomains for TestCustomDomainProvider {
+        async fn get_custom_domains(&self) -> Result<Vec<CustomDomain>, Error> {
+            Ok(vec![self.0.clone()])
+        }
+    }
+
+    #[tokio::test]
+    async fn test_resolver() -> Result<(), Error> {
         let aliases = [
             "personhood:g3wsl-eqaaa-aaaan-aaaaa-cai",
             "identity:rdmx6-jaaaa-aaaaa-aaadq-cai",
@@ -208,8 +311,18 @@ mod test {
         .collect::<Vec<_>>();
 
         let domains = vec![fqdn!("ic0.app"), fqdn!("icp0.io"), fqdn!("foo")];
-        let storage = create_test_storage();
-        let resolver = DomainResolver::new(domains.clone(), aliases.clone(), Arc::new(storage))?;
+        let custom_domain_provider = TestCustomDomainProvider(CustomDomain {
+            name: fqdn!("foo.baz"),
+            canister_id: principal!(TEST_CANISTER_ID),
+        });
+        let custom_domain_storage =
+            CustomDomainStorage::new(vec![Arc::new(custom_domain_provider)], Duration::ZERO);
+        custom_domain_storage.refresh().await?;
+        let resolver = DomainResolver::new(
+            domains.clone(),
+            aliases.clone(),
+            Arc::new(custom_domain_storage),
+        )?;
 
         // Check aliases
         for d in &domains {
@@ -239,7 +352,7 @@ mod test {
         }
 
         // Check domains
-        let id = Principal::from_text("aaaaa-aa").unwrap();
+        let id = principal!("aaaaa-aa");
 
         // No canister ID
         assert_eq!(
@@ -349,7 +462,7 @@ mod test {
         assert_eq!(
             resolver.resolve(&fqdn!("nns.ic0.app")),
             Some(Domain {
-                canister_id: Some(Principal::from_text("qoctq-giaaa-aaaaa-aaaea-cai").unwrap()),
+                canister_id: Some(principal!("qoctq-giaaa-aaaaa-aaaea-cai")),
                 name: fqdn!("ic0.app"),
                 verify: true,
                 custom: false,
@@ -382,7 +495,7 @@ mod test {
             resolver.resolve(&fqdn!("foo.baz")),
             Some(Domain {
                 name: fqdn!("foo.baz"),
-                canister_id: Some(Principal::from_text(TEST_CANISTER_ID).unwrap()),
+                canister_id: Some(principal!(TEST_CANISTER_ID)),
                 verify: true,
                 custom: true,
             })

@@ -18,6 +18,7 @@ use axum::{
 };
 use axum_extra::middleware::option_layer;
 use candid::Principal;
+use domain::{CustomDomainStorage, DomainResolver, ProvidesCustomDomains};
 use fqdn::FQDN;
 use http::{uri::PathAndQuery, Uri};
 use ic_agent::agent::http_transport::route_provider::RoundRobinRouteProvider;
@@ -83,12 +84,26 @@ pub async fn redirect_to_https(
 
 pub fn setup_router(
     cli: &Cli,
+    domains: Vec<FQDN>,
+    custom_domain_providers: Vec<Arc<dyn ProvidesCustomDomains>>,
     tasks: &mut TaskManager,
     http_client: Arc<dyn Client>,
     registry: &Registry,
-    domain_resolver: Arc<dyn ResolvesDomain>,
     clickhouse: Option<Arc<Clickhouse>>,
 ) -> Result<Router, Error> {
+    let custom_domain_storage = Arc::new(CustomDomainStorage::new(
+        custom_domain_providers,
+        cli.cert.poll_interval,
+    ));
+    tasks.add("custom_domain_storage", custom_domain_storage.clone());
+
+    // Prepare domain resolver to resolve domains & infer canister_id from requests
+    let domain_resolver = Arc::new(DomainResolver::new(
+        domains,
+        cli.domain.canister_aliases.clone(),
+        custom_domain_storage,
+    )?) as Arc<dyn ResolvesDomain>;
+
     // GeoIP
     let geoip_mw = cli
         .misc
