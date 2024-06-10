@@ -17,7 +17,7 @@ use http::{HeaderMap, Version};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 pub use client::{Client, ReqwestClient};
-pub use server::{ConnInfo, Server, TlsInfo};
+pub use server::{ConnInfo, Server};
 
 pub const ALPN_H1: &[u8] = b"http/1.1";
 pub const ALPN_H2: &[u8] = b"h2";
@@ -59,7 +59,7 @@ impl Stats {
     }
 }
 
-// Async read+write wrapper that counts bytes read/wrote
+// Async read+write wrapper that counts bytes read/written
 #[derive(new)]
 pub struct AsyncCounter<T: AsyncRead + AsyncWrite + Send + Sync + Unpin> {
     inner: T,

@@ -2,13 +2,19 @@ use std::fmt;
 
 use axum::{extract::Request, middleware::Next, response::Response};
 use bytes::Bytes;
-use http::header::{HeaderName, HeaderValue};
+use http::header::HeaderValue;
 use uuid::Uuid;
 
 use super::X_REQUEST_ID;
 
 #[derive(Clone, Copy)]
 pub struct RequestId(pub Uuid);
+
+impl fmt::Display for RequestId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 // Generate & insert request UUID into extensions and headers
 pub async fn middleware(mut request: Request, next: Next) -> Response {
@@ -23,10 +29,4 @@ pub async fn middleware(mut request: Request, next: Next) -> Response {
     response.extensions_mut().insert(request_id);
     response.headers_mut().insert(X_REQUEST_ID, hdr);
     response
-}
-
-impl fmt::Display for RequestId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
 }
