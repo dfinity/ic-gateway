@@ -2,11 +2,11 @@
 
 use axum::{extract::Request, middleware::Next, response::Response};
 use bytes::Bytes;
-use http::header::{HeaderName, HeaderValue, STRICT_TRANSPORT_SECURITY};
+use http::header::{HeaderValue, STRICT_TRANSPORT_SECURITY};
 
+use super::X_IC_CANISTER_ID;
 use crate::routing::CanisterId;
 
-pub const X_IC_CANISTER_ID: HeaderName = HeaderName::from_static("x-ic-canister-id");
 const HEADER_HSTS: HeaderValue = HeaderValue::from_static("max-age=31536000; includeSubDomains");
 
 // Add various headers

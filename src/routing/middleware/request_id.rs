@@ -5,8 +5,7 @@ use bytes::Bytes;
 use http::header::{HeaderName, HeaderValue};
 use uuid::Uuid;
 
-#[allow(clippy::declare_interior_mutable_const)]
-pub const X_REQUEST_ID: HeaderName = HeaderName::from_static("x-request-id");
+use super::X_REQUEST_ID;
 
 #[derive(Clone, Copy)]
 pub struct RequestId(pub Uuid);
