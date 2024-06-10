@@ -3,4 +3,4 @@ image = "docker.io/library/archlinux"
 
 [packages]
 system = "archlinux"
-dependencies = ["rust-musl", "lua"]
+dependencies = ["musl", "cmake", "make", "rust-musl", "lua"]

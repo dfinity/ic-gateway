@@ -1,4 +1,4 @@
-name: Rust
+name: Test
 
 on:
   push:
@@ -16,17 +16,12 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Install repro-env
-      run: |
-        wget 'https://github.com/kpcyrd/repro-env/releases/download/v0.4.0/repro-env'
-        echo 'e331825a19d41a5ad4dd7c1ce7a810eccbb9eb8945c3fc78abe9f040df8c1204  repro-env' | sha256sum -c -
-        sudo install -m755 repro-env -t /usr/bin
+    - run: rustup toolchain install stable --profile minimal
 
-    # - run: rustup toolchain install stable --profile minimal
-    # - uses: Swatinem/rust-cache@v2
+    - uses: Swatinem/rust-cache@v2
 
     - name: Build
-      run: repro-env build -- cargo build --target x86_64-unknown-linux-musl
+      run: cargo build
 
     - name: Run tests
-      run: repro-env build -- cargo test --target x86_64-unknown-linux-musl
+      run: cargo test

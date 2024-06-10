@@ -1,0 +1,35 @@
+name: Release
+
+on: 
+  push:
+    tags:
+    - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install repro-env
+      run: |
+        wget 'https://github.com/kpcyrd/repro-env/releases/download/v0.4.0/repro-env'
+        echo 'e331825a19d41a5ad4dd7c1ce7a810eccbb9eb8945c3fc78abe9f040df8c1204  repro-env' | sha256sum -c -
+        sudo install -m755 repro-env -t /usr/bin
+
+    - name: Run tests
+      run: repro-env build -- cargo test --release --target x86_64-unknown-linux-musl
+  
+    - name: Build
+      run: repro-env build -- cargo build --release --target x86_64-unknown-linux-musl
+
+    - uses: ncipollo/release-action@v1
+      with:
+        artifacts: "target/x86_64-unknown-linux-musl/release/ic-gateway"
+        body: "test release"
