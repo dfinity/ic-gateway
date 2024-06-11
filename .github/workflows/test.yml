@@ -17,7 +17,7 @@ jobs:
     - uses: actions/checkout@v4
 
     - name: Install rustup
-      run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --profile minimal
+      run: wget -O - https://sh.rustup.rs | sh -s -- --profile minimal
 
     - uses: Swatinem/rust-cache@v2
 
