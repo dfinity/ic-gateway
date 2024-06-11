@@ -11,15 +11,12 @@ env:
 
 jobs:
   test:
-    # runs-on: ubuntu-latest
     runs-on: bazel-runner-small
     container:
       image: ghcr.io/catthehacker/ubuntu:full-22.04
 
     steps:
     - uses: actions/checkout@v4
-
-    #- run: rustup toolchain install stable --profile minimal
 
     - uses: Swatinem/rust-cache@v2
 

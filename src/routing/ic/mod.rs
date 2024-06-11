@@ -1,9 +1,9 @@
 pub mod health_check;
 pub mod route_provider;
 pub mod transport;
-use std::sync::Arc;
+use std::{fs, sync::Arc};
 
-use anyhow::Error;
+use anyhow::{Context, Error};
 use axum::{
     body::Body,
     response::{IntoResponse, Response},
@@ -56,7 +56,7 @@ pub fn convert_response(resp: Response<HttpGatewayResponseBody>) -> Response {
 }
 
 pub fn setup(
-    _cli: &Cli,
+    cli: &Cli,
     http_client: Arc<dyn HttpClient>,
     route_provider: Arc<dyn RouteProvider>,
 ) -> Result<HttpGatewayClient, Error> {
@@ -65,6 +65,12 @@ pub fn setup(
     let agent = ic_agent::Agent::builder()
         .with_transport(transport)
         .build()?;
+
+    if let Some(v) = &cli.ic.ic_root_key {
+        let key = fs::read(v).context("unable to read IC root key")?;
+        agent.set_root_key(key);
+    }
+
     let client = ic_http_gateway::HttpGatewayClientBuilder::new()
         .with_agent(agent)
         .build()?;

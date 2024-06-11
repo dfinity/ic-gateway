@@ -155,9 +155,13 @@ pub struct Ic {
     pub ic_url: Vec<Url>,
 
     /// Whether to use static URLs or dynamically discovered URLs for routing.
-    /// For the dynamic routing case, provided argument ic-url: Vec<Url> is used as a seed list of API Nodes.
+    /// For the dynamic routing case, provided argument `ic-url` is used as a seed list of API Nodes.
     #[clap(env, long)]
     pub ic_use_discovery: bool,
+
+    /// Path to an IC root key. Must be DER-encoded. If not specified - hardcoded will be used.
+    #[clap(env, long)]
+    pub ic_root_key: Option<PathBuf>,
 }
 
 #[derive(Args)]
