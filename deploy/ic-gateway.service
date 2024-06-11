@@ -7,8 +7,8 @@ Wants=network-online.target
 User=root
 Group=root
 Restart=always
-EnvironmentFile=-/run/ic-node/etc/default/ic-gateway
-ExecStart=/opt/ic/bin/ic-gateway \
+EnvironmentFile=-/etc/default/ic-gateway
+ExecStart=/usr/sbin/ic-gateway \
 	--http-server-listen-plain [::]:80 \
 	--http-server-listen-tls [::]:443 \
 	--metrics-listen [::]:9090 \
