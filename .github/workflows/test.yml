@@ -11,13 +11,10 @@ env:
 
 jobs:
   test:
-    runs-on: bazel-runner-large
+    runs-on: default-runner
 
     steps:
     - uses: actions/checkout@v4
-
-    - name: Install deps
-      run: apt install -y curl
 
     - name: Install rustup
       run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --profile minimal
