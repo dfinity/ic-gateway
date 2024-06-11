@@ -1,0 +1,18 @@
+[Unit]
+Description=IC-Gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=root
+Group=root
+Restart=always
+EnvironmentFile=-/run/ic-node/etc/default/ic-gateway
+ExecStart=/opt/ic/bin/ic-gateway \
+	--http-server-listen-plain [::]:80 \
+	--http-server-listen-tls [::]:443 \
+	--metrics-listen [::]:9090 \
+	--log-stdout
+
+[Install]
+WantedBy=multi-user.target

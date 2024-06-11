@@ -29,7 +29,27 @@ jobs:
     - name: Strip
       run: /usr/bin/strip target/x86_64-unknown-linux-musl/release/ic-gateway
 
+    - name: Create package root
+      run: |
+        mkdir -p .debpkg/usr/sbin
+        mkdir -p .debpkg/etc/systemd/system
+        mkdir -p .debpkg/etc/default
+        mv target/x86_64-unknown-linux-musl/release/ic-gateway .debpkg/usr/sbin
+        cp deploy/ic-gateway.service .debpkg/etc/systemd/system
+        cp deploy/ic-gateway.env .debpkg/etc/default
+
+    - uses: jiro4989/build-deb-action@v3
+      with:
+        package: ic-gateway
+        package_root: .debpkg
+        maintainer: "DFINITY Boundary Nodes Team"
+        version: ${{ github.ref }} # refs/tags/v*.*.*
+        arch: amd64
+        desc: "IC-Gateway Service"
+        homepage: "https://github.com/dfinity/ic-gateway"
+
     - uses: ncipollo/release-action@v1
       with:
-        artifacts: "target/x86_64-unknown-linux-musl/release/ic-gateway"
-        body: "test release"
+        makeLatest: true
+        artifacts: "target/x86_64-unknown-linux-musl/release/ic-gateway,*.deb"
+        body: "IC-Gateway release"
