@@ -97,14 +97,14 @@ pub fn setup_router(
 ) -> Result<Router, Error> {
     let custom_domain_storage = Arc::new(CustomDomainStorage::new(
         custom_domain_providers,
-        cli.cert.poll_interval,
+        cli.cert.cert_provider_poll_interval,
     ));
     tasks.add("custom_domain_storage", custom_domain_storage.clone());
 
     // Prepare domain resolver to resolve domains & infer canister_id from requests
     let domain_resolver = Arc::new(DomainResolver::new(
         domains,
-        cli.domain.canister_aliases.clone(),
+        cli.domain.domain_canister_alias.clone(),
         custom_domain_storage,
     )?) as Arc<dyn ResolvesDomain>;
 
@@ -120,18 +120,19 @@ pub fn setup_router(
         .transpose()?;
 
     // Denylist
-    let denylist_mw = if cli.policy.denylist_seed.is_some() || cli.policy.denylist_url.is_some() {
-        Some(from_fn_with_state(
-            denylist::DenylistState::new(cli, tasks, http_client.clone(), registry)?,
-            denylist::middleware,
-        ))
-    } else {
-        None
-    };
+    let denylist_mw =
+        if cli.policy.policy_denylist_seed.is_some() || cli.policy.policy_denylist_url.is_some() {
+            Some(from_fn_with_state(
+                denylist::DenylistState::new(cli, tasks, http_client.clone(), registry)?,
+                denylist::middleware,
+            ))
+        } else {
+            None
+        };
 
     // Domain-Canister Matching
     // CLI makes sure that domains_system is also set
-    let canister_match_mw = if !cli.domain.domains_app.is_empty() {
+    let canister_match_mw = if !cli.domain.domain_app.is_empty() {
         Some(from_fn_with_state(
             canister_match::CanisterMatcherState::new(cli)?,
             canister_match::middleware,
@@ -153,7 +154,7 @@ pub fn setup_router(
 
     // Prepare the HTTP->IC library
     let route_provider = setup_route_provider(
-        cli.ic.urls.clone(),
+        cli.ic.ic_url.clone(),
         http_client.clone(),
         tasks,
         cli.ic.ic_use_discovery,
@@ -211,13 +212,13 @@ pub fn setup_router(
     );
 
     // Setup issuer proxy endpoint if we have them configured
-    let router_issuer = if !cli.cert.issuer_urls.is_empty() {
+    let router_issuer = if !cli.cert.cert_provider_issuer_url.is_empty() {
         // Init it early to avoid threading races
         lazy_static::initialize(&proxy::REGEX_REG_ID);
 
         let state = Arc::new(proxy::IssuerProxyState::new(
             http_client,
-            cli.cert.issuer_urls.clone(),
+            cli.cert.cert_provider_issuer_url.clone(),
         ));
         let router = Router::new()
             .route(

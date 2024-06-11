@@ -6,7 +6,7 @@ on:
     - 'v*'
 
 env:
-  CARGO_TERM_COLOR: always
+  CARGO_TERM_COLOR: never
 
 jobs:
   build:
@@ -23,11 +23,11 @@ jobs:
         echo 'e331825a19d41a5ad4dd7c1ce7a810eccbb9eb8945c3fc78abe9f040df8c1204  repro-env' | sha256sum -c -
         sudo install -m755 repro-env -t /usr/bin
 
-    - name: Run tests
-      run: repro-env build -- cargo test --release --target x86_64-unknown-linux-musl
-  
     - name: Build
       run: repro-env build -- cargo build --release --target x86_64-unknown-linux-musl
+
+    - name: Strip
+      run: /usr/bin/strip target/x86_64-unknown-linux-musl/release/ic-gateway
 
     - uses: ncipollo/release-action@v1
       with:

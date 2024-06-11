@@ -3282,9 +3282,9 @@ dependencies = [
 
 [[package]]
 name = "ocsp-stapler"
-version = "0.3.1"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b75644858441f6bafd47322b622a3fa02d1221b65651da25d4fad35d8e95ef0"
+checksum = "81b993f8f5eedf4170de51b4aa0c0fa42e8a0ec5a193862234a21b30a4446191"
 dependencies = [
  "anyhow",
  "arc-swap",
