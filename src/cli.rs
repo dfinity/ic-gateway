@@ -21,6 +21,10 @@ fn parse_size(s: &str) -> Result<u64, parse_size::Error> {
     parse_size::Config::new().with_binary().parse_size(s)
 }
 
+/// Clap does not support prefixes due to macro limitations
+/// So the names are a bit redundant (e.g. cli.http_client.http_client_...) to
+/// make it consistent with env vars naming etc.
+
 #[derive(Parser)]
 #[clap(name = SERVICE_NAME)]
 #[clap(author = AUTHOR_NAME)]
@@ -59,12 +63,6 @@ pub struct Cli {
     pub misc: Misc,
 }
 
-// Clap does not support prefixes due to macro limitations
-// so we have to add them manually (long = "...")
-//
-// Also 'id = ...' in some fields below is needed because clap requires unique field names
-// https://github.com/clap-rs/clap/issues/4556
-
 #[derive(Args)]
 pub struct HttpClient {
     /// Timeout for HTTP connection phase
@@ -91,74 +89,74 @@ pub struct HttpClient {
 #[derive(Args)]
 pub struct Dns {
     /// List of DNS servers to use
-    #[clap(env, long = "dns-servers", value_delimiter = ',', default_values_t = CLOUDFLARE_IPS)]
+    #[clap(env, long, value_delimiter = ',', default_values_t = CLOUDFLARE_IPS)]
     pub dns_servers: Vec<IpAddr>,
 
     /// DNS protocol to use (clear/tls/https)
-    #[clap(env, long = "dns-protocol", default_value = "tls")]
+    #[clap(env, long, default_value = "tls")]
     pub dns_protocol: dns::Protocol,
 
     /// TLS name to expect for TLS and HTTPS protocols (e.g. "dns.google" or "cloudflare-dns.com")
-    #[clap(env, long = "dns-tls-name", default_value = "cloudflare-dns.com")]
+    #[clap(env, long, default_value = "cloudflare-dns.com")]
     pub dns_tls_name: String,
 
     /// Cache size for the resolver (in number of DNS records)
-    #[clap(env, long = "dns-cache-size", default_value = "2048")]
+    #[clap(env, long, default_value = "2048")]
     pub dns_cache_size: usize,
 }
 
 #[derive(Args)]
 pub struct HttpServer {
     /// Where to listen for HTTP
-    #[clap(long, default_value = "127.0.0.1:8080")]
+    #[clap(env, long, default_value = "127.0.0.1:8080")]
     pub http_server_listen_plain: SocketAddr,
 
     /// Where to listen for HTTPS
-    #[clap(long, default_value = "127.0.0.1:8443")]
+    #[clap(env, long, default_value = "127.0.0.1:8443")]
     pub http_server_listen_tls: SocketAddr,
 
     /// Backlog of incoming connections to set on the listening socket.
-    #[clap(long, default_value = "2048")]
+    #[clap(env, long, default_value = "2048")]
     pub http_server_backlog: u32,
 
     /// Maximum number of HTTP2 streams that the client is allowed to create in a single connection
-    #[clap(long, default_value = "128")]
+    #[clap(env, long, default_value = "128")]
     pub http_server_http2_max_streams: u32,
 
     /// Keepalive interval for HTTP2 connections
-    #[clap(long, default_value = "20s", value_parser = parse_duration)]
+    #[clap(env, long, default_value = "20s", value_parser = parse_duration)]
     pub http_server_http2_keepalive_interval: Duration,
 
     /// Keepalive timeout for HTTP2 connections
-    #[clap(long, default_value = "10s", value_parser = parse_duration)]
+    #[clap(env, long, default_value = "10s", value_parser = parse_duration)]
     pub http_server_http2_keepalive_timeout: Duration,
 
     /// How long to wait for the existing connections to finish before shutting down
-    #[clap(long, default_value = "10s", value_parser = parse_duration)]
+    #[clap(env, long, default_value = "10s", value_parser = parse_duration)]
     pub http_server_grace_period: Duration,
 
     /// Maximum size of cache to store TLS sessions in memory
-    #[clap(long, default_value = "256MB", value_parser = parse_size)]
+    #[clap(env, long, default_value = "256MB", value_parser = parse_size)]
     pub http_server_tls_session_cache_size: u64,
 
     /// Maximum time that a TLS session key can stay in cache without being requested (Time-to-Idle)
-    #[clap(long, default_value = "18h", value_parser = parse_duration)]
+    #[clap(env, long, default_value = "18h", value_parser = parse_duration)]
     pub http_server_tls_session_cache_tti: Duration,
 
     /// Lifetime of a TLS1.3 ticket, due to key rotation the actual lifetime will be twice than this.
-    #[clap(long, default_value = "9h", value_parser = parse_duration)]
+    #[clap(env, long, default_value = "9h", value_parser = parse_duration)]
     pub http_server_tls_ticket_lifetime: Duration,
 }
 
 #[derive(Args)]
 pub struct Ic {
     /// URLs to use to connect to the IC network
-    #[clap(env, long = "ic-url", value_delimiter = ',')]
+    #[clap(env, long, value_delimiter = ',')]
     pub ic_url: Vec<Url>,
 
     /// Whether to use static URLs or dynamically discovered URLs for routing.
     /// For the dynamic routing case, provided argument ic-url: Vec<Url> is used as a seed list of API Nodes.
-    #[clap(env, long = "ic-use-discovery")]
+    #[clap(env, long)]
     pub ic_use_discovery: bool,
 }
 
