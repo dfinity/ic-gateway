@@ -7,16 +7,17 @@ on:
     branches: [ "main" ]
 
 env:
-  CARGO_TERM_COLOR: always
+  CARGO_TERM_COLOR: never
 
 jobs:
   test:
-    runs-on: bazel-runner-large
-    container:
-      image: ghcr.io/catthehacker/ubuntu:full-22.04
+    runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v4
+
+    - run: rustup toolchain install stable --profile minimal
+
     - uses: Swatinem/rust-cache@v2
 
     - name: Run tests
