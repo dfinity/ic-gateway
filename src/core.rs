@@ -30,11 +30,8 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         ));
     }
 
-    for (&d, &c) in &domains.iter().counts() {
-        if c > 1 {
-            return Err(anyhow!("Domain '{d}' specified more than once"));
-        }
-    }
+    // Leave only unique domains
+    domains = domains.into_iter().unique().collect::<Vec<_>>();
 
     warn!(
         "Running with domains: {:?}",
