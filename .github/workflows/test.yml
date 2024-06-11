@@ -11,14 +11,12 @@ env:
 
 jobs:
   test:
-    runs-on: default-runner
+    runs-on: bazel-runner-large
+    container:
+      image: catthehacker/ubuntu:rust-22.04
 
     steps:
     - uses: actions/checkout@v4
-
-    - name: Install rustup
-      run: wget -O - https://sh.rustup.rs | sh -s -- --profile minimal
-
     - uses: Swatinem/rust-cache@v2
 
     - name: Run tests
