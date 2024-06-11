@@ -1348,7 +1348,7 @@ dependencies = [
 [[package]]
 name = "discower_bowndary"
 version = "0.1.0"
-source = "git+https://github.com/dfinity/ic.git#3d03ab6242e48dfb6bdd91ca54b07e8c370a968f"
+source = "git+https://github.com/dfinity/ic.git#317048c6294cc9f0a674937f78d7d79b5fa00f23"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -2038,12 +2038,12 @@ dependencies = [
 
 [[package]]
 name = "http-body-util"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0475f8b2ac86659c21b64320d5d653f9efe42acd2a4e560073ec61a155a34f1d"
+checksum = "793429d76616a256bcb62c2a2ec2bed781c8307e797e2598c50010f2bee2544f"
 dependencies = [
  "bytes",
- "futures-core",
+ "futures-util",
  "http 1.1.0",
  "http-body 1.0.0",
  "pin-project-lite",
@@ -3024,9 +3024,9 @@ dependencies = [
 
 [[package]]
 name = "lz4"
-version = "1.24.0"
+version = "1.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e9e2dd86df36ce760a60f6ff6ad526f7ba1f14ba0356f8254fb6905e6494df1"
+checksum = "d6eab492fe7f8651add23237ea56dbf11b3c4ff762ab83d40a47f11433421f91"
 dependencies = [
  "libc",
  "lz4-sys",
@@ -3034,9 +3034,9 @@ dependencies = [
 
 [[package]]
 name = "lz4-sys"
-version = "1.9.4"
+version = "1.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57d27b317e207b10f69f5e75494119e391a96f48861ae870d1da6edac98ca900"
+checksum = "e9764018d143cc854c9f17f0b907de70f14393b1f502da6375dce70f00514eb3"
 dependencies = [
  "cc",
  "libc",
@@ -3791,9 +3791,9 @@ checksum = "f60fcc7d6849342eff22c4350c8b9a989ee8ceabc4b481253e8946b9fe83d684"
 
 [[package]]
 name = "rasn"
-version = "0.15.1"
+version = "0.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "45d2884ca6e28ba6178d76f5cd5ebf667d31d712acef86c6b5ab800a21a85e94"
+checksum = "84fc4e23a4fbd97e9f41e14a3bbef05cda8510bc58ae407d710f2b271f6c7ea9"
 dependencies = [
  "arrayvec 0.7.4",
  "bitvec",
@@ -3814,9 +3814,9 @@ dependencies = [
 
 [[package]]
 name = "rasn-derive"
-version = "0.15.1"
+version = "0.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ed3d2294534f1aa528cfa28603b76a2db6d6d0ae289e7fe4aef3854591fb579"
+checksum = "2959cfcd825134d304a86b4c2d560397c29c54fcaf3e919d71d05cc90176b22e"
 dependencies = [
  "either",
  "itertools 0.10.5",
@@ -3829,9 +3829,9 @@ dependencies = [
 
 [[package]]
 name = "rasn-ocsp"
-version = "0.15.1"
+version = "0.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7472d06d5c9381f64e479db99e4737160740aa4f004ceb9b03b5c19a2b85cc9"
+checksum = "c703ea7926a128e6efccf73bb1e8a966c4ad14159e10d6c4a4ddf1b3bf100d96"
 dependencies = [
  "rasn",
  "rasn-pkix",
@@ -3839,9 +3839,9 @@ dependencies = [
 
 [[package]]
 name = "rasn-pkix"
-version = "0.15.1"
+version = "0.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "829b59a0b0190128d7b9217dc03014f9294f27d6c10cea56b35f1a9b2560da5b"
+checksum = "832ec979e05a74d97407bee76e680e1249ae28fc4a8484ef7b367a4dc8c47761"
 dependencies = [
  "rasn",
 ]
