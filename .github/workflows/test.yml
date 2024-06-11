@@ -10,8 +10,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  test:
+    runs-on: bazel-runner-large
 
     steps:
     - uses: actions/checkout@v4
