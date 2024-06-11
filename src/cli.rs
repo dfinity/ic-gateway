@@ -68,23 +68,23 @@ pub struct Cli {
 #[derive(Args)]
 pub struct HttpClient {
     /// Timeout for HTTP connection phase
-    #[clap(long, default_value = "5s", value_parser = parse_duration)]
+    #[clap(env, long, default_value = "5s", value_parser = parse_duration)]
     pub http_client_timeout_connect: Duration,
 
     /// Timeout for whole HTTP call
-    #[clap(long, default_value = "60s", value_parser = parse_duration)]
+    #[clap(env, long, default_value = "60s", value_parser = parse_duration)]
     pub http_client_timeout: Duration,
 
     /// TCP Keepalive interval
-    #[clap(long, default_value = "15s", value_parser = parse_duration)]
+    #[clap(env, long, default_value = "15s", value_parser = parse_duration)]
     pub http_client_tcp_keepalive: Duration,
 
     /// HTTP2 Keepalive interval
-    #[clap(long, default_value = "10s", value_parser = parse_duration)]
+    #[clap(env, long, default_value = "10s", value_parser = parse_duration)]
     pub http_client_http2_keepalive: Duration,
 
     /// HTTP2 Keepalive timeout
-    #[clap(long, default_value = "5s", value_parser = parse_duration)]
+    #[clap(env, long, default_value = "5s", value_parser = parse_duration)]
     pub http_client_http2_keepalive_timeout: Duration,
 }
 
@@ -190,16 +190,16 @@ pub struct Domain {
 
     /// List of domains that we serve system subnets from. This enables domain-canister matching for these domains & adds them to the list of served domains above, do not list them there separately.
     /// Requires --domain-app.
-    #[clap(env, long, requires = "domains_app", value_delimiter = ',')]
+    #[clap(env, long, requires = "domain_app", value_delimiter = ',')]
     pub domain_system: Vec<FQDN>,
 
     /// List of domains that we serve app subnets from. See --domain-system above for details.
     /// Requires --domain-system.
-    #[clap(env, long, requires = "domains_system", value_delimiter = ',')]
+    #[clap(env, long, requires = "domain_system", value_delimiter = ',')]
     pub domain_app: Vec<FQDN>,
 
     /// List of canister aliases in format '<alias>:<canister_id>'
-    #[clap(env, value_delimiter = ',')]
+    #[clap(env, long, value_delimiter = ',')]
     pub domain_canister_alias: Vec<CanisterAlias>,
 }
 
@@ -232,37 +232,37 @@ pub struct Acme {
     /// Currently supported:
     /// - alpn: all served domains must resolve to the host where this service is running.
     /// - dns: allows to request wildcard certificates, requires DNS backend to be configured.
-    #[clap(long, requires = "acme_cache_path")]
+    #[clap(env, long, requires = "acme_cache_path")]
     pub acme_challenge: Option<acme::Challenge>,
 
     /// Path to a directory where to store ACME cache (account and certificates).
     /// Directory structure is different when using ALPN and DNS, but it shouldn't collide (I hope).
     /// Must be specified if --acme-challenge is set.
-    #[clap(long)]
+    #[clap(env, long)]
     pub acme_cache_path: Option<PathBuf>,
 
     /// DNS backend to use when using DNS challenge. Currently only "cloudflare" is supported.
-    #[clap(long, default_value = "cloudflare")]
+    #[clap(env, long, default_value = "cloudflare")]
     pub acme_dns_backend: acme::dns::DnsBackend,
 
     /// Cloudflare API URL
-    #[clap(long, default_value = "https://api.cloudflare.com/client/v4/")]
+    #[clap(env, long, default_value = "https://api.cloudflare.com/client/v4/")]
     pub acme_dns_cloudflare_url: Url,
 
     /// File from which to read API token if DNS backend is Cloudflare
-    #[clap(long)]
+    #[clap(env, long)]
     pub acme_dns_cloudflare_token: Option<PathBuf>,
 
     /// Asks ACME client to request a wildcard certificate for each of the domains configured.
     /// So in addition to `foo.app` the certificate will be also valid for `*.foo.app`.
     /// For obvious reasons this works only with DNS challenge, has no effect with ALPN.
-    #[clap(long)]
+    #[clap(env, long)]
     pub acme_wildcard: bool,
 
     /// Attempt to renew the certificates when less than this duration is left until expiration.
     /// This works only with DNS challenge, ALPN currently starts to renew after half of certificate
     /// lifetime has passed (45d for LetsEncrypt)
-    #[clap(long, value_parser = parse_duration, default_value = "30d")]
+    #[clap(env, long, value_parser = parse_duration, default_value = "30d")]
     pub acme_renew_before: Duration,
 
     /// Whether to use LetsEncrypt staging API for testing to avoid hitting the limits
@@ -270,37 +270,37 @@ pub struct Acme {
     pub acme_staging: bool,
 
     /// E-Mail to use when creating ACME accounts, must start with mailto:
-    #[clap(default_value = "mailto:boundary-nodes@dfinity.org")]
+    #[clap(env, long, default_value = "mailto:boundary-nodes@dfinity.org")]
     pub acme_contact: String,
 }
 
 #[derive(Args)]
 pub struct Metrics {
     /// Where to listen for Prometheus metrics scraping
-    #[clap(long)]
+    #[clap(env, long)]
     pub metrics_listen: Option<SocketAddr>,
 }
 
 #[derive(Args)]
 pub struct Log {
     /// Maximum logging level
-    #[clap(long, default_value = "info")]
+    #[clap(env, long, default_value = "info")]
     pub log_level: tracing::Level,
 
     /// Enables logging to stdout
-    #[clap(long)]
+    #[clap(env, long)]
     pub log_stdout: bool,
 
     /// Enables logging to stdout in JSON
-    #[clap(long)]
+    #[clap(env, long)]
     pub log_stdout_json: bool,
 
     /// Enables logging to Journald
-    #[clap(long)]
+    #[clap(env, long)]
     pub log_journald: bool,
 
     /// Enables logging to /dev/null (to benchmark logging)
-    #[clap(long)]
+    #[clap(env, long)]
     pub log_null: bool,
 
     #[command(flatten, next_help_heading = "Clickhouse")]
@@ -310,45 +310,45 @@ pub struct Log {
 #[derive(Args, Clone)]
 pub struct Clickhouse {
     /// Setting this enables logging of HTTP requests to Clickhouse DB
-    #[clap(long)]
+    #[clap(env, long)]
     pub log_clickhouse_url: Option<Url>,
 
     /// Clickhouse username
-    #[clap(long)]
+    #[clap(env, long)]
     pub log_clickhouse_user: Option<String>,
 
     /// Clickhouse password
-    #[clap(long)]
+    #[clap(env, long)]
     pub log_clickhouse_pass: Option<String>,
 
     /// Clickhouse database
-    #[clap(long)]
+    #[clap(env, long)]
     pub log_clickhouse_db: Option<String>,
 
     /// Clickhouse table
-    #[clap(long)]
+    #[clap(env, long)]
     pub log_clickhouse_table: Option<String>,
 
     /// Clickhouse batch size
-    #[clap(long, default_value = "250000")]
+    #[clap(env, long, default_value = "250000")]
     pub log_clickhouse_batch: u64,
 
     /// Clickhouse batch flush interval
-    #[clap(long, value_parser = parse_duration, default_value = "5s")]
+    #[clap(env, long, default_value = "5s", value_parser = parse_duration)]
     pub log_clickhouse_interval: Duration,
 }
 
 #[derive(Args)]
 pub struct Misc {
     /// Environment we run in to specify in the logs
-    #[clap(env, long = "env", default_value = "dev")]
+    #[clap(env, long, default_value = "dev")]
     pub env: String,
     /// Local hostname to identify in e.g. logs.
     /// If not specified - tries to obtain it.
-    #[clap(long = "hostname", default_value = hostname::get().unwrap().into_string().unwrap())]
+    #[clap(env, long, default_value = hostname::get().unwrap().into_string().unwrap())]
     pub hostname: String,
     /// Path to a GeoIP database
-    #[clap(long = "geoip-db")]
+    #[clap(env, long)]
     pub geoip_db: Option<PathBuf>,
 }
 
