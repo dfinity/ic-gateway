@@ -13,7 +13,7 @@ jobs:
   test:
     runs-on: bazel-runner-large
     container:
-      image: catthehacker/ubuntu:rust-22.04
+      image: ghcr.io/christopherhx/runner-images:ubuntu22-runner-medium-rust-latest
 
     steps:
     - uses: actions/checkout@v4
