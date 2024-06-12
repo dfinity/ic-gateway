@@ -176,7 +176,7 @@ pub struct Cert {
     pub cert_provider_issuer_url: Vec<Url>,
 
     /// How frequently to poll providers for certificates
-    #[clap(env, long, default_value = "10s", value_parser = parse_duration)]
+    #[clap(env, long, default_value = "5s", value_parser = parse_duration)]
     pub cert_provider_poll_interval: Duration,
 
     /// Disable OCSP stapling
