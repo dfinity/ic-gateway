@@ -15,7 +15,6 @@ use crate::tasks::Run;
 #[macro_export]
 macro_rules! principal {
     ($id:expr) => {{
-        #[allow(unused_mut)]
         Principal::from_text($id).unwrap()
     }};
 }
