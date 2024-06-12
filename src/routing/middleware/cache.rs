@@ -19,7 +19,8 @@ use std::hash::Hash;
 use crate::routing::error_cause::ErrorCause;
 
 type FullResponse = response::Response<Vec<u8>>;
-type CacheType = Arc<Cache<Arc<CacheKey>, FullResponse>>;
+type FullRequest = request::Request<Vec<u8>>;
+pub type CacheType = Arc<Cache<Arc<CacheKey>, Arc<RequestCacheKeyExtractor>>>;
 
 // A list of possible Cache-Control directives that ask us not to cache the response
 const SKIP_CACHE_DIRECTIVES: &[&str] = &["no-store", "no-cache", "max-age=0"];
@@ -79,9 +80,10 @@ pub struct CacheKey {
     range: Option<HeaderValue>,
 }
 
-pub struct Cache<K, V> {
-    store: MokaCache<K, V>,
+pub struct Cache<K, M> {
+    store: MokaCache<K, FullResponse>,
     max_item_size: u64,
+    key_extractor: M,
 }
 
 // Estimate rough amount of bytes that cache entry takes in memory
@@ -89,12 +91,23 @@ fn weigh_entry<K, V>(_k: &K, _v: &V) -> u32 {
     (std::mem::size_of::<K>() + std::mem::size_of::<V>()) as u32
 }
 
-impl<K, V> Cache<K, V>
+// TODO: add an error
+pub trait KeyExtractor {
+    type Key;
+    fn extract(&self, req: &FullRequest) -> Self::Key;
+}
+
+impl<K, M> Cache<K, M>
 where
     K: Eq + Hash + Send + Sync + 'static,
-    V: Clone + Send + Sync + 'static,
+    M: KeyExtractor<Key = K>,
 {
-    pub fn new(cache_size: u64, max_item_size: u64, ttl: Duration) -> anyhow::Result<Self> {
+    pub fn new(
+        cache_size: u64,
+        max_item_size: u64,
+        ttl: Duration,
+        key_extractor: M,
+    ) -> anyhow::Result<Self> {
         if max_item_size >= cache_size {
             return Err(anyhow!(
                 "Cache item size should be less than whole cache size"
@@ -103,11 +116,22 @@ where
 
         Ok(Self {
             max_item_size,
+            key_extractor,
             store: MokaCacheBuilder::new(cache_size)
                 .time_to_live(ttl)
                 .weigher(weigh_entry)
                 .build(),
         })
+    }
+
+    pub async fn get(&self, req: &FullRequest) -> Option<FullResponse> {
+        let key = self.key_extractor.extract(req);
+        self.store.get(&key).await
+    }
+
+    pub async fn insert(&self, req: &FullRequest, resp: FullResponse) {
+        let key = self.key_extractor.extract(req);
+        self.store.insert(key, resp).await
     }
 }
 
@@ -117,32 +141,26 @@ pub async fn middleware(
     next: Next,
 ) -> Result<impl IntoResponse, ErrorCause> {
     let (request_parts, request_body) = request.into_parts();
-
+    let body_bytes = to_bytes(request_body, usize::MAX).await.unwrap().to_vec();
+    
     // Inspect request for reasons of bypassing cache lookup.
     let cache_bypass_reason = check_cache_bypass(&request_parts);
 
     if let Some(reason) = cache_bypass_reason {
-        let request = Request::from_parts(request_parts.clone(), request_body);
+        let request = Request::from_parts(request_parts.clone(), Body::from(body_bytes.clone()));
         return Ok(CacheStatus::Bypass(reason).with_response(next.run(request).await));
     }
 
-    let parts_cloned = request_parts.clone();
-
-    // Assemble cache key.
-    let cache_key = CacheKey {
-        uri: parts_cloned.uri,
-        range: parts_cloned.headers.get(RANGE).cloned(),
-    };
-
     // Use cached response if found.
-    if let Some(full_response) = cache.store.get(&cache_key).await {
+    let request_full = Request::from_parts(request_parts.clone(), body_bytes.clone());
+    if let Some(full_response) = cache.get(&request_full).await {
         let (parts, body) = full_response.into_parts();
         let response = Response::from_parts(parts, Body::from(body));
         return Ok(CacheStatus::Hit.with_response(response));
     }
 
     // If response is not cached, we propagate request as is further.
-    let request = Request::from_parts(request_parts, request_body);
+    let request = Request::from_parts(request_parts, Body::from(body_bytes));
     let response = next.run(request).await;
 
     // Do not cache non-2xx responses
@@ -172,10 +190,7 @@ pub async fn middleware(
     body_bytes.shrink_to_fit();
     let response: FullResponse = Response::from_parts(response_parts.clone(), body_bytes.clone());
 
-    cache
-        .store
-        .insert(Arc::new(cache_key), response.clone())
-        .await;
+    cache.insert(&request_full, response.clone()).await;
 
     let response = Response::from_parts(response_parts, Body::from(body_bytes));
     Ok(CacheStatus::Miss.with_response(response))
@@ -205,4 +220,19 @@ fn extract_content_length(resp: &Response) -> Result<Option<u64>, Error> {
     };
 
     Ok(Some(size))
+}
+
+pub struct RequestCacheKeyExtractor;
+
+impl KeyExtractor for Arc<RequestCacheKeyExtractor> {
+    type Key = Arc<CacheKey>;
+
+    fn extract(&self, req: &FullRequest) -> Self::Key {
+        let (request_parts, _) = req.clone().into_parts();
+        let cache_key = CacheKey {
+            uri: request_parts.uri,
+            range: request_parts.headers.get(RANGE).cloned(),
+        };
+        Arc::new(cache_key)
+    }
 }
