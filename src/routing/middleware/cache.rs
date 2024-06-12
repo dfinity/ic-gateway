@@ -7,15 +7,17 @@ use axum::{
     middleware::Next,
     response::{IntoResponse, Response},
 };
+use http::Uri;
 use http::{
-    header::{HeaderMap, CACHE_CONTROL, CONTENT_LENGTH, PRAGMA, RANGE},
+    header::{CACHE_CONTROL, CONTENT_LENGTH, PRAGMA, RANGE},
     HeaderValue, Method,
 };
-use http::{request, response, Version};
-use http::{StatusCode, Uri};
+use http::{request, response};
 use moka::future::{Cache as MokaCache, CacheBuilder as MokaCacheBuilder};
 
 use crate::routing::error_cause::ErrorCause;
+
+type FullResponse = response::Response<Vec<u8>>;
 
 // A list of possible Cache-Control directives that ask us not to cache the response
 const SKIP_CACHE_DIRECTIVES: &[&str] = &["no-store", "no-cache", "max-age=0"];
@@ -69,14 +71,6 @@ impl std::fmt::Display for CacheStatus {
     }
 }
 
-#[derive(Clone, Debug)]
-struct CacheItem {
-    status: StatusCode,
-    version: Version,
-    headers: HeaderMap,
-    body: Vec<u8>,
-}
-
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct CacheKey {
     uri: Uri,
@@ -84,20 +78,13 @@ pub struct CacheKey {
 }
 
 pub struct Cache {
-    cache: MokaCache<Arc<CacheKey>, CacheItem>,
+    cache: MokaCache<Arc<CacheKey>, FullResponse>,
     max_item_size: u64,
 }
 
 // Estimate rough amount of bytes that cache entry takes in memory
-fn weigh_entry(_k: &Arc<CacheKey>, v: &CacheItem) -> u32 {
-    let mut cost =
-        v.body.capacity() + std::mem::size_of::<CacheItem>() + std::mem::size_of::<Arc<CacheKey>>();
-
-    for (k, v) in v.headers.iter() {
-        cost += k.as_str().as_bytes().len();
-        cost += v.as_bytes().len();
-    }
-
+fn weigh_entry(_k: &Arc<CacheKey>, _v: &FullResponse) -> u32 {
+    let cost = std::mem::size_of::<FullResponse>() + std::mem::size_of::<Arc<CacheKey>>();
     cost as u32
 }
 
@@ -117,38 +104,6 @@ impl Cache {
                 .build(),
         })
     }
-
-    // Looks up the request in the cache
-    async fn lookup(&self, key: &CacheKey) -> Option<impl IntoResponse> {
-        let item = match self.cache.get(key).await {
-            Some(v) => v,
-            None => return None,
-        };
-
-        // If an item was found -> construct a response from the cached data
-        let mut builder = Response::builder()
-            .status(item.status)
-            .version(item.version);
-
-        *builder.headers_mut().unwrap() = item.headers;
-
-        let body = axum::body::Body::from(item.body);
-
-        Some(builder.body(body).unwrap())
-    }
-
-    async fn store(&self, key: CacheKey, parts: response::Parts, mut body: Vec<u8>) {
-        body.shrink_to_fit();
-
-        let cache_item = CacheItem {
-            status: parts.status,
-            version: parts.version,
-            headers: parts.headers,
-            body: body,
-        };
-
-        self.cache.insert(Arc::new(key), cache_item).await;
-    }
 }
 
 pub async fn middleware(
@@ -162,7 +117,7 @@ pub async fn middleware(
     let cache_bypass_reason = check_cache_bypass(&request_parts);
 
     if let Some(reason) = cache_bypass_reason {
-        let request = Request::from_parts(request_parts.clone(), Body::from(request_body));
+        let request = Request::from_parts(request_parts.clone(), request_body);
         return Ok(CacheStatus::Bypass(reason).with_response(next.run(request).await));
     }
 
@@ -175,12 +130,14 @@ pub async fn middleware(
     };
 
     // Use cached response if found.
-    if let Some(response) = cache.lookup(&cache_key).await {
-        return Ok(CacheStatus::Hit.with_response(response.into_response()));
+    if let Some(full_response) = cache.cache.get(&cache_key).await {
+        let (parts, body) = full_response.into_parts();
+        let response = Response::from_parts(parts, Body::from(body));
+        return Ok(CacheStatus::Hit.with_response(response));
     }
 
     // If response is not cached, we propagate request as is further.
-    let request = Request::from_parts(request_parts, Body::from(request_body));
+    let request = Request::from_parts(request_parts, request_body);
     let response = next.run(request).await;
 
     // Do not cache non-2xx responses
@@ -206,14 +163,17 @@ pub async fn middleware(
     }
 
     let (response_parts, response_body) = response.into_parts();
-    let body_bytes = to_bytes(response_body, usize::MAX).await.unwrap().to_vec();
+    let mut body_bytes = to_bytes(response_body, usize::MAX).await.unwrap().to_vec();
+    body_bytes.shrink_to_fit();
+    let response: FullResponse = Response::from_parts(response_parts.clone(), body_bytes.clone());
 
     cache
-        .store(cache_key, response_parts.clone(), body_bytes.clone())
+        .cache
+        .insert(Arc::new(cache_key), response.clone())
         .await;
 
-    Ok(CacheStatus::Miss
-        .with_response(Response::from_parts(response_parts, Body::from(body_bytes))))
+    let response = Response::from_parts(response_parts, Body::from(body_bytes));
+    Ok(CacheStatus::Miss.with_response(response))
 }
 
 fn check_cache_bypass(parts: &request::Parts) -> Option<CacheBypassReason> {
