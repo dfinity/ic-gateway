@@ -57,6 +57,9 @@ pub struct Cli {
 
     #[command(flatten, next_help_heading = "Misc")]
     pub misc: Misc,
+
+    #[command(flatten, next_help_heading = "Cache")]
+    pub cache: CacheConfig,
 }
 
 // Clap does not support prefixes due to macro limitations
@@ -356,6 +359,19 @@ pub struct Misc {
     /// Path to a GeoIP database
     #[clap(long = "geoip-db")]
     pub geoip_db: Option<PathBuf>,
+}
+
+#[derive(Args)]
+pub struct CacheConfig {
+    /// Maximum size of in-memory cache in bytes. Specify a size to enable caching.
+    #[clap(long)]
+    pub cache_size_bytes: Option<u64>,
+    /// Maximum size of a single cached response item in bytes
+    #[clap(long, default_value = "131072")]
+    pub cache_max_item_size_bytes: u64,
+    /// Time-to-live for cache entries in seconds
+    #[clap(long, default_value = "1")]
+    pub cache_ttl_seconds: u64,
 }
 
 // Some conversions
