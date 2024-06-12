@@ -93,7 +93,7 @@ reqwest = { git = "https://github.com/seanmonstar/reqwest.git", default_features
     "json",
     "stream",
 ] }
-rustls = "0.23"
+rustls = { version = "0.23", features = ["brotli"] }
 rustls-acme = "0.10"
 rustls-pemfile = "2"
 sha1 = "0.10"

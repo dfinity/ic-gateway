@@ -14,6 +14,7 @@ use ocsp_stapler::Stapler;
 use prometheus::Registry;
 use rustls::{
     client::{ClientConfig, ClientSessionMemoryCache, Resumption},
+    compress::CompressionCache,
     server::{ResolvesServerCert as ResolvesServerCertRustls, ServerConfig, StoresServerSessions},
     version::{TLS12, TLS13},
     RootCertStore, TicketSwitcher,
@@ -73,7 +74,11 @@ pub fn prepare_server_config(
     );
     cfg.ticketer = Arc::new(ticketer);
 
-    // Enable tickets
+    // Enable larger certificate compression caching.
+    // See https://datatracker.ietf.org/doc/rfc8879/ for details
+    cfg.cert_compression_cache = Arc::new(CompressionCache::new(1024));
+
+    // Enable ALPN
     cfg.alpn_protocols = vec![ALPN_H2.to_vec(), ALPN_H1.to_vec()];
     cfg.alpn_protocols.extend_from_slice(&additional_alpn);
 

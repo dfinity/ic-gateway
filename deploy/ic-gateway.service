@@ -8,11 +8,7 @@ User=root
 Group=root
 Restart=always
 EnvironmentFile=-/etc/default/ic-gateway
-ExecStart=/usr/sbin/ic-gateway \
-	--http-server-listen-plain [::]:80 \
-	--http-server-listen-tls [::]:443 \
-	--metrics-listen [::]:9090 \
-	--log-stdout
+ExecStart=/usr/sbin/ic-gateway
 
 [Install]
 WantedBy=multi-user.target

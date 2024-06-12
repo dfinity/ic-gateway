@@ -4210,6 +4210,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a218f0f6d05669de4eabfb24f31ce802035c952429d037507b4a4a39f0e60c5b"
 dependencies = [
  "aws-lc-rs",
+ "brotli",
+ "brotli-decompressor",
  "log",
  "once_cell",
  "ring 0.17.8",
