@@ -14,10 +14,12 @@ use http::{
 };
 use http::{request, response};
 use moka::future::{Cache as MokaCache, CacheBuilder as MokaCacheBuilder};
+use std::hash::Hash;
 
 use crate::routing::error_cause::ErrorCause;
 
 type FullResponse = response::Response<Vec<u8>>;
+type CacheType = Arc<Cache<Arc<CacheKey>, FullResponse>>;
 
 // A list of possible Cache-Control directives that ask us not to cache the response
 const SKIP_CACHE_DIRECTIVES: &[&str] = &["no-store", "no-cache", "max-age=0"];
@@ -77,19 +79,22 @@ pub struct CacheKey {
     range: Option<HeaderValue>,
 }
 
-pub struct Cache {
-    cache: MokaCache<Arc<CacheKey>, FullResponse>,
+pub struct Cache<K, V> {
+    store: MokaCache<K, V>,
     max_item_size: u64,
 }
 
 // Estimate rough amount of bytes that cache entry takes in memory
-fn weigh_entry(_k: &Arc<CacheKey>, _v: &FullResponse) -> u32 {
-    let cost = std::mem::size_of::<FullResponse>() + std::mem::size_of::<Arc<CacheKey>>();
-    cost as u32
+fn weigh_entry<K, V>(_k: &K, _v: &V) -> u32 {
+    (std::mem::size_of::<K>() + std::mem::size_of::<V>()) as u32
 }
 
-impl Cache {
-    pub fn new(cache_size: u64, max_item_size: u64, ttl: Duration) -> Result<Self, Error> {
+impl<K, V> Cache<K, V>
+where
+    K: Eq + Hash + Send + Sync + 'static,
+    V: Clone + Send + Sync + 'static,
+{
+    pub fn new(cache_size: u64, max_item_size: u64, ttl: Duration) -> anyhow::Result<Self> {
         if max_item_size >= cache_size {
             return Err(anyhow!(
                 "Cache item size should be less than whole cache size"
@@ -98,7 +103,7 @@ impl Cache {
 
         Ok(Self {
             max_item_size,
-            cache: MokaCacheBuilder::new(cache_size)
+            store: MokaCacheBuilder::new(cache_size)
                 .time_to_live(ttl)
                 .weigher(weigh_entry)
                 .build(),
@@ -107,7 +112,7 @@ impl Cache {
 }
 
 pub async fn middleware(
-    State(cache): State<Arc<Cache>>,
+    State(cache): State<CacheType>,
     request: Request,
     next: Next,
 ) -> Result<impl IntoResponse, ErrorCause> {
@@ -130,7 +135,7 @@ pub async fn middleware(
     };
 
     // Use cached response if found.
-    if let Some(full_response) = cache.cache.get(&cache_key).await {
+    if let Some(full_response) = cache.store.get(&cache_key).await {
         let (parts, body) = full_response.into_parts();
         let response = Response::from_parts(parts, Body::from(body));
         return Ok(CacheStatus::Hit.with_response(response));
@@ -168,7 +173,7 @@ pub async fn middleware(
     let response: FullResponse = Response::from_parts(response_parts.clone(), body_bytes.clone());
 
     cache
-        .cache
+        .store
         .insert(Arc::new(cache_key), response.clone())
         .await;
 
