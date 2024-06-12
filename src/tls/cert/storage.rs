@@ -8,7 +8,7 @@ use fqdn::{Fqdn, FQDN};
 use rustls::{server::ClientHello, sign::CertifiedKey};
 
 use super::Cert;
-use crate::{http::ACME_TLS_ALPN_NAME, tls::resolver};
+use crate::{http::ALPN_ACME, tls::resolver};
 
 pub trait StoresCertificates<T: Clone + Send + Sync>: Send + Sync {
     fn store(&self, cert_list: Vec<Cert<T>>) -> Result<(), Error>;
@@ -94,7 +94,7 @@ impl resolver::ResolvesServerCert for StorageKey {
         // we don't break ACME challenge
         if ch
             .alpn()
-            .map(|mut x| x.all(|x| x == ACME_TLS_ALPN_NAME))
+            .map(|mut x| x.all(|x| x == ALPN_ACME))
             .unwrap_or(false)
         {
             return None;

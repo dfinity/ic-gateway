@@ -190,6 +190,10 @@ pub struct Domain {
     #[clap(env, long, value_delimiter = ',')]
     pub domain: Vec<FQDN>,
 
+    /// List of domains that will serve only IC API (no HTTP)
+    #[clap(env, long, value_delimiter = ',')]
+    pub domain_api: Vec<FQDN>,
+
     /// List of domains that we serve system subnets from. This enables domain-canister matching for these domains & adds them to the list of served domains above, do not list them there separately.
     /// Requires --domain-app.
     #[clap(env, long, requires = "domain_app", value_delimiter = ',')]

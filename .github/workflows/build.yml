@@ -10,7 +10,10 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: bazel-runner-small
+    container:
+      image: ghcr.io/catthehacker/ubuntu:full-22.04
+
     permissions:
       contents: write
 

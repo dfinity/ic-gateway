@@ -23,12 +23,12 @@ pub async fn middleware(
     };
 
     // Resolve the domain
-    let domain = resolver
+    let lookup = resolver
         .resolve(&authority)
         .ok_or(ErrorCause::UnknownDomain)?;
 
     // Inject canister_id separately if it was resolved
-    if let Some(v) = domain.canister_id {
+    if let Some(v) = lookup.canister_id {
         request.extensions_mut().insert(CanisterId(v));
     }
 
@@ -36,7 +36,8 @@ pub async fn middleware(
     // TODO remove Arc?
     let ctx = Arc::new(RequestCtx {
         authority,
-        domain: domain.clone(),
+        domain: lookup.domain.clone(),
+        verify: lookup.verify,
     });
     request.extensions_mut().insert(ctx.clone());
 
@@ -45,7 +46,7 @@ pub async fn middleware(
 
     // Inject the same into the response
     response.extensions_mut().insert(ctx);
-    if let Some(v) = domain.canister_id {
+    if let Some(v) = lookup.canister_id {
         response.extensions_mut().insert(CanisterId(v));
     }
 

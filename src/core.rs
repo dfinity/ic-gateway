@@ -23,15 +23,16 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     let mut domains = cli.domain.domain.clone();
     domains.extend_from_slice(&cli.domain.domain_system);
     domains.extend_from_slice(&cli.domain.domain_app);
+    domains.extend_from_slice(&cli.domain.domain_api);
 
     if domains.is_empty() {
         return Err(anyhow!(
-            "No domains to serve specified (use --domain/--domain-system/--domain-app)"
+            "No domains to serve specified (use --domain* args)"
         ));
     }
 
     // Leave only unique domains
-    domains = domains.into_iter().unique().collect::<Vec<_>>();
+    domains = domains.into_iter().unique().collect();
 
     warn!(
         "Running with domains: {:?}",
@@ -86,7 +87,6 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     // Create routers
     let https_router = routing::setup_router(
         cli,
-        domains,
         custom_domain_providers,
         &mut tasks,
         http_client.clone(),

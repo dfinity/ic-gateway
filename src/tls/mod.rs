@@ -22,7 +22,7 @@ use rustls::{
 
 use crate::{
     cli::Cli,
-    http::{dns::Resolves, Client, ACME_TLS_ALPN_NAME, ALPN_H1, ALPN_H2},
+    http::{dns::Resolves, Client, ALPN_ACME, ALPN_H1, ALPN_H2},
     routing::domain::ProvidesCustomDomains,
     tasks::TaskManager,
     tls::{
@@ -224,7 +224,7 @@ pub async fn setup(
         certificate_resolver,
         tls_session_storage,
         if cli.acme.acme_challenge == Some(Challenge::Alpn) {
-            vec![ACME_TLS_ALPN_NAME.to_vec()]
+            vec![ALPN_ACME.to_vec()]
         } else {
             vec![]
         },

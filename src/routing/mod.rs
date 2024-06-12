@@ -59,6 +59,7 @@ pub struct RequestCtx {
     // HTTP2 authority or HTTP1 Host header
     pub authority: FQDN,
     pub domain: Domain,
+    pub verify: bool,
 }
 
 impl RequestCtx {
@@ -88,7 +89,6 @@ pub async fn redirect_to_https(
 
 pub fn setup_router(
     cli: &Cli,
-    domains: Vec<FQDN>,
     custom_domain_providers: Vec<Arc<dyn ProvidesCustomDomains>>,
     tasks: &mut TaskManager,
     http_client: Arc<dyn Client>,
@@ -102,11 +102,16 @@ pub fn setup_router(
     tasks.add("custom_domain_storage", custom_domain_storage.clone());
 
     // Prepare domain resolver to resolve domains & infer canister_id from requests
+    let mut domains_base = cli.domain.domain.clone();
+    domains_base.extend_from_slice(&cli.domain.domain_app);
+    domains_base.extend_from_slice(&cli.domain.domain_system);
+
     let domain_resolver = Arc::new(DomainResolver::new(
-        domains,
+        domains_base,
+        cli.domain.domain_api.clone(),
         cli.domain.domain_canister_alias.clone(),
         custom_domain_storage,
-    )?) as Arc<dyn ResolvesDomain>;
+    )) as Arc<dyn ResolvesDomain>;
 
     // GeoIP
     let geoip_mw = cli
