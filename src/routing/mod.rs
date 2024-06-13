@@ -260,7 +260,7 @@ pub fn setup_router(
     let router = Router::new()
         .nest("/api/v2", router_api)
         .fallback(
-            |ctx: Extension<Arc<RequestCtx>>, request: Request| async move {
+            |Extension(ctx): Extension<Arc<RequestCtx>>, request: Request| async move {
                 let path = request.uri().path();
 
                 // If there are issuers defined and the request came to the base domain -> proxy to them
