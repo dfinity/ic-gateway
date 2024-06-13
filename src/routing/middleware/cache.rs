@@ -7,12 +7,11 @@ use axum::{
     middleware::Next,
     response::{IntoResponse, Response},
 };
-use http::Uri;
 use http::{
     header::{CACHE_CONTROL, CONTENT_LENGTH, PRAGMA, RANGE},
     HeaderValue, Method,
 };
-use http::{request, response};
+use http::{request, response, Uri};
 use moka::future::{Cache as MokaCache, CacheBuilder as MokaCacheBuilder};
 use std::hash::Hash;
 
@@ -140,28 +139,21 @@ pub async fn middleware(
     request: Request,
     next: Next,
 ) -> Result<impl IntoResponse, ErrorCause> {
-    let (request_parts, request_body) = request.into_parts();
-    let body_bytes = to_bytes(request_body, usize::MAX).await.unwrap().to_vec();
-    
     // Inspect request for reasons of bypassing cache lookup.
-    let cache_bypass_reason = check_cache_bypass(&request_parts);
+    let cache_bypass_reason = check_cache_bypass(&request);
 
     if let Some(reason) = cache_bypass_reason {
-        let request = Request::from_parts(request_parts.clone(), Body::from(body_bytes.clone()));
         return Ok(CacheStatus::Bypass(reason).with_response(next.run(request).await));
     }
 
     // Use cached response if found.
-    let request_full = Request::from_parts(request_parts.clone(), body_bytes.clone());
-    if let Some(full_response) = cache.get(&request_full).await {
-        let (parts, body) = full_response.into_parts();
-        let response = Response::from_parts(parts, Body::from(body));
-        return Ok(CacheStatus::Hit.with_response(response));
+    let full_request = into_full_request(request).await;
+    if let Some(full_response) = cache.get(&full_request).await {
+        return Ok(CacheStatus::Hit.with_response(from_full_response(full_response)));
     }
 
     // If response is not cached, we propagate request as is further.
-    let request = Request::from_parts(request_parts, Body::from(body_bytes));
-    let response = next.run(request).await;
+    let response = next.run(from_full_request(full_request.clone())).await;
 
     // Do not cache non-2xx responses
     if !response.status().is_success() {
@@ -185,23 +177,20 @@ pub async fn middleware(
         return Ok(CacheStatus::Bypass(CacheBypassReason::BodyTooBig).with_response(response));
     }
 
-    let (response_parts, response_body) = response.into_parts();
-    let mut body_bytes = to_bytes(response_body, usize::MAX).await.unwrap().to_vec();
-    body_bytes.shrink_to_fit();
-    let response: FullResponse = Response::from_parts(response_parts.clone(), body_bytes.clone());
+    let full_response = into_full_response(response).await;
 
-    cache.insert(&request_full, response.clone()).await;
+    cache.insert(&full_request, full_response.clone()).await;
 
-    let response = Response::from_parts(response_parts, Body::from(body_bytes));
-    Ok(CacheStatus::Miss.with_response(response))
+    Ok(CacheStatus::Miss.with_response(from_full_response(full_response)))
 }
 
-fn check_cache_bypass(parts: &request::Parts) -> Option<CacheBypassReason> {
-    if parts.method != Method::GET {
+fn check_cache_bypass(request: &request::Request<Body>) -> Option<CacheBypassReason> {
+    if request.method() != Method::GET {
         return Some(CacheBypassReason::MethodNotCacheable);
     }
 
-    [parts.headers.get(CACHE_CONTROL), parts.headers.get(PRAGMA)]
+    let headers = request.headers();
+    [headers.get(CACHE_CONTROL), headers.get(PRAGMA)]
         .iter()
         .filter_map(|value| value.cloned())
         .any(|value| {
@@ -235,4 +224,29 @@ impl KeyExtractor for Arc<RequestCacheKeyExtractor> {
         };
         Arc::new(cache_key)
     }
+}
+
+// Helpers to convert Request/Response from axum Body type to Vec<u8> type.
+async fn into_full_request(request: Request<Body>) -> FullRequest {
+    let (parts, body) = request.into_parts();
+    let mut body_bytes = to_bytes(body, usize::MAX).await.unwrap().to_vec();
+    body_bytes.shrink_to_fit();
+    Request::from_parts(parts.clone(), body_bytes)
+}
+
+fn from_full_request(request: FullRequest) -> Request<Body> {
+    let (parts, body) = request.into_parts();
+    Request::from_parts(parts, Body::from(body))
+}
+
+async fn into_full_response(response: Response<Body>) -> FullResponse {
+    let (parts, body) = response.into_parts();
+    let mut body_bytes = to_bytes(body, usize::MAX).await.unwrap().to_vec();
+    body_bytes.shrink_to_fit();
+    Response::from_parts(parts, body_bytes)
+}
+
+fn from_full_response(response: FullResponse) -> Response<Body> {
+    let (parts, body) = response.into_parts();
+    Response::from_parts(parts, Body::from(body))
 }
