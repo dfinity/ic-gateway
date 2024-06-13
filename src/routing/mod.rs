@@ -212,7 +212,13 @@ pub fn setup_router(
     let router_http = Router::new().fallback(
         post(handler::handler)
             .get(handler::handler)
-            .layer(cors::layer(&[Method::HEAD, Method::GET, Method::OPTIONS]))
+            .put(handler::handler)
+            .layer(cors::layer(&[
+                Method::HEAD,
+                Method::GET,
+                Method::POST,
+                Method::OPTIONS,
+            ]))
             .layer(http_layers)
             .with_state(state_handler),
     );
