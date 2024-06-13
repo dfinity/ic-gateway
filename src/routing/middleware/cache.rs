@@ -85,6 +85,7 @@ pub struct Cache<K, M> {
     key_extractor: M,
 }
 
+// TODO: rework this function
 // Estimate rough amount of bytes that cache entry takes in memory
 fn weigh_entry<K, V>(_k: &K, _v: &V) -> u32 {
     (std::mem::size_of::<K>() + std::mem::size_of::<V>()) as u32
@@ -131,6 +132,25 @@ where
     pub async fn insert(&self, req: &FullRequest, resp: FullResponse) {
         let key = self.key_extractor.extract(req);
         self.store.insert(key, resp).await
+    }
+
+    pub fn size(&self) -> u64 {
+        self.store.weighted_size()
+    }
+
+    pub fn len(&self) -> u64 {
+        self.store.entry_count()
+    }
+
+    pub async fn housekeep(&self) {
+        self.store.run_pending_tasks().await;
+    }
+
+    // For now stuff below is used only in tests, but belongs here
+    #[allow(dead_code)]
+    async fn clear(&self) {
+        self.store.invalidate_all();
+        self.housekeep().await;
     }
 }
 
@@ -249,4 +269,274 @@ async fn into_full_response(response: Response<Body>) -> FullResponse {
 fn from_full_response(response: FullResponse) -> Response<Body> {
     let (parts, body) = response.into_parts();
     Response::from_parts(parts, Body::from(body))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{sync::Arc, time::Duration};
+
+    use axum::{
+        body::{to_bytes, Body},
+        extract::Request,
+        middleware,
+        response::{IntoResponse, Response},
+        routing::{get, post},
+        Router,
+    };
+    use http::{
+        header::{CACHE_CONTROL, CONTENT_LENGTH, PRAGMA},
+        HeaderValue, StatusCode,
+    };
+    use tokio::time::sleep;
+    use tower::Service;
+
+    use crate::routing::{
+        error_cause::ErrorCause,
+        middleware::cache::{
+            self, Cache, CacheBypassReason, CacheStatus, RequestCacheKeyExtractor,
+            SKIP_CACHE_DIRECTIVES,
+        },
+    };
+
+    const MAX_ITEM_SIZE: u64 = 1024;
+    const MAX_CACHE_SIZE: u64 = 32768;
+
+    async fn dispatch_request(router: &mut Router, uri: String) -> Option<CacheStatus> {
+        let req = Request::get(uri).body(Body::from("")).unwrap();
+        let result = router.call(req).await.unwrap();
+        assert_eq!(result.status(), StatusCode::OK);
+        result.extensions().get::<CacheStatus>().cloned()
+    }
+
+    async fn handler_bypassing_cache(
+        _request: Request<Body>,
+    ) -> Result<impl IntoResponse, ErrorCause> {
+        // Without content-length header, caching middleware should issue CacheStatus::Bypass
+        Ok("test_call".into_response())
+    }
+
+    async fn handler_cache_hit(_request: Request<Body>) -> Result<impl IntoResponse, ErrorCause> {
+        let mut response = Response::new(Body::from(b"test_body".to_vec()));
+        response
+            .headers_mut()
+            .insert(CONTENT_LENGTH, HeaderValue::from_str("10").unwrap());
+        Ok(response)
+    }
+
+    async fn handler_malformed_content_length_header(
+        _request: Request<Body>,
+    ) -> Result<impl IntoResponse, ErrorCause> {
+        let mut response = Response::new(Body::from(b"foo".to_vec()));
+        response
+            .headers_mut()
+            .insert(CONTENT_LENGTH, HeaderValue::from_str("not an int").unwrap());
+        Ok(response)
+    }
+
+    async fn handler_content_length_header_too_big(
+        _request: Request<Body>,
+    ) -> Result<impl IntoResponse, ErrorCause> {
+        let mut response = Response::new(Body::from(b"foo".to_vec()));
+        let body_size = MAX_ITEM_SIZE + 1;
+        response.headers_mut().insert(
+            CONTENT_LENGTH,
+            HeaderValue::from_str(body_size.to_string().as_str()).unwrap(),
+        );
+        Ok(response)
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "Cache item size should be less than whole cache size")]
+    async fn test_cache_creation_errors() {
+        let cache = Cache::new(
+            1024,
+            1024,
+            Duration::from_secs(60),
+            Arc::new(RequestCacheKeyExtractor),
+        );
+        cache.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_cache_bypass() {
+        let cache = Cache::new(
+            MAX_CACHE_SIZE,
+            MAX_ITEM_SIZE,
+            Duration::from_secs(3600),
+            Arc::new(RequestCacheKeyExtractor),
+        )
+        .unwrap();
+        let cache = Arc::new(cache);
+        let mut app = Router::new()
+            .route("/", post(handler_bypassing_cache))
+            .route("/", get(handler_bypassing_cache))
+            .route(
+                "/malformed_content_length_header",
+                get(handler_malformed_content_length_header),
+            )
+            .route(
+                "/content_length_header_too_big",
+                get(handler_content_length_header_too_big),
+            )
+            .layer(middleware::from_fn_with_state(
+                Arc::clone(&cache),
+                cache::middleware,
+            ));
+
+        // Test only GET requests are cached.
+        let req = Request::post("/").body(Body::from("")).unwrap();
+
+        let result = app.call(req).await.unwrap();
+
+        assert_eq!(result.status(), StatusCode::OK);
+        let cache_status = result.extensions().get::<CacheStatus>().cloned().unwrap();
+        assert_eq!(cache.len(), 0);
+        assert_eq!(
+            cache_status,
+            CacheStatus::Bypass(cache::CacheBypassReason::MethodNotCacheable)
+        );
+
+        // Test requests with Cache-Control are not cached
+        for header in [CACHE_CONTROL, PRAGMA].iter() {
+            for &v in SKIP_CACHE_DIRECTIVES.iter() {
+                let mut req = Request::get("/").body(Body::from("")).unwrap();
+                req.headers_mut()
+                    .insert(header, HeaderValue::from_str(v).unwrap());
+                let result = app.call(req).await.unwrap();
+                let cache_status = result.extensions().get::<CacheStatus>().cloned().unwrap();
+                assert_eq!(cache.len(), 0);
+                assert_eq!(result.status(), StatusCode::OK);
+                assert_eq!(
+                    cache_status,
+                    CacheStatus::Bypass(CacheBypassReason::CacheControl)
+                );
+            }
+        }
+
+        // Test non-2xx response are not cached
+        let req = Request::get("/non_existing_path")
+            .body(Body::from("foobar"))
+            .unwrap();
+        let result = app.call(req).await.unwrap();
+        let cache_status = result.extensions().get::<CacheStatus>().cloned().unwrap();
+        assert_eq!(result.status(), StatusCode::NOT_FOUND);
+        assert_eq!(
+            cache_status,
+            CacheStatus::Bypass(CacheBypassReason::HTTPError)
+        );
+        assert_eq!(cache.len(), 0);
+
+        // Test malformed Content-Length
+        let req = Request::get("/malformed_content_length_header")
+            .body(Body::from("foobar"))
+            .unwrap();
+        let result = app.call(req).await.unwrap();
+        assert!(result.extensions().get::<CacheStatus>().is_none());
+        assert_eq!(result.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(cache.len(), 0);
+
+        // Test Content-Length too big
+        let req = Request::get("/content_length_header_too_big")
+            .body(Body::from("foobar"))
+            .unwrap();
+        let result = app.call(req).await.unwrap();
+        let cache_status = result.extensions().get::<CacheStatus>().cloned().unwrap();
+        assert_eq!(
+            cache_status,
+            CacheStatus::Bypass(CacheBypassReason::BodyTooBig)
+        );
+        assert_eq!(result.status(), StatusCode::OK);
+        assert_eq!(cache.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_cache_hit() {
+        let cache_ttl = Duration::from_secs(3);
+        let cache = Cache::new(
+            MAX_CACHE_SIZE,
+            MAX_ITEM_SIZE,
+            Duration::from_secs(2),
+            Arc::new(RequestCacheKeyExtractor),
+        )
+        .unwrap();
+        let cache = Arc::new(cache);
+        let mut app = Router::new().route("/:key", get(handler_cache_hit)).layer(
+            middleware::from_fn_with_state(Arc::clone(&cache), cache::middleware),
+        );
+
+        // First request is not stored in cache
+        let req = Request::get("/1").body(Body::from("")).unwrap();
+        let result = app.call(req).await.unwrap();
+        let cache_status = result.extensions().get::<CacheStatus>().cloned().unwrap();
+        assert_eq!(result.status(), StatusCode::OK);
+        assert_eq!(cache_status, CacheStatus::Miss);
+        cache.housekeep().await;
+        assert_eq!(cache.len(), 1);
+
+        // Second request hits the cache
+        let req = Request::get("/1").body(Body::from("")).unwrap();
+        let result = app.call(req).await.unwrap();
+        let cache_status = result.extensions().get::<CacheStatus>().cloned().unwrap();
+        assert_eq!(result.status(), StatusCode::OK);
+        assert_eq!(cache_status, CacheStatus::Hit);
+        let (_, body) = result.into_parts();
+        let body = to_bytes(body, usize::MAX).await.unwrap().to_vec();
+        let body = String::from_utf8_lossy(&body);
+        assert_eq!("test_body", body);
+        cache.housekeep().await;
+        assert_eq!(cache.len(), 1);
+
+        // Third request hits the cache too
+        let req = Request::get("/1").body(Body::from("")).unwrap();
+        let result = app.call(req).await.unwrap();
+        let cache_status = result.extensions().get::<CacheStatus>().cloned().unwrap();
+        assert_eq!(result.status(), StatusCode::OK);
+        assert_eq!(cache_status, CacheStatus::Hit);
+        cache.housekeep().await;
+        assert_eq!(cache.len(), 1);
+
+        // After ttl, request doesn't hit the cache anymore
+        sleep(cache_ttl + Duration::from_secs(1)).await;
+        let req = Request::get("/1").body(Body::from("")).unwrap();
+        let result = app.call(req).await.unwrap();
+        let cache_status = result.extensions().get::<CacheStatus>().cloned().unwrap();
+        assert_eq!(result.status(), StatusCode::OK);
+        assert_eq!(cache_status, CacheStatus::Miss);
+
+        // Before cache_size is reached all requests should be stored in cache.
+        cache.clear().await;
+        let req_count = 50;
+        // First dispatch round
+        for idx in 0..req_count {
+            let status = dispatch_request(&mut app, format!("/{idx}")).await;
+            assert_eq!(status.unwrap(), CacheStatus::Miss);
+        }
+        // Second dispatch round
+        for idx in 0..req_count {
+            let status = dispatch_request(&mut app, format!("/{idx}")).await;
+            assert_eq!(status.unwrap(), CacheStatus::Hit);
+        }
+
+        // Once cache_size is reached some requests should be evicted.
+        cache.clear().await;
+        let req_count = 800;
+        // First dispatch round
+        for idx in 0..req_count {
+            let status = dispatch_request(&mut app, format!("/{idx}")).await;
+            assert_eq!(status.unwrap(), CacheStatus::Miss);
+        }
+        // Second dispatch round
+        let mut count_misses = 0;
+        let mut count_hits = 0;
+        for idx in 0..req_count {
+            let status = dispatch_request(&mut app, format!("/{idx}")).await;
+            if let Some(CacheStatus::Miss) = status {
+                count_misses += 1;
+            } else if let Some(CacheStatus::Hit) = status {
+                count_hits += 1;
+            }
+        }
+        assert!(count_misses > 0);
+        assert!(count_hits > 0);
+    }
 }
