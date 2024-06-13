@@ -38,6 +38,7 @@ pub async fn middleware(
         authority,
         domain: lookup.domain.clone(),
         verify: lookup.verify,
+        canister_id: lookup.canister_id,
     });
     request.extensions_mut().insert(ctx.clone());
 

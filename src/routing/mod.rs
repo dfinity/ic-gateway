@@ -60,6 +60,7 @@ pub struct RequestCtx {
     pub authority: FQDN,
     pub domain: Domain,
     pub verify: bool,
+    pub canister_id: Option<Principal>,
 }
 
 impl RequestCtx {
@@ -261,12 +262,6 @@ pub fn setup_router(
         .fallback(
             |ctx: Extension<Arc<RequestCtx>>, request: Request| async move {
                 let path = request.uri().path();
-                if path == "/" && ctx.is_base_domain() {
-                    return Ok(
-                        Redirect::temporary("https://dashboard.internetcomputer.org/")
-                            .into_response(),
-                    );
-                }
 
                 // If there are issuers defined and the request came to the base domain -> proxy to them
                 if let Some(v) = router_issuer {
@@ -278,6 +273,15 @@ pub fn setup_router(
                 // Proxy /health only from base domain and not custom ones
                 if path.starts_with("/health") && ctx.is_base_domain() {
                     return router_health.oneshot(request).await;
+                }
+
+                // Redirect to the dashboard if the request is to the root of domain
+                // and no canister was resolved
+                if path == "/" && ctx.canister_id.is_none() {
+                    return Ok(
+                        Redirect::temporary("https://dashboard.internetcomputer.org/")
+                            .into_response(),
+                    );
                 }
 
                 // Otherwise request goes to the canister

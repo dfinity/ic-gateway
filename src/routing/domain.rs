@@ -87,7 +87,8 @@ impl FromStr for CanisterAlias {
 
 struct CustomDomainStorageInner(BTreeMap<FQDN, DomainLookup>);
 
-// Custom domain storage
+/// Custom domain storage.
+/// Fetches custom domains from several providers and stores them as DomainLookups
 #[derive(new)]
 pub struct CustomDomainStorage {
     providers: Vec<Arc<dyn ProvidesCustomDomains>>,
@@ -155,6 +156,8 @@ impl ResolvesDomain for CustomDomainStorage {
     }
 }
 
+/// Finds the domains by the hostname among base, api domains and aliases.
+/// Also checks custom domain storage.
 pub struct DomainResolver {
     domains_base: Vec<Domain>,
     domains_all: BTreeMap<FQDN, DomainLookup>,
@@ -202,6 +205,7 @@ impl DomainResolver {
             })
         });
 
+        // Combine all domains into a single lookup vec
         let domains_all = domains_base
             .clone()
             .into_iter()
@@ -257,14 +261,14 @@ impl DomainResolver {
         // the base subdomain is not raw or <id>.
         // TODO discuss
         let canister_id = if depth == 1 || (depth == 2 && raw) {
-            Principal::from_text(label).ok()?
+            Principal::from_text(label).ok()
         } else {
-            return None;
+            None
         };
 
         Some(DomainLookup {
             domain: domain.clone(),
-            canister_id: Some(canister_id),
+            canister_id,
             verify: !raw,
         })
     }
@@ -373,16 +377,6 @@ mod test {
                     })
                 );
             }
-
-            // Ensure that missing aliases do not resolve
-            assert_eq!(
-                resolver.resolve(&FQDN::from_str(&format!("foo.{d}"))?),
-                None
-            );
-            assert_eq!(
-                resolver.resolve(&FQDN::from_str(&format!("bar.{d}"))?),
-                None
-            );
         }
 
         // Check resolving
@@ -436,7 +430,14 @@ mod test {
         assert_eq!(resolver.resolve(&fqdn!("aaaaa-aa.icp-api.io")), None);
 
         // Raw subdomain but w/o canister
-        assert_eq!(resolver.resolve(&fqdn!("raw.ic0.app")), None);
+        assert_eq!(
+            resolver.resolve(&fqdn!("raw.ic0.app")),
+            Some(DomainLookup {
+                domain: domain_ic0_app.clone(),
+                canister_id: None,
+                verify: true,
+            })
+        );
 
         // Base domain with canister
         assert_eq!(
@@ -477,9 +478,16 @@ mod test {
         );
 
         // Malformed canister shouldn't resolve
-        assert_eq!(resolver.resolve(&fqdn!("aaaaa-aaa.icp0.io")), None);
+        assert_eq!(
+            resolver.resolve(&fqdn!("aaaaa-aaa.icp0.io")),
+            Some(DomainLookup {
+                domain: domain_icp0_io.clone(),
+                canister_id: None,
+                verify: true,
+            })
+        );
 
-        // foo--<canister_id>
+        // With prefix--
         assert_eq!(
             resolver.resolve(&fqdn!("foo--aaaaa-aa.ic0.app")),
             Some(DomainLookup {
@@ -489,7 +497,7 @@ mod test {
             })
         );
         assert_eq!(
-            resolver.resolve(&fqdn!("foo--bar--aaaaa-aa.ic0.app")),
+            resolver.resolve(&fqdn!("foo--bar--baz--aaaaa-aa.ic0.app")),
             Some(DomainLookup {
                 domain: domain_ic0_app.clone(),
                 canister_id: Some(canister_id),
@@ -497,9 +505,24 @@ mod test {
             })
         );
 
-        // Nested subdomain should not match canister id (?)
-        assert_eq!(resolver.resolve(&fqdn!("aaaaa-aa.foo.ic0.app")), None);
-        assert_eq!(resolver.resolve(&fqdn!("aaaaa-aa.foo.icp0.io")), None);
+        // Nested subdomain should not match canister id
+        // TODO discuss?
+        assert_eq!(
+            resolver.resolve(&fqdn!("aaaaa-aa.foo.ic0.app")),
+            Some(DomainLookup {
+                domain: domain_ic0_app.clone(),
+                canister_id: None,
+                verify: true,
+            })
+        );
+        assert_eq!(
+            resolver.resolve(&fqdn!("aaaaa-aa.foo.icp0.io")),
+            Some(DomainLookup {
+                domain: domain_icp0_io.clone(),
+                canister_id: None,
+                verify: true,
+            })
+        );
 
         // Resolve custom domain
         assert_eq!(

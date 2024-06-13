@@ -8,7 +8,7 @@ use fqdn::{Fqdn, FQDN};
 use rustls::{server::ClientHello, sign::CertifiedKey};
 
 use super::Cert;
-use crate::{http::ALPN_ACME, tls::resolver};
+use crate::{http::ALPN_ACME, tls::resolver::ResolvesServerCert};
 
 pub trait StoresCertificates<T: Clone + Send + Sync>: Send + Sync {
     fn store(&self, cert_list: Vec<Cert<T>>) -> Result<(), Error>;
@@ -37,7 +37,7 @@ impl<T: Clone + Send + Sync> fmt::Debug for Storage<T> {
 pub type StorageKey = Storage<Arc<CertifiedKey>>;
 
 impl<T: Clone + Send + Sync> Storage<T> {
-    // Looks up cert by hostname in SubjectAlternativeName table
+    // Looks up cert by hostname
     fn lookup_cert(&self, hostname: &Fqdn) -> Option<Arc<Cert<T>>> {
         // Get current snapshot if there's one
         let inner = self.inner.load_full()?;
@@ -49,6 +49,18 @@ impl<T: Clone + Send + Sync> Storage<T> {
 
         // Next try to find a wildcard certificate for the parent FQDN
         inner.certs_wildcard.get(hostname.parent()?).cloned()
+    }
+
+    fn any(&self) -> Option<Arc<Cert<T>>> {
+        let inner = self.inner.load_full()?;
+
+        // Try to find some certificate
+        inner
+            .certs
+            .first_key_value()
+            .or_else(|| inner.certs_wildcard.first_key_value())
+            .map(|x| x.1)
+            .cloned()
     }
 }
 
@@ -70,7 +82,9 @@ impl<T: Clone + Send + Sync> StoresCertificates<T> for Storage<T> {
                     (san.as_str(), &mut certs)
                 };
 
-                let key = FQDN::from_str(key).context(format!("unable to parse {san} as FQDN"))?;
+                let key =
+                    FQDN::from_str(key).context(format!("unable to parse '{san}' as FQDN"))?;
+
                 if tree.insert(key, cert.clone()).is_some() {
                     return Err(anyhow!("Duplicate SAN detected: {san}"));
                 };
@@ -88,7 +102,7 @@ impl<T: Clone + Send + Sync> StoresCertificates<T> for Storage<T> {
 }
 
 // Implement certificate resolving for Rustls
-impl resolver::ResolvesServerCert for StorageKey {
+impl ResolvesServerCert for StorageKey {
     fn resolve(&self, ch: &ClientHello) -> Option<Arc<CertifiedKey>> {
         // If the ALPN is ACME - don't return anything to make sure
         // we don't break ACME challenge
@@ -106,6 +120,10 @@ impl resolver::ResolvesServerCert for StorageKey {
         let sni = FQDN::from_str(sni).ok()?;
         self.lookup_cert(&sni).map(|x| x.cert.clone())
     }
+
+    fn resolve_any(&self) -> Option<Arc<CertifiedKey>> {
+        self.any().map(|x| x.cert.clone())
+    }
 }
 
 #[cfg(test)]
@@ -113,6 +131,7 @@ pub mod test {
     use fqdn::fqdn;
 
     use super::*;
+
     pub fn create_test_storage() -> Storage<String> {
         let storage: Storage<String> = Storage::new();
 
@@ -191,6 +210,15 @@ pub mod test {
             cert: "foo.bar.cert".into(),
         }];
         assert!(storage.store(certs).is_err());
+
+        // Make sure the old info is there
+        assert_eq!(
+            storage.lookup_cert(&fqdn!("foo.bar")).unwrap().cert,
+            "foo.bar.cert"
+        );
+
+        // Check any
+        assert_eq!(storage.any().unwrap().cert, "foo.bar.cert");
 
         Ok(())
     }
