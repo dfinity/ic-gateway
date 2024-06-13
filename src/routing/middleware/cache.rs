@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{mem::size_of, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Error};
 use axum::{
@@ -85,10 +85,37 @@ pub struct Cache<K, M> {
     key_extractor: M,
 }
 
-// TODO: rework this function
-// Estimate rough amount of bytes that cache entry takes in memory
-fn weigh_entry<K, V>(_k: &K, _v: &V) -> u32 {
-    (std::mem::size_of::<K>() + std::mem::size_of::<V>()) as u32
+pub trait SizeInBytes {
+    fn size_in_bytes(&self) -> usize;
+}
+
+impl SizeInBytes for Arc<CacheKey> {
+    fn size_in_bytes(&self) -> usize {
+        let mut size = size_of::<Arc<CacheKey>>();
+        if let Some(ref range) = self.range {
+            size += range.as_bytes().len()
+        }
+        if let Some(path_and_query) = self.uri.path_and_query() {
+            size += path_and_query.as_str().as_bytes().len();
+        }
+        size as usize
+    }
+}
+
+impl SizeInBytes for FullResponse {
+    fn size_in_bytes(&self) -> usize {
+        let mut size = size_of::<FullResponse>();
+        size += self.body().len();
+        for (k, v) in self.headers().iter() {
+            size += k.as_str().as_bytes().len();
+            size += v.as_bytes().len();
+        }
+        size
+    }
+}
+
+fn weigh_entry<K: SizeInBytes>(k: &K, v: &FullResponse) -> u32 {
+    (k.size_in_bytes() + v.size_in_bytes()) as u32
 }
 
 // TODO: add an error
@@ -99,7 +126,7 @@ pub trait KeyExtractor {
 
 impl<K, M> Cache<K, M>
 where
-    K: Eq + Hash + Send + Sync + 'static,
+    K: SizeInBytes + Eq + Hash + Send + Sync + 'static,
     M: KeyExtractor<Key = K>,
 {
     pub fn new(
