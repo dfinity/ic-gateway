@@ -14,6 +14,7 @@ use ocsp_stapler::Stapler;
 use prometheus::Registry;
 use rustls::{
     client::{ClientConfig, ClientSessionMemoryCache, Resumption},
+    compress::CompressionCache,
     server::{ResolvesServerCert as ResolvesServerCertRustls, ServerConfig, StoresServerSessions},
     version::{TLS12, TLS13},
     RootCertStore, TicketSwitcher,
@@ -21,7 +22,7 @@ use rustls::{
 
 use crate::{
     cli::Cli,
-    http::{dns::Resolves, Client, ACME_TLS_ALPN_NAME, ALPN_H1, ALPN_H2},
+    http::{dns::Resolves, Client, ALPN_ACME, ALPN_H1, ALPN_H2},
     routing::domain::ProvidesCustomDomains,
     tasks::TaskManager,
     tls::{
@@ -73,7 +74,11 @@ pub fn prepare_server_config(
     );
     cfg.ticketer = Arc::new(ticketer);
 
-    // Enable tickets
+    // Enable larger certificate compression caching.
+    // See https://datatracker.ietf.org/doc/rfc8879/ for details
+    cfg.cert_compression_cache = Arc::new(CompressionCache::new(1024));
+
+    // Enable ALPN
     cfg.alpn_protocols = vec![ALPN_H2.to_vec(), ALPN_H1.to_vec()];
     cfg.alpn_protocols.extend_from_slice(&additional_alpn);
 
@@ -167,13 +172,13 @@ pub async fn setup(
     let mut custom_domain_providers: Vec<Arc<dyn ProvidesCustomDomains>> = vec![];
 
     // Create Dir providers
-    for v in &cli.cert.dir {
+    for v in &cli.cert.cert_provider_dir {
         cert_providers.push(Arc::new(providers::Dir::new(v.clone())));
     }
 
     // Create CertIssuer providers
     // It's a custom domain & cert provider at the same time.
-    for v in &cli.cert.issuer_urls {
+    for v in &cli.cert.cert_provider_issuer_url {
         let issuer = Arc::new(providers::Issuer::new(http_client.clone(), v.clone()));
         cert_providers.push(issuer.clone());
         custom_domain_providers.push(issuer);
@@ -196,7 +201,7 @@ pub async fn setup(
     let cert_aggregator = Arc::new(Aggregator::new(
         cert_providers,
         cert_storage.clone(),
-        cli.cert.poll_interval,
+        cli.cert.cert_provider_poll_interval,
     ));
     tasks.add("cert_aggregator", cert_aggregator);
 
@@ -205,25 +210,25 @@ pub async fn setup(
         Arc::new(AggregatingResolver::new(acme_resolver, vec![cert_storage]));
 
     // Optionally wrap resolver with OCSP stapler
-    let certificate_resolver: Arc<dyn ResolvesServerCertRustls> = if !cli.cert.ocsp_stapling_disable
-    {
-        let stapler = Arc::new(Stapler::new_with_registry(certificate_resolver, registry));
-        tasks.add("ocsp_stapler", stapler.clone());
-        stapler
-    } else {
-        certificate_resolver
-    };
+    let certificate_resolver: Arc<dyn ResolvesServerCertRustls> =
+        if !cli.cert.cert_ocsp_stapling_disable {
+            let stapler = Arc::new(Stapler::new_with_registry(certificate_resolver, registry));
+            tasks.add("ocsp_stapler", stapler.clone());
+            stapler
+        } else {
+            certificate_resolver
+        };
 
     // Generate Rustls config
     let config = prepare_server_config(
         certificate_resolver,
         tls_session_storage,
         if cli.acme.acme_challenge == Some(Challenge::Alpn) {
-            vec![ACME_TLS_ALPN_NAME.to_vec()]
+            vec![ALPN_ACME.to_vec()]
         } else {
             vec![]
         },
-        cli.http_server.tls_ticket_lifetime,
+        cli.http_server.http_server_tls_ticket_lifetime,
         registry,
     );
 

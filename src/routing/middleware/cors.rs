@@ -4,16 +4,15 @@ use std::time::Duration;
 
 use http::{
     header::{
-        HeaderName, ACCEPT_RANGES, CACHE_CONTROL, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE,
-        COOKIE, DNT, IF_MODIFIED_SINCE, IF_NONE_MATCH, RANGE, USER_AGENT,
+        ACCEPT_RANGES, CACHE_CONTROL, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, COOKIE, DNT,
+        IF_MODIFIED_SINCE, IF_NONE_MATCH, RANGE, USER_AGENT,
     },
     Method,
 };
 use tower_http::cors::{Any, CorsLayer};
 
-use super::{headers::X_IC_CANISTER_ID, request_id::X_REQUEST_ID};
+use super::{X_IC_CANISTER_ID, X_REQUESTED_WITH, X_REQUEST_ID};
 
-const X_REQUESTED_WITH: HeaderName = HeaderName::from_static("x-requested-with");
 const MINUTE: Duration = Duration::from_secs(60);
 
 /*
@@ -46,7 +45,6 @@ pub fn layer(methods: &[Method]) -> CorsLayer {
             COOKIE,
             X_REQUESTED_WITH,
             X_IC_CANISTER_ID,
-            X_REQUESTED_WITH,
         ])
         .max_age(10 * MINUTE)
 }

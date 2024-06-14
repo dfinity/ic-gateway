@@ -18,7 +18,7 @@ use super::{
         IcResponseStatus,
     },
     middleware::{self, request_id::RequestId},
-    CanisterId,
+    CanisterId, RequestCtx,
 };
 
 const MAX_REQUEST_BODY_SIZE: usize = 10 * 1_048_576;
@@ -32,6 +32,7 @@ pub async fn handler(
     State(state): State<Arc<HandlerState>>,
     canister_id: Option<Extension<CanisterId>>,
     Extension(request_id): Extension<RequestId>,
+    Extension(ctx): Extension<Arc<RequestCtx>>,
     request: Request,
 ) -> Result<Response, ErrorCause> {
     let canister_id = canister_id
@@ -73,16 +74,26 @@ pub async fn handler(
 
                 x.borrow_mut()
                     .headers_out
-                    .insert(middleware::request_id::X_REQUEST_ID, hdr)
+                    .insert(middleware::X_REQUEST_ID, hdr)
             });
 
             // Execute the request
-            state
-                .client
-                .request(args)
-                //.unsafe_allow_skip_verification()
-                .send()
-                .await
+            let req = state.client.request(args);
+            let req = if !ctx.verify {
+                req.unsafe_allow_skip_verification()
+            } else {
+                req
+            };
+
+            let res = req.send().await;
+
+            PASS_HEADERS.with(|x| {
+                for (k, v) in &x.borrow().headers_in {
+                    println!("{k:?}: {v:?}");
+                }
+            });
+
+            res
         })
         .await
         .map_err(ErrorCause::from_err)?;

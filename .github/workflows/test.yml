@@ -1,0 +1,24 @@
+name: Test
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: never
+
+jobs:
+  test:
+    runs-on: bazel-runner-small
+    container:
+      image: ghcr.io/catthehacker/ubuntu:full-22.04
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: Swatinem/rust-cache@v2
+
+    - name: Run tests
+      run: cargo test

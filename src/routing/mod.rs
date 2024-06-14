@@ -3,6 +3,7 @@ pub mod domain;
 pub mod error_cause;
 pub mod handler;
 pub mod ic;
+#[allow(clippy::declare_interior_mutable_const)]
 pub mod middleware;
 pub mod proxy;
 
@@ -59,6 +60,8 @@ pub struct RequestCtx {
     // HTTP2 authority or HTTP1 Host header
     pub authority: FQDN,
     pub domain: Domain,
+    pub verify: bool,
+    pub canister_id: Option<Principal>,
 }
 
 impl RequestCtx {
@@ -88,7 +91,6 @@ pub async fn redirect_to_https(
 
 pub fn setup_router(
     cli: &Cli,
-    domains: Vec<FQDN>,
     custom_domain_providers: Vec<Arc<dyn ProvidesCustomDomains>>,
     tasks: &mut TaskManager,
     http_client: Arc<dyn Client>,
@@ -97,16 +99,21 @@ pub fn setup_router(
 ) -> Result<Router, Error> {
     let custom_domain_storage = Arc::new(CustomDomainStorage::new(
         custom_domain_providers,
-        cli.cert.poll_interval,
+        cli.cert.cert_provider_poll_interval,
     ));
     tasks.add("custom_domain_storage", custom_domain_storage.clone());
 
     // Prepare domain resolver to resolve domains & infer canister_id from requests
+    let mut domains_base = cli.domain.domain.clone();
+    domains_base.extend_from_slice(&cli.domain.domain_app);
+    domains_base.extend_from_slice(&cli.domain.domain_system);
+
     let domain_resolver = Arc::new(DomainResolver::new(
-        domains,
-        cli.domain.canister_aliases.clone(),
+        domains_base,
+        cli.domain.domain_api.clone(),
+        cli.domain.domain_canister_alias.clone(),
         custom_domain_storage,
-    )?) as Arc<dyn ResolvesDomain>;
+    )) as Arc<dyn ResolvesDomain>;
 
     // GeoIP
     let geoip_mw = cli
@@ -120,18 +127,19 @@ pub fn setup_router(
         .transpose()?;
 
     // Denylist
-    let denylist_mw = if cli.policy.denylist_seed.is_some() || cli.policy.denylist_url.is_some() {
-        Some(from_fn_with_state(
-            denylist::DenylistState::new(cli, tasks, http_client.clone(), registry)?,
-            denylist::middleware,
-        ))
-    } else {
-        None
-    };
+    let denylist_mw =
+        if cli.policy.policy_denylist_seed.is_some() || cli.policy.policy_denylist_url.is_some() {
+            Some(from_fn_with_state(
+                denylist::DenylistState::new(cli, tasks, http_client.clone(), registry)?,
+                denylist::middleware,
+            ))
+        } else {
+            None
+        };
 
     // Domain-Canister Matching
     // CLI makes sure that domains_system is also set
-    let canister_match_mw = if !cli.domain.domains_app.is_empty() {
+    let canister_match_mw = if !cli.domain.domain_app.is_empty() {
         Some(from_fn_with_state(
             canister_match::CanisterMatcherState::new(cli)?,
             canister_match::middleware,
@@ -153,7 +161,7 @@ pub fn setup_router(
 
     // Prepare the HTTP->IC library
     let route_provider = setup_route_provider(
-        cli.ic.urls.clone(),
+        cli.ic.ic_url.clone(),
         http_client.clone(),
         tasks,
         cli.ic.ic_use_discovery,
@@ -221,19 +229,25 @@ pub fn setup_router(
     let router_http = Router::new().fallback(
         post(handler::handler)
             .get(handler::handler)
-            .layer(cors::layer(&[Method::HEAD, Method::GET, Method::OPTIONS]))
+            .put(handler::handler)
+            .layer(cors::layer(&[
+                Method::HEAD,
+                Method::GET,
+                Method::POST,
+                Method::OPTIONS,
+            ]))
             .layer(http_layers)
             .with_state(state_handler),
     );
 
     // Setup issuer proxy endpoint if we have them configured
-    let router_issuer = if !cli.cert.issuer_urls.is_empty() {
+    let router_issuer = if !cli.cert.cert_provider_issuer_url.is_empty() {
         // Init it early to avoid threading races
         lazy_static::initialize(&proxy::REGEX_REG_ID);
 
         let state = Arc::new(proxy::IssuerProxyState::new(
             http_client,
-            cli.cert.issuer_urls.clone(),
+            cli.cert.cert_provider_issuer_url.clone(),
         ));
         let router = Router::new()
             .route(
@@ -269,8 +283,9 @@ pub fn setup_router(
     let router = Router::new()
         .nest("/api/v2", router_api)
         .fallback(
-            |ctx: Extension<Arc<RequestCtx>>, request: Request| async move {
+            |Extension(ctx): Extension<Arc<RequestCtx>>, request: Request| async move {
                 let path = request.uri().path();
+
                 // If there are issuers defined and the request came to the base domain -> proxy to them
                 if let Some(v) = router_issuer {
                     if path.starts_with("/registrations") && ctx.is_base_domain() {
@@ -282,6 +297,16 @@ pub fn setup_router(
                 if path.starts_with("/health") && ctx.is_base_domain() {
                     return router_health.oneshot(request).await;
                 }
+
+                // Redirect to the dashboard if the request is to the root of domain
+                // and no canister was resolved
+                if path == "/" && ctx.canister_id.is_none() {
+                    return Ok(
+                        Redirect::temporary("https://dashboard.internetcomputer.org/")
+                            .into_response(),
+                    );
+                }
+
                 // Otherwise request goes to the canister
                 router_http.oneshot(request).await
             },

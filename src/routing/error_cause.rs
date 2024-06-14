@@ -3,12 +3,14 @@ use std::{
     fmt::{self},
 };
 
-use anyhow::anyhow;
 use axum::response::{IntoResponse, Response};
 use hickory_resolver::error::ResolveError;
-use http::StatusCode;
+use http::{header::CONTENT_TYPE, HeaderValue, StatusCode};
 use ic_agent::AgentError;
 use strum_macros::Display;
+
+#[allow(clippy::declare_interior_mutable_const)]
+const CONTENT_TYPE_HTML: HeaderValue = HeaderValue::from_static("text/html; charset=utf-8");
 
 // Process error chain trying to find given error type
 pub fn error_infer<E: StdError + Send + Sync + 'static>(error: &anyhow::Error) -> Option<&E> {
@@ -32,8 +34,6 @@ pub enum RateLimitCause {
 pub enum ErrorCause {
     UnableToReadBody(String),
     PayloadTooLarge(usize),
-    UnableToParseCBOR(String),
-    UnableToParseHTTPArg(String),
     LoadShed,
     RequestTooLarge,
     IncorrectPrincipal,
@@ -42,12 +42,8 @@ pub enum ErrorCause {
     NoAuthority,
     UnknownDomain,
     CanisterIdNotFound,
-    SNIMismatch,
     DomainCanisterMismatch,
     Denylisted,
-    NoRoutingTable,
-    SubnetNotFound,
-    NoHealthyNodes,
     AgentError(String),
     BackendErrorDNS(String),
     BackendErrorConnect,
@@ -66,8 +62,6 @@ impl ErrorCause {
             Self::Other(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Self::PayloadTooLarge(_) => StatusCode::PAYLOAD_TOO_LARGE,
             Self::UnableToReadBody(_) => StatusCode::REQUEST_TIMEOUT,
-            Self::UnableToParseCBOR(_) => StatusCode::BAD_REQUEST,
-            Self::UnableToParseHTTPArg(_) => StatusCode::BAD_REQUEST,
             Self::LoadShed => StatusCode::TOO_MANY_REQUESTS,
             Self::RequestTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
             Self::IncorrectPrincipal => StatusCode::BAD_REQUEST,
@@ -76,13 +70,9 @@ impl ErrorCause {
             Self::NoAuthority => StatusCode::BAD_REQUEST,
             Self::UnknownDomain => StatusCode::BAD_REQUEST,
             Self::CanisterIdNotFound => StatusCode::BAD_REQUEST,
-            Self::SNIMismatch => StatusCode::BAD_REQUEST,
             Self::AgentError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Self::DomainCanisterMismatch => StatusCode::FORBIDDEN,
             Self::Denylisted => StatusCode::UNAVAILABLE_FOR_LEGAL_REASONS,
-            Self::NoRoutingTable => StatusCode::SERVICE_UNAVAILABLE,
-            Self::SubnetNotFound => StatusCode::BAD_REQUEST, // TODO change to 404?
-            Self::NoHealthyNodes => StatusCode::SERVICE_UNAVAILABLE,
             Self::BackendErrorDNS(_) => StatusCode::SERVICE_UNAVAILABLE,
             Self::BackendErrorConnect => StatusCode::SERVICE_UNAVAILABLE,
             Self::BackendTimeout => StatusCode::INTERNAL_SERVER_ERROR,
@@ -99,8 +89,6 @@ impl ErrorCause {
             Self::Other(x) => Some(x.clone()),
             Self::PayloadTooLarge(x) => Some(format!("maximum body size is {x} bytes")),
             Self::UnableToReadBody(x) => Some(x.clone()),
-            Self::UnableToParseCBOR(x) => Some(x.clone()),
-            Self::UnableToParseHTTPArg(x) => Some(x.clone()),
             Self::LoadShed => Some("Overloaded".into()),
             Self::MalformedRequest(x) => Some(x.clone()),
             Self::MalformedResponse(x) => Some(x.clone()),
@@ -114,18 +102,11 @@ impl ErrorCause {
         }
     }
 
-    pub const fn retriable(&self) -> bool {
-        matches!(
-            self,
-            Self::BackendErrorDNS(_)
-                | Self::BackendErrorConnect
-                | Self::BackendTLSErrorOther(_)
-                | Self::BackendTLSErrorCert(_)
-        )
-    }
-
-    pub fn from_boxed(e: Box<dyn StdError + Send + Sync>) -> Self {
-        anyhow!(e).into()
+    pub const fn html(&self) -> Option<&str> {
+        match self {
+            Self::Denylisted => Some(include_str!("error_pages/451.html")),
+            _ => None,
+        }
     }
 
     pub fn from_err(e: impl StdError + Send + Sync + 'static) -> Self {
@@ -139,8 +120,6 @@ impl fmt::Display for ErrorCause {
             Self::Other(_) => write!(f, "general_error"),
             Self::UnableToReadBody(_) => write!(f, "unable_to_read_body"),
             Self::PayloadTooLarge(_) => write!(f, "payload_too_large"),
-            Self::UnableToParseCBOR(_) => write!(f, "unable_to_parse_cbor"),
-            Self::UnableToParseHTTPArg(_) => write!(f, "unable_to_parse_http_arg"),
             Self::LoadShed => write!(f, "load_shed"),
             Self::RequestTooLarge => write!(f, "request_too_large"),
             Self::IncorrectPrincipal => write!(f, "incorrect_principal"),
@@ -148,14 +127,10 @@ impl fmt::Display for ErrorCause {
             Self::MalformedResponse(_) => write!(f, "malformed_response"),
             Self::UnknownDomain => write!(f, "unknown_domain"),
             Self::CanisterIdNotFound => write!(f, "canister_id_not_found"),
-            Self::SNIMismatch => write!(f, "sni_mismatch"),
             Self::DomainCanisterMismatch => write!(f, "domain_canister_mismatch"),
             Self::Denylisted => write!(f, "denylisted"),
             Self::NoAuthority => write!(f, "no_authority"),
             Self::AgentError(_) => write!(f, "agent_error"),
-            Self::NoRoutingTable => write!(f, "no_routing_table"),
-            Self::SubnetNotFound => write!(f, "subnet_not_found"),
-            Self::NoHealthyNodes => write!(f, "no_healthy_nodes"),
             Self::BackendErrorDNS(_) => write!(f, "backend_error_dns"),
             Self::BackendErrorConnect => write!(f, "backend_error_connect"),
             Self::BackendTimeout => write!(f, "backend_timeout"),
@@ -171,13 +146,20 @@ impl fmt::Display for ErrorCause {
 // Creates the response from ErrorCause and injects itself into extensions to be visible by middleware
 impl IntoResponse for ErrorCause {
     fn into_response(self) -> Response {
-        let mut body = self.to_string();
+        // Return the HTML reply if it exists, otherwise textual
+        let body = self.html().map_or_else(
+            || {
+                self.details()
+                    .map_or_else(|| self.to_string(), |x| format!("{self}: {x}\n"))
+            },
+            |x| format!("{x}\n"),
+        );
 
-        if let Some(v) = self.details() {
-            body = format!("{body}: {v}");
+        let mut resp = (self.status_code(), body).into_response();
+        if self.html().is_some() {
+            resp.headers_mut().insert(CONTENT_TYPE, CONTENT_TYPE_HTML);
         }
 
-        let mut resp = (self.status_code(), format!("{body}\n")).into_response();
         resp.extensions_mut().insert(self);
         resp
     }

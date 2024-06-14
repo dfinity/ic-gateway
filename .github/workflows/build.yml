@@ -1,0 +1,56 @@
+name: Release
+
+on: 
+  push:
+    tags:
+    - 'v*'
+
+env:
+  CARGO_TERM_COLOR: never
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install repro-env
+      run: |
+        wget 'https://github.com/kpcyrd/repro-env/releases/download/v0.4.0/repro-env'
+        echo 'e331825a19d41a5ad4dd7c1ce7a810eccbb9eb8945c3fc78abe9f040df8c1204  repro-env' | sha256sum -c -
+        sudo install -m755 repro-env -t /usr/bin
+
+    - name: Build
+      run: repro-env build -- cargo build --release --target x86_64-unknown-linux-musl
+
+    - name: Strip
+      run: /usr/bin/strip target/x86_64-unknown-linux-musl/release/ic-gateway
+
+    - name: Create package root
+      run: |
+        mkdir -p .debpkg/usr/sbin
+        mkdir -p .debpkg/etc/systemd/system
+        mkdir -p .debpkg/etc/default
+        cp target/x86_64-unknown-linux-musl/release/ic-gateway .debpkg/usr/sbin
+        cp deploy/ic-gateway.service .debpkg/etc/systemd/system
+        cp deploy/ic-gateway.env .debpkg/etc/default/ic-gateway
+
+    - uses: jiro4989/build-deb-action@v3
+      with:
+        package: ic-gateway
+        package_root: .debpkg
+        maintainer: "DFINITY Boundary Nodes Team"
+        version: ${{ github.ref }}
+        arch: amd64
+        desc: "IC-Gateway Service"
+        homepage: "https://github.com/dfinity/ic-gateway"
+
+    - uses: ncipollo/release-action@v1
+      with:
+        makeLatest: true
+        artifacts: "target/x86_64-unknown-linux-musl/release/ic-gateway,*.deb"
+        body: "IC-Gateway release"

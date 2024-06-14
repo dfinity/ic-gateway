@@ -17,11 +17,11 @@ use http::{HeaderMap, Version};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 pub use client::{Client, ReqwestClient};
-pub use server::{ConnInfo, Server, TlsInfo};
+pub use server::{ConnInfo, Server};
 
 pub const ALPN_H1: &[u8] = b"http/1.1";
 pub const ALPN_H2: &[u8] = b"h2";
-pub const ACME_TLS_ALPN_NAME: &[u8] = b"acme-tls/1";
+pub const ALPN_ACME: &[u8] = b"acme-tls/1";
 
 // Calculate very approximate HTTP request/response headers size in bytes.
 // More or less accurate only for http/1.1 since in h2 headers are in HPACK-compressed.
@@ -59,7 +59,7 @@ impl Stats {
     }
 }
 
-// Async read+write wrapper that counts bytes read/wrote
+// Async read+write wrapper that counts bytes read/written
 #[derive(new)]
 pub struct AsyncCounter<T: AsyncRead + AsyncWrite + Send + Sync + Unpin> {
     inner: T,

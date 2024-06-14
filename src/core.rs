@@ -20,21 +20,24 @@ pub const AUTHOR_NAME: &str = "Boundary Node Team <boundary-nodes@dfinity.org>";
 
 pub async fn main(cli: &Cli) -> Result<(), Error> {
     // Make a list of all supported domains
-    let mut domains = cli.domain.domains.clone();
-    domains.extend_from_slice(&cli.domain.domains_system);
-    domains.extend_from_slice(&cli.domain.domains_app);
+    let mut domains = cli.domain.domain.clone();
+    domains.extend_from_slice(&cli.domain.domain_system);
+    domains.extend_from_slice(&cli.domain.domain_app);
+    domains.extend_from_slice(&cli.domain.domain_api);
 
     if domains.is_empty() {
         return Err(anyhow!(
-            "No domains to serve specified (use --domain/--domain-system/--domain-app)"
+            "No domains to serve specified (use --domain* args)"
         ));
     }
 
-    for (&d, &c) in &domains.iter().counts() {
-        if c > 1 {
-            return Err(anyhow!("Domain '{d}' specified more than once"));
-        }
-    }
+    // Leave only unique domains
+    domains = domains.into_iter().unique().collect();
+
+    warn!(
+        "Running with domains: {:?}",
+        domains.iter().map(|x| x.to_string()).collect::<Vec<_>>()
+    );
 
     // Install crypto-provider
     rustls::crypto::aws_lc_rs::default_provider()
@@ -48,8 +51,8 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     let reqwest_client = http::client::new((&cli.http_client).into(), dns_resolver.clone())?;
     let http_client = Arc::new(http::ReqwestClient::new(reqwest_client.clone()));
     let tls_session_cache = Arc::new(tls::sessions::Storage::new(
-        cli.http_server.tls_session_cache_size,
-        cli.http_server.tls_session_cache_tti,
+        cli.http_server.http_server_tls_session_cache_size,
+        cli.http_server.http_server_tls_session_cache_tti,
     ));
     let clickhouse = if cli.log.clickhouse.log_clickhouse_url.is_some() {
         Some(Arc::new(
@@ -84,7 +87,6 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     // Create routers
     let https_router = routing::setup_router(
         cli,
-        domains,
         custom_domain_providers,
         &mut tasks,
         http_client.clone(),
@@ -98,7 +100,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
 
     // Set up HTTP
     let http_server = Arc::new(http::Server::new(
-        cli.http_server.http,
+        cli.http_server.http_server_listen_plain,
         http_router,
         (&cli.http_server).into(),
         http_metrics.clone(),
@@ -107,7 +109,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     tasks.add("http_server", http_server);
 
     let https_server = Arc::new(http::Server::new(
-        cli.http_server.https,
+        cli.http_server.http_server_listen_tls,
         https_router,
         (&cli.http_server).into(),
         http_metrics.clone(),
@@ -116,7 +118,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     tasks.add("https_server", https_server);
 
     // Setup metrics
-    if let Some(addr) = cli.metrics.listen {
+    if let Some(addr) = cli.metrics.metrics_listen {
         let router = metrics::setup(&registry, tls_session_cache, &mut tasks);
 
         let srv = Arc::new(http::Server::new(

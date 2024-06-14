@@ -7,7 +7,7 @@ use derive_new::new;
 use discower_bowndary::{route_provider::HealthCheckRouteProvider, snapshot::Snapshot};
 use std::fmt::Debug;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
-use tracing::error;
+use tracing::{error, warn};
 
 // Long running task that can be cancelled by a token
 #[async_trait]
@@ -33,17 +33,20 @@ impl TaskManager {
     }
 
     pub fn start(&mut self, token: &CancellationToken) {
+        warn!("TaskManager: starting {} tasks", self.tasks.len());
+
         for task in self.tasks.clone() {
             let token = token.child_token();
             self.tracker.spawn(async move {
                 if let Err(e) = task.1.run(token).await {
-                    error!("Runner '{}' exited with an error: {e:#}", task.0);
+                    error!("TaskManager: task '{}' exited with an error: {e:#}", task.0);
                 }
             });
         }
     }
 
     pub async fn stop(&self) {
+        warn!("TaskManager: stopping {} tasks", self.tasks.len());
         self.tracker.close();
         self.tracker.wait().await;
     }

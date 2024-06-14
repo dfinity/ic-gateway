@@ -29,11 +29,11 @@ impl DenylistState {
     ) -> Result<Self, Error> {
         let denylist = Arc::new(
             Denylist::init(
-                cli.policy.denylist_url.clone(),
-                cli.policy.denylist_allowlist.clone(),
-                cli.policy.denylist_seed.clone(),
+                cli.policy.policy_denylist_url.clone(),
+                cli.policy.policy_denylist_allowlist.clone(),
+                cli.policy.policy_denylist_seed.clone(),
                 http_client,
-                cli.policy.denylist_poll_interval,
+                cli.policy.policy_denylist_poll_interval,
                 registry,
             )
             .context("unable to init denylist")?,

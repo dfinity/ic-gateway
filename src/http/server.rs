@@ -33,7 +33,7 @@ use tower_service::Service;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
-use super::{AsyncCounter, Stats, ACME_TLS_ALPN_NAME};
+use super::{AsyncCounter, Stats, ALPN_ACME};
 
 pub const CONN_DURATION_BUCKETS: &[f64] = &[1.0, 8.0, 32.0, 64.0, 256.0, 512.0, 1024.0];
 pub const CONN_REQUESTS: &[f64] = &[1.0, 4.0, 8.0, 16.0, 32.0, 64.0, 256.0];
@@ -298,7 +298,7 @@ impl Conn {
             if tls_info
                 .alpn
                 .as_ref()
-                .map(|x| x.as_bytes() == ACME_TLS_ALPN_NAME)
+                .map(|x| x.as_bytes() == ALPN_ACME)
                 .unwrap_or(false)
             {
                 debug!("{}: ACME ALPN - closing connection", self);

@@ -6,11 +6,14 @@ use rustls::{
 };
 use tracing::debug;
 
-// Custom ResolvesServerCert trait that borrows ClientHello.
-// It's needed because Rustls' ResolvesServerCert consumes ClientHello
-// https://github.com/rustls/rustls/issues/1908
+/// Custom ResolvesServerCert trait that borrows ClientHello.
+/// It's needed because Rustls' ResolvesServerCert consumes ClientHello
+/// https://github.com/rustls/rustls/issues/1908
 pub trait ResolvesServerCert: Debug + Send + Sync {
     fn resolve(&self, client_hello: &ClientHello) -> Option<Arc<CertifiedKey>>;
+    /// Return first available certificate if any.
+    /// Can be used as a fallback option.
+    fn resolve_any(&self) -> Option<Arc<CertifiedKey>>;
 }
 
 // Combines several certificate resolvers into one.
@@ -37,13 +40,15 @@ impl ResolvesServerCertRustls for AggregatingResolver {
             // Otherwise try the Rustls-compatible resolver that consumes ClientHello.
             .or_else(|| self.rustls.as_ref().and_then(|x| x.resolve(ch)));
 
-        if cert.is_none() {
-            debug!(
-                "AggregatingResolver: No cert found for SNI '{}' (ALPN {:?})",
-                sni, alpn
-            );
+        if cert.is_some() {
+            return cert;
         }
 
-        cert
+        debug!(
+            "AggregatingResolver: No certificate found for SNI '{}' (ALPN {:?}), trying fallback",
+            sni, alpn
+        );
+
+        self.resolvers.iter().find_map(|x| x.resolve_any())
     }
 }

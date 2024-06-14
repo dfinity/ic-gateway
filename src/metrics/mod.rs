@@ -35,7 +35,7 @@ use crate::{
     log::clickhouse::{Clickhouse, Row},
     routing::{
         error_cause::ErrorCause, ic::IcResponseStatus, middleware::request_id::RequestId,
-        RequestCtx,
+        CanisterId, RequestCtx,
     },
     tasks::{Run, TaskManager},
     tls::sessions,
@@ -320,6 +320,7 @@ pub async fn middleware(
     let duration = start.elapsed();
 
     let ctx = response.extensions().get::<Arc<RequestCtx>>().cloned();
+    let canister_id = response.extensions().get::<CanisterId>().cloned();
     let error_cause = response.extensions().get::<ErrorCause>().cloned();
     let ic_status = response.extensions().get::<IcResponseStatus>().cloned();
     let status = response.status().as_u16();
@@ -382,9 +383,8 @@ pub async fn middleware(
 
         let host = uri.host().unwrap_or("");
         let path = uri.path();
-        let canister_id = ctx
-            .as_ref()
-            .and_then(|x| x.domain.canister_id.map(|v| v.to_string()))
+        let canister_id = canister_id
+            .map(|x| x.0.to_string())
             .unwrap_or_else(|| "unknown".into());
 
         let conn_rcvd = conn_info.traffic.rcvd();
