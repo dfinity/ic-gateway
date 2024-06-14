@@ -281,16 +281,18 @@ pub fn setup_router(
                     return router_health.oneshot(request).await;
                 }
 
-                // Redirect to the dashboard if the request is to the root of domain
-                // and no canister was resolved
-                if path == "/" && ctx.canister_id.is_none() {
+                // Redirect to the dashboard if the request is to the root of the base domain
+                // or to a bare "raw" subdomain w/o canister id.
+                if path == "/"
+                    && (ctx.is_base_domain() || ctx.authority.labels().next() == Some("raw"))
+                {
                     return Ok(
                         Redirect::temporary("https://dashboard.internetcomputer.org/")
                             .into_response(),
                     );
                 }
 
-                // Otherwise request goes to the canister
+                // Otherwise request goes to the HTTP->IC handler
                 router_http.oneshot(request).await
             },
         )

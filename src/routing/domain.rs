@@ -252,9 +252,12 @@ impl DomainResolver {
         }
 
         // Check if it's a raw domain
-        let raw = depth == 2 && host.labels().nth(1) == Some("raw");
+        let raw = depth == 2;
+        if raw && host.labels().nth(1) != Some("raw") {
+            return None;
+        }
 
-        // Attempt to extract canister_id
+        // Strip the optional prefix if any
         let label = host.labels().next()?.split("--").last()?;
 
         // Do not allow cases like <id>.foo.ic0.app where
@@ -505,24 +508,9 @@ mod test {
             })
         );
 
-        // Nested subdomain should not match canister id
-        // TODO discuss?
-        assert_eq!(
-            resolver.resolve(&fqdn!("aaaaa-aa.foo.ic0.app")),
-            Some(DomainLookup {
-                domain: domain_ic0_app.clone(),
-                canister_id: None,
-                verify: true,
-            })
-        );
-        assert_eq!(
-            resolver.resolve(&fqdn!("aaaaa-aa.foo.icp0.io")),
-            Some(DomainLookup {
-                domain: domain_icp0_io.clone(),
-                canister_id: None,
-                verify: true,
-            })
-        );
+        // 2-level non-raw subdomain should not resolve
+        assert_eq!(resolver.resolve(&fqdn!("aaaaa-aa.foo.ic0.app")), None);
+        assert_eq!(resolver.resolve(&fqdn!("aaaaa-aa.foo.icp0.io")), None,);
 
         // Resolve custom domain
         assert_eq!(

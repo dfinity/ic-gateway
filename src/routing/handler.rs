@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Request, State},
-    response::{IntoResponse, Response},
+    response::Response,
     Extension,
 };
 use bytes::Bytes;
@@ -66,7 +66,7 @@ pub async fn handler(
     };
 
     // Pass headers in/out the IC request
-    let mut resp = PASS_HEADERS
+    let resp = PASS_HEADERS
         .scope(PassHeaders::new(), async {
             PASS_HEADERS.with(|x| {
                 let hdr =
@@ -85,15 +85,7 @@ pub async fn handler(
                 req
             };
 
-            let res = req.send().await;
-
-            PASS_HEADERS.with(|x| {
-                for (k, v) in &x.borrow().headers_in {
-                    println!("{k:?}: {v:?}");
-                }
-            });
-
-            res
+            req.send().await
         })
         .await
         .map_err(ErrorCause::from_err)?;
