@@ -7,7 +7,6 @@ use axum::{
     middleware::Next,
     response::{IntoResponse, Response},
 };
-use futures::TryFutureExt;
 use http::{
     header::{CACHE_CONTROL, CONTENT_LENGTH, PRAGMA, RANGE},
     HeaderValue, Method,
