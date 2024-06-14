@@ -1348,7 +1348,7 @@ dependencies = [
 [[package]]
 name = "discower_bowndary"
 version = "0.1.0"
-source = "git+https://github.com/dfinity/ic.git#3a2b891b34d92c03a1ba8e4a6bb73f702fb3f3d6"
+source = "git+https://github.com/dfinity/ic.git#a05f9cd8749c8007c0626bdda5fe03869f260f81"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -2299,7 +2299,7 @@ dependencies = [
 [[package]]
 name = "ic-cbor"
 version = "2.5.0"
-source = "git+https://github.com/dfinity/response-verification#8d559e5a3652098796e5f153987fe5af74e3212b"
+source = "git+https://github.com/dfinity/response-verification#35b21602b805ac27d247781a16fb674aaca4e603"
 dependencies = [
  "candid",
  "ic-certification 2.5.0 (git+https://github.com/dfinity/response-verification)",
@@ -2311,7 +2311,7 @@ dependencies = [
 [[package]]
 name = "ic-certificate-verification"
 version = "2.5.0"
-source = "git+https://github.com/dfinity/response-verification#8d559e5a3652098796e5f153987fe5af74e3212b"
+source = "git+https://github.com/dfinity/response-verification#35b21602b805ac27d247781a16fb674aaca4e603"
 dependencies = [
  "cached 0.47.0",
  "candid",
@@ -2341,7 +2341,7 @@ dependencies = [
 [[package]]
 name = "ic-certification"
 version = "2.5.0"
-source = "git+https://github.com/dfinity/response-verification#8d559e5a3652098796e5f153987fe5af74e3212b"
+source = "git+https://github.com/dfinity/response-verification#35b21602b805ac27d247781a16fb674aaca4e603"
 dependencies = [
  "hex",
  "sha2 0.10.8",
@@ -2446,7 +2446,7 @@ dependencies = [
 [[package]]
 name = "ic-http-certification"
 version = "2.5.0"
-source = "git+https://github.com/dfinity/response-verification#8d559e5a3652098796e5f153987fe5af74e3212b"
+source = "git+https://github.com/dfinity/response-verification#35b21602b805ac27d247781a16fb674aaca4e603"
 dependencies = [
  "candid",
  "http 0.2.12",
@@ -2460,11 +2460,14 @@ dependencies = [
 [[package]]
 name = "ic-http-gateway"
 version = "0.0.0"
-source = "git+https://github.com/blind-oracle/http-gateway#bf8de646f4278c3958a0b247f19e4f9b9269b29b"
+source = "git+https://github.com/dfinity/http-gateway#5977c9422e9c7e976cff5b14ba258db52e169b06"
 dependencies = [
+ "bytes",
  "candid",
  "futures",
  "http 1.1.0",
+ "http-body 1.0.0",
+ "http-body-util",
  "ic-agent",
  "ic-http-certification",
  "ic-response-verification",
@@ -2475,7 +2478,7 @@ dependencies = [
 [[package]]
 name = "ic-representation-independent-hash"
 version = "2.5.0"
-source = "git+https://github.com/dfinity/response-verification#8d559e5a3652098796e5f153987fe5af74e3212b"
+source = "git+https://github.com/dfinity/response-verification#35b21602b805ac27d247781a16fb674aaca4e603"
 dependencies = [
  "leb128",
  "sha2 0.10.8",
@@ -2484,7 +2487,7 @@ dependencies = [
 [[package]]
 name = "ic-response-verification"
 version = "2.5.0"
-source = "git+https://github.com/dfinity/response-verification#8d559e5a3652098796e5f153987fe5af74e3212b"
+source = "git+https://github.com/dfinity/response-verification#35b21602b805ac27d247781a16fb674aaca4e603"
 dependencies = [
  "base64 0.21.7",
  "candid",
@@ -3897,9 +3900,9 @@ checksum = "08ad765b21a08b1a8e5cdce052719188a23772bcbefb3c439f0baaf62c56ceac"
 
 [[package]]
 name = "redox_syscall"
-version = "0.5.1"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "469052894dcb553421e483e4209ee581a45100d31b4018de03e5a7ad86374a7e"
+checksum = "c82cf8cff14456045f55ec4241383baeff27af886adb72ffb2162f99911de0fd"
 dependencies = [
  "bitflags 2.5.0",
 ]

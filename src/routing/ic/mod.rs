@@ -4,18 +4,9 @@ pub mod transport;
 use std::{fs, sync::Arc};
 
 use anyhow::{Context, Error};
-use axum::{
-    body::Body,
-    response::{IntoResponse, Response},
-};
-use bytes::Bytes;
-use futures::StreamExt;
-use http_body::Frame;
-use http_body_util::{Full, StreamBody};
+use http_body_util::Either;
 use ic_agent::agent::http_transport::route_provider::RouteProvider;
-use ic_http_gateway::{
-    HttpGatewayClient, HttpGatewayResponse, HttpGatewayResponseBody, HttpGatewayResponseMetadata,
-};
+use ic_http_gateway::{HttpGatewayClient, HttpGatewayResponse, HttpGatewayResponseMetadata};
 
 use crate::{http::Client as HttpClient, Cli};
 
@@ -28,32 +19,29 @@ pub struct IcResponseStatus {
 impl From<&HttpGatewayResponse> for IcResponseStatus {
     fn from(value: &HttpGatewayResponse) -> Self {
         Self {
-            streaming: matches!(
-                value.canister_response.body(),
-                HttpGatewayResponseBody::Stream(_)
-            ),
+            streaming: matches!(value.canister_response.body(), Either::Left(_)),
             metadata: value.metadata.clone(),
         }
     }
 }
 
-pub fn convert_response(resp: Response<HttpGatewayResponseBody>) -> Response {
-    let (parts, body) = resp.into_parts();
+// pub fn convert_response(resp: Response<HttpGatewayResponseBody>) -> Response {
+//     let (parts, body) = resp.into_parts();
 
-    match body {
-        HttpGatewayResponseBody::Bytes(v) => {
-            Response::from_parts(parts, Body::new(Full::new(v.into()))).into_response()
-        }
+//     match body {
+//         HttpGatewayResponseBody::Bytes(v) => {
+//             Response::from_parts(parts, Body::new(Full::new(v.into()))).into_response()
+//         }
 
-        HttpGatewayResponseBody::Stream(v) => {
-            let v = v.map(|x| x.map(|y| Frame::data(Bytes::from(y))));
-            let body = StreamBody::new(v);
-            let body = Body::new(body);
+//         HttpGatewayResponseBody::Stream(v) => {
+//             let v = v.map(|x| x.map(|y| Frame::data(Bytes::from(y))));
+//             let body = StreamBody::new(v);
+//             let body = Body::new(body);
 
-            Response::from_parts(parts, body).into_response()
-        }
-    }
-}
+//             Response::from_parts(parts, body).into_response()
+//         }
+//     }
+// }
 
 pub fn setup(
     cli: &Cli,
