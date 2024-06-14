@@ -85,7 +85,15 @@ pub async fn handler(
                 req
             };
 
-            req.send().await
+            let res = req.send().await;
+
+            PASS_HEADERS.with(|x| {
+                for (k, v) in &x.borrow().headers_in {
+                    println!("{k:?}: {v:?}");
+                }
+            });
+
+            res
         })
         .await
         .map_err(ErrorCause::from_err)?;

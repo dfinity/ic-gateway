@@ -163,10 +163,10 @@ impl ReqwestTransport {
         if !endpoint.ends_with("/read_state") {
             let _ = PASS_HEADERS.try_with(|x| {
                 let mut pass = x.borrow_mut();
-                pass.headers_out.clear();
+                pass.headers_in.clear();
 
                 for (k, v) in headers.iter() {
-                    pass.headers_out.insert(k, v.clone());
+                    pass.headers_in.insert(k, v.clone());
                 }
             });
         }
