@@ -7,6 +7,7 @@ use axum::{
     middleware::Next,
     response::{IntoResponse, Response},
 };
+use futures::TryFutureExt;
 use http::{
     header::{CACHE_CONTROL, CONTENT_LENGTH, PRAGMA, RANGE},
     HeaderValue, Method,
@@ -118,10 +119,9 @@ fn weigh_entry<K: SizeInBytes>(k: &K, v: &FullResponse) -> u32 {
     (k.size_in_bytes() + v.size_in_bytes()) as u32
 }
 
-// TODO: add an error
 pub trait KeyExtractor {
     type Key;
-    fn extract(&self, req: &FullRequest) -> Self::Key;
+    fn extract(&self, req: &FullRequest) -> anyhow::Result<Self::Key>;
 }
 
 impl<K, M> Cache<K, M>
@@ -151,14 +151,16 @@ where
         })
     }
 
-    pub async fn get(&self, req: &FullRequest) -> Option<FullResponse> {
-        let key = self.key_extractor.extract(req);
+    pub fn extract_key(&self, req: &FullRequest) -> anyhow::Result<K> {
+        self.key_extractor.extract(req)
+    }
+
+    pub async fn get(&self, key: &K) -> Option<FullResponse> {
         self.store.get(&key).await
     }
 
-    pub async fn insert(&self, req: &FullRequest, resp: FullResponse) {
-        let key = self.key_extractor.extract(req);
-        self.store.insert(key, resp).await
+    pub async fn insert(&self, key: K, resp: FullResponse) {
+        self.store.insert(key, resp).await;
     }
 
     pub fn size(&self) -> u64 {
@@ -186,31 +188,29 @@ pub async fn middleware(
     request: Request,
     next: Next,
 ) -> Result<impl IntoResponse, ErrorCause> {
-    // Inspect request for reasons of bypassing cache lookup.
+    // Check if request should bypass cache lookup.
     let cache_bypass_reason = check_cache_bypass(&request);
-
     if let Some(reason) = cache_bypass_reason {
         return Ok(CacheStatus::Bypass(reason).with_response(next.run(request).await));
     }
-
     // Use cached response if found.
     let full_request = into_full_request(request).await;
-    if let Some(full_response) = cache.get(&full_request).await {
+    let cache_key = cache.extract_key(&full_request).map_err(|err| {
+        ErrorCause::Other(format!("Unable to extract cache key from request: {err}"))
+    })?;
+    if let Some(full_response) = cache.get(&cache_key).await {
         return Ok(CacheStatus::Hit.with_response(from_full_response(full_response)));
     }
-
     // If response is not cached, we propagate request as is further.
     let response = next.run(from_full_request(full_request.clone())).await;
-
     // Do not cache non-2xx responses
     if !response.status().is_success() {
         return Ok(CacheStatus::Bypass(CacheBypassReason::HTTPError).with_response(response));
     }
-
+    // Extract content length from the response header
     let content_length = extract_content_length(&response).map_err(|_| {
         ErrorCause::MalformedResponse("Malformed Content-Length header in response".into())
     })?;
-
     // Do not cache responses that have no known size (probably streaming etc)
     let body_size = match content_length {
         Some(v) => v,
@@ -218,16 +218,13 @@ pub async fn middleware(
             return Ok(CacheStatus::Bypass(CacheBypassReason::SizeUnknown).with_response(response))
         }
     };
-
     // Do not cache items larger than configured
     if body_size > cache.max_item_size {
         return Ok(CacheStatus::Bypass(CacheBypassReason::BodyTooBig).with_response(response));
     }
-
+    // We convert axum Response<Body> into Response<Vec<u8>> for caching.
     let full_response = into_full_response(response).await;
-
-    cache.insert(&full_request, full_response.clone()).await;
-
+    cache.insert(cache_key, full_response.clone()).await;
     Ok(CacheStatus::Miss.with_response(from_full_response(full_response)))
 }
 
@@ -263,13 +260,13 @@ pub struct RequestCacheKeyExtractor;
 impl KeyExtractor for Arc<RequestCacheKeyExtractor> {
     type Key = Arc<CacheKey>;
 
-    fn extract(&self, req: &FullRequest) -> Self::Key {
+    fn extract(&self, req: &FullRequest) -> anyhow::Result<Self::Key> {
         let (request_parts, _) = req.clone().into_parts();
         let cache_key = CacheKey {
             uri: request_parts.uri,
             range: request_parts.headers.get(RANGE).cloned(),
         };
-        Arc::new(cache_key)
+        Ok(Arc::new(cache_key))
     }
 }
 
@@ -328,7 +325,7 @@ mod tests {
     const MAX_ITEM_SIZE: u64 = 1024;
     const MAX_CACHE_SIZE: u64 = 32768;
 
-    async fn dispatch_request(router: &mut Router, uri: String) -> Option<CacheStatus> {
+    async fn dispatch_get_request(router: &mut Router, uri: String) -> Option<CacheStatus> {
         let req = Request::get(uri).body(Body::from("")).unwrap();
         let result = router.call(req).await.unwrap();
         assert_eq!(result.status(), StatusCode::OK);
@@ -535,12 +532,12 @@ mod tests {
         let req_count = 50;
         // First dispatch round
         for idx in 0..req_count {
-            let status = dispatch_request(&mut app, format!("/{idx}")).await;
+            let status = dispatch_get_request(&mut app, format!("/{idx}")).await;
             assert_eq!(status.unwrap(), CacheStatus::Miss);
         }
         // Second dispatch round
         for idx in 0..req_count {
-            let status = dispatch_request(&mut app, format!("/{idx}")).await;
+            let status = dispatch_get_request(&mut app, format!("/{idx}")).await;
             assert_eq!(status.unwrap(), CacheStatus::Hit);
         }
 
@@ -549,14 +546,14 @@ mod tests {
         let req_count = 800;
         // First dispatch round
         for idx in 0..req_count {
-            let status = dispatch_request(&mut app, format!("/{idx}")).await;
+            let status = dispatch_get_request(&mut app, format!("/{idx}")).await;
             assert_eq!(status.unwrap(), CacheStatus::Miss);
         }
         // Second dispatch round
         let mut count_misses = 0;
         let mut count_hits = 0;
         for idx in 0..req_count {
-            let status = dispatch_request(&mut app, format!("/{idx}")).await;
+            let status = dispatch_get_request(&mut app, format!("/{idx}")).await;
             if let Some(CacheStatus::Miss) = status {
                 count_misses += 1;
             } else if let Some(CacheStatus::Hit) = status {
