@@ -75,10 +75,10 @@ impl std::fmt::Display for CacheStatus {
     }
 }
 
-// We don't need to store the full key in the cache.
-// Storing key's hash as a vector of bytes is enough.
+// We don't need to store full key in cache.
+// Storing sha1 hash  of the key (20 bytes) is enough.
 #[derive(Clone, Hash, PartialEq, Eq)]
-pub struct CacheKey(Vec<u8>);
+pub struct CacheKey([u8; 20]);
 
 pub struct Cache<K> {
     store: MokaCache<K, FullResponse>,
@@ -254,13 +254,14 @@ impl KeyExtractor for RequestCacheKeyExtractor {
             .get(RANGE)
             .map_or_else(Vec::new, |value| value.as_bytes().to_vec());
 
+        // Compute a composite hash of two variables: uri and header.
         let hash = Sha1::new()
             .chain_update(uri_bytes)
             .chain_update(slice_range_bytes)
             .finalize();
 
-        let mut hash: Vec<u8> = hash.to_vec();
-        hash.shrink_to_fit();
+        // Sha1 is a 20 byte hash value.
+        let hash: [u8; 20] = hash.into();
 
         Ok(Arc::new(CacheKey(hash)))
     }
@@ -549,7 +550,7 @@ mod tests {
 
         // Once cache_size limit is reached some requests should be evicted.
         cache.clear().await;
-        let req_count = 800;
+        let req_count = 200;
         // First dispatch round, all cache misses.
         for idx in 0..req_count {
             let status = dispatch_get_request(&mut app, format!("/{idx}")).await;
@@ -569,10 +570,10 @@ mod tests {
         assert!(count_misses > 0);
         assert!(count_hits > 0);
         cache.housekeep().await;
-        let entry = cache.store.iter().last().unwrap();
+        let entry_size = cache.size() / cache.len();
         // Make sure cache size limit was reached.
         // Check that adding one more entry to the cache would overflow its max capacity.
         assert!(MAX_CACHE_SIZE > cache.size());
-        assert!(MAX_CACHE_SIZE < cache.size() + size_of_val(&entry) as u64);
+        assert!(MAX_CACHE_SIZE < cache.size() + entry_size);
     }
 }
