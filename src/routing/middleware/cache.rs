@@ -9,17 +9,19 @@ use axum::{
 };
 use http::{
     header::{CACHE_CONTROL, CONTENT_LENGTH, PRAGMA, RANGE},
-    HeaderValue, Method,
+    Method,
 };
-use http::{request, response, Uri};
+use http::{request, response};
 use moka::future::{Cache as MokaCache, CacheBuilder as MokaCacheBuilder};
+use sha1::{Digest, Sha1};
+
 use std::hash::Hash;
 
 use crate::routing::error_cause::ErrorCause;
 
 type FullResponse = response::Response<Vec<u8>>;
 type FullRequest = request::Request<Vec<u8>>;
-pub type CacheType = Arc<Cache<Arc<CacheKey>, Arc<RequestCacheKeyExtractor>>>;
+pub type CacheType = Arc<Cache<Arc<CacheKey>>>;
 
 // A list of possible Cache-Control directives that ask us not to cache the response
 const SKIP_CACHE_DIRECTIVES: &[&str] = &["no-store", "no-cache", "max-age=0"];
@@ -73,16 +75,14 @@ impl std::fmt::Display for CacheStatus {
     }
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct CacheKey {
-    uri: Uri,
-    range: Option<HeaderValue>,
-}
+// We don't need to store the full key in the cache.
+// Storing key's hash as a vector of bytes is enough.
+#[derive(Clone, Hash, PartialEq, Eq)]
+pub struct CacheKey(Vec<u8>);
 
-pub struct Cache<K, M> {
+pub struct Cache<K> {
     store: MokaCache<K, FullResponse>,
     max_item_size: u64,
-    key_extractor: M,
 }
 
 pub trait SizeInBytes {
@@ -91,14 +91,7 @@ pub trait SizeInBytes {
 
 impl SizeInBytes for Arc<CacheKey> {
     fn size_in_bytes(&self) -> usize {
-        let mut size = size_of::<Arc<CacheKey>>();
-        if let Some(ref range) = self.range {
-            size += range.as_bytes().len()
-        }
-        if let Some(path_and_query) = self.uri.path_and_query() {
-            size += path_and_query.as_str().as_bytes().len();
-        }
-        size as usize
+        (size_of::<Arc<CacheKey>>() + self.0.len()) as usize
     }
 }
 
@@ -123,17 +116,11 @@ pub trait KeyExtractor {
     fn extract(&self, req: &FullRequest) -> anyhow::Result<Self::Key>;
 }
 
-impl<K, M> Cache<K, M>
+impl<K> Cache<K>
 where
     K: SizeInBytes + Eq + Hash + Send + Sync + 'static,
-    M: KeyExtractor<Key = K>,
 {
-    pub fn new(
-        cache_size: u64,
-        max_item_size: u64,
-        ttl: Duration,
-        key_extractor: M,
-    ) -> anyhow::Result<Self> {
+    pub fn new(cache_size: u64, max_item_size: u64, ttl: Duration) -> anyhow::Result<Self> {
         if max_item_size >= cache_size {
             return Err(anyhow!(
                 "Cache item size should be less than whole cache size"
@@ -142,16 +129,11 @@ where
 
         Ok(Self {
             max_item_size,
-            key_extractor,
             store: MokaCacheBuilder::new(cache_size)
                 .time_to_live(ttl)
                 .weigher(weigh_entry)
                 .build(),
         })
-    }
-
-    pub fn extract_key(&self, req: &FullRequest) -> anyhow::Result<K> {
-        self.key_extractor.extract(req)
     }
 
     pub async fn get(&self, key: &K) -> Option<FullResponse> {
@@ -194,9 +176,11 @@ pub async fn middleware(
     }
     // Use cached response if found.
     let full_request = into_full_request(request).await;
-    let cache_key = cache.extract_key(&full_request).map_err(|err| {
-        ErrorCause::Other(format!("Unable to extract cache key from request: {err}"))
-    })?;
+    let cache_key = RequestCacheKeyExtractor {}
+        .extract(&full_request)
+        .map_err(|err| {
+            ErrorCause::Other(format!("Unable to extract cache key from request: {err}"))
+        })?;
     if let Some(full_response) = cache.get(&cache_key).await {
         return Ok(CacheStatus::Hit.with_response(from_full_response(full_response)));
     }
@@ -256,16 +240,29 @@ fn extract_content_length(resp: &Response) -> Result<Option<u64>, Error> {
 
 pub struct RequestCacheKeyExtractor;
 
-impl KeyExtractor for Arc<RequestCacheKeyExtractor> {
+impl KeyExtractor for RequestCacheKeyExtractor {
     type Key = Arc<CacheKey>;
 
     fn extract(&self, req: &FullRequest) -> anyhow::Result<Self::Key> {
         let (request_parts, _) = req.clone().into_parts();
-        let cache_key = CacheKey {
-            uri: request_parts.uri,
-            range: request_parts.headers.get(RANGE).cloned(),
-        };
-        Ok(Arc::new(cache_key))
+
+        let uri_str = request_parts.uri.to_string();
+        let uri_bytes = uri_str.as_bytes();
+
+        let slice_range_bytes = request_parts
+            .headers
+            .get(RANGE)
+            .map_or_else(Vec::new, |value| value.as_bytes().to_vec());
+
+        let hash = Sha1::new()
+            .chain_update(uri_bytes)
+            .chain_update(slice_range_bytes)
+            .finalize();
+
+        let mut hash: Vec<u8> = hash.to_vec();
+        hash.shrink_to_fit();
+
+        Ok(Arc::new(CacheKey(hash)))
     }
 }
 
@@ -296,7 +293,7 @@ fn from_full_response(response: FullResponse) -> Response<Body> {
 
 #[cfg(test)]
 mod tests {
-    use std::{sync::Arc, time::Duration};
+    use std::{mem::size_of_val, sync::Arc, time::Duration};
 
     use axum::{
         body::{to_bytes, Body},
@@ -307,7 +304,7 @@ mod tests {
         Router,
     };
     use http::{
-        header::{CACHE_CONTROL, CONTENT_LENGTH, PRAGMA},
+        header::{CACHE_CONTROL, CONTENT_LENGTH, PRAGMA, RANGE},
         HeaderValue, StatusCode,
     };
     use tokio::time::sleep;
@@ -316,8 +313,7 @@ mod tests {
     use crate::routing::{
         error_cause::ErrorCause,
         middleware::cache::{
-            self, Cache, CacheBypassReason, CacheStatus, RequestCacheKeyExtractor,
-            SKIP_CACHE_DIRECTIVES,
+            self, Cache, CacheBypassReason, CacheKey, CacheStatus, SKIP_CACHE_DIRECTIVES,
         },
     };
 
@@ -371,24 +367,13 @@ mod tests {
     #[tokio::test]
     #[should_panic(expected = "Cache item size should be less than whole cache size")]
     async fn test_cache_creation_errors() {
-        let cache = Cache::new(
-            1024,
-            1024,
-            Duration::from_secs(60),
-            Arc::new(RequestCacheKeyExtractor),
-        );
+        let cache = Cache::<Arc<CacheKey>>::new(1024, 1024, Duration::from_secs(60));
         cache.unwrap();
     }
 
     #[tokio::test]
     async fn test_cache_bypass() {
-        let cache = Cache::new(
-            MAX_CACHE_SIZE,
-            MAX_ITEM_SIZE,
-            Duration::from_secs(3600),
-            Arc::new(RequestCacheKeyExtractor),
-        )
-        .unwrap();
+        let cache = Cache::new(MAX_CACHE_SIZE, MAX_ITEM_SIZE, Duration::from_secs(3600)).unwrap();
         let cache = Arc::new(cache);
         let mut app = Router::new()
             .route("/", post(handler_bypassing_cache))
@@ -475,20 +460,16 @@ mod tests {
     #[tokio::test]
     async fn test_cache_hit() {
         let cache_ttl = Duration::from_secs(3);
-        let cache = Cache::new(
-            MAX_CACHE_SIZE,
-            MAX_ITEM_SIZE,
-            Duration::from_secs(2),
-            Arc::new(RequestCacheKeyExtractor),
-        )
-        .unwrap();
+        let cache = Cache::new(MAX_CACHE_SIZE, MAX_ITEM_SIZE, Duration::from_secs(2)).unwrap();
         let cache = Arc::new(cache);
         let mut app = Router::new().route("/:key", get(handler_cache_hit)).layer(
             middleware::from_fn_with_state(Arc::clone(&cache), cache::middleware),
         );
 
-        // First request is not stored in cache
-        let req = Request::get("/1").body(Body::from("")).unwrap();
+        // First request doesn't hit the cache, but is stored in the cache
+        let mut req = Request::get("/1").body(Body::from("")).unwrap();
+        req.headers_mut()
+            .append(RANGE, HeaderValue::from_static("some range"));
         let result = app.call(req).await.unwrap();
         let cache_status = result.extensions().get::<CacheStatus>().cloned().unwrap();
         assert_eq!(result.status(), StatusCode::OK);
@@ -496,8 +477,30 @@ mod tests {
         cache.housekeep().await;
         assert_eq!(cache.len(), 1);
 
-        // Second request hits the cache
+        // Second request with a different Range header doesn't hit the cache, but is stored in the cache
+        let mut req = Request::get("/1").body(Body::from("")).unwrap();
+        req.headers_mut()
+            .append(RANGE, HeaderValue::from_static("some other range"));
+        let result = app.call(req).await.unwrap();
+        let cache_status = result.extensions().get::<CacheStatus>().cloned().unwrap();
+        assert_eq!(result.status(), StatusCode::OK);
+        assert_eq!(cache_status, CacheStatus::Miss);
+        cache.housekeep().await;
+        assert_eq!(cache.len(), 2);
+
+        // Third request with an absent Range header also doesn't hit the cache, but is stored in the cache
         let req = Request::get("/1").body(Body::from("")).unwrap();
+        let result = app.call(req).await.unwrap();
+        let cache_status = result.extensions().get::<CacheStatus>().cloned().unwrap();
+        assert_eq!(result.status(), StatusCode::OK);
+        assert_eq!(cache_status, CacheStatus::Miss);
+        cache.housekeep().await;
+        assert_eq!(cache.len(), 3);
+
+        // Fourth request with the RANGE header identical to the first request finally hits the cache
+        let mut req = Request::get("/1").body(Body::from("")).unwrap();
+        req.headers_mut()
+            .append(RANGE, HeaderValue::from_static("some range"));
         let result = app.call(req).await.unwrap();
         let cache_status = result.extensions().get::<CacheStatus>().cloned().unwrap();
         assert_eq!(result.status(), StatusCode::OK);
@@ -507,48 +510,52 @@ mod tests {
         let body = String::from_utf8_lossy(&body);
         assert_eq!("test_body", body);
         cache.housekeep().await;
-        assert_eq!(cache.len(), 1);
+        assert_eq!(cache.len(), 3);
 
-        // Third request hits the cache too
-        let req = Request::get("/1").body(Body::from("")).unwrap();
+        // Fifth request with an absent RANGE header (identical to the third request) also hits the cache
+        let mut req = Request::get("/1").body(Body::from("")).unwrap();
+        req.headers_mut()
+            .append(RANGE, HeaderValue::from_static("some range"));
         let result = app.call(req).await.unwrap();
         let cache_status = result.extensions().get::<CacheStatus>().cloned().unwrap();
         assert_eq!(result.status(), StatusCode::OK);
         assert_eq!(cache_status, CacheStatus::Hit);
         cache.housekeep().await;
-        assert_eq!(cache.len(), 1);
+        assert_eq!(cache.len(), 3);
 
         // After ttl, request doesn't hit the cache anymore
         sleep(cache_ttl + Duration::from_secs(1)).await;
-        let req = Request::get("/1").body(Body::from("")).unwrap();
+        let mut req = Request::get("/1").body(Body::from("")).unwrap();
+        req.headers_mut()
+            .append(RANGE, HeaderValue::from_static("some range"));
         let result = app.call(req).await.unwrap();
         let cache_status = result.extensions().get::<CacheStatus>().cloned().unwrap();
         assert_eq!(result.status(), StatusCode::OK);
         assert_eq!(cache_status, CacheStatus::Miss);
 
-        // Before cache_size is reached all requests should be stored in cache.
+        // Before cache_size limit is reached all requests should be stored in cache.
         cache.clear().await;
         let req_count = 50;
-        // First dispatch round
+        // First dispatch round, all requests miss cache.
         for idx in 0..req_count {
             let status = dispatch_get_request(&mut app, format!("/{idx}")).await;
             assert_eq!(status.unwrap(), CacheStatus::Miss);
         }
-        // Second dispatch round
+        // Second dispatch round, all requests hit the cache.
         for idx in 0..req_count {
             let status = dispatch_get_request(&mut app, format!("/{idx}")).await;
             assert_eq!(status.unwrap(), CacheStatus::Hit);
         }
 
-        // Once cache_size is reached some requests should be evicted.
+        // Once cache_size limit is reached some requests should be evicted.
         cache.clear().await;
         let req_count = 800;
-        // First dispatch round
+        // First dispatch round, all cache misses.
         for idx in 0..req_count {
             let status = dispatch_get_request(&mut app, format!("/{idx}")).await;
             assert_eq!(status.unwrap(), CacheStatus::Miss);
         }
-        // Second dispatch round
+        // Second dispatch round, some requests hit the cache, some don't
         let mut count_misses = 0;
         let mut count_hits = 0;
         for idx in 0..req_count {
@@ -561,5 +568,11 @@ mod tests {
         }
         assert!(count_misses > 0);
         assert!(count_hits > 0);
+        cache.housekeep().await;
+        let entry = cache.store.iter().last().unwrap();
+        // Make sure cache size limit was reached.
+        // Check that adding one more entry to the cache would overflow its max capacity.
+        assert!(MAX_CACHE_SIZE > cache.size());
+        assert!(MAX_CACHE_SIZE < cache.size() + size_of_val(&entry) as u64);
     }
 }

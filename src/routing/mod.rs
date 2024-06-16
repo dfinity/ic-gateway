@@ -24,7 +24,7 @@ use fqdn::FQDN;
 use http::method::Method;
 use http::{uri::PathAndQuery, Uri};
 use ic::route_provider::setup_route_provider;
-use middleware::cache::{self, Cache, CacheType, RequestCacheKeyExtractor};
+use middleware::cache::{self, Cache};
 use prometheus::Registry;
 use tower::{ServiceBuilder, ServiceExt};
 
@@ -212,7 +212,6 @@ pub fn setup_router(
                 x,
                 cli.cache.cache_max_item_size_bytes,
                 Duration::from_secs(cli.cache.cache_ttl_seconds),
-                Arc::new(RequestCacheKeyExtractor),
             )
             .expect("unable to initialize cache"),
         )
