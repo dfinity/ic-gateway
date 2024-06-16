@@ -34,7 +34,9 @@ use crate::{
     },
     log::clickhouse::{Clickhouse, Row},
     routing::{
-        error_cause::ErrorCause, ic::IcResponseStatus, middleware::request_id::RequestId,
+        error_cause::ErrorCause,
+        ic::IcResponseStatus,
+        middleware::{cache::CacheStatus, request_id::RequestId},
         CanisterId, RequestCtx,
     },
     tasks::{Run, TaskManager},
@@ -325,6 +327,21 @@ pub async fn middleware(
     let ic_status = response.extensions().get::<IcResponseStatus>().cloned();
     let status = response.status().as_u16();
 
+    // Gather cache info
+    let cache_status = response
+        .extensions()
+        .get::<CacheStatus>()
+        .cloned()
+        .unwrap_or_default();
+
+    let cache_bypass_reason = match &cache_status {
+        CacheStatus::Bypass(v) => Some(v.to_string()),
+        _ => None,
+    };
+
+    let cache_status_str = cache_status.clone().to_string();
+    let cache_bypass_reason_str = cache_bypass_reason.clone().unwrap_or("none".to_string());
+
     // By this time the channel should already have the data
     // since the response headers are already received -> request body was for sure read (or an error happened)
     let request_size = rx.recv().unwrap_or(0) + request_size_headers;
@@ -360,6 +377,8 @@ pub async fn middleware(
             &domain,
             &status.to_string(),
             &error_cause,
+            cache_status_str.as_str(),
+            cache_bypass_reason_str.as_str(),
         ];
 
         // Update metrics
@@ -421,6 +440,8 @@ pub async fn middleware(
             conn_rcvd,
             conn_sent,
             conn_reqs = conn_req_count,
+            cache_status = cache_status.to_string(),
+            cache_bypass_reason = cache_bypass_reason_str,
         );
 
         if let Some(v) = &state.clickhouse {
