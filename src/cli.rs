@@ -233,9 +233,15 @@ pub struct Policy {
     #[clap(env, long)]
     pub policy_denylist_seed: Option<PathBuf>,
 
+<<<<<<< HEAD
     /// How frequently to poll denlylist for updates
     #[clap(env, long, default_value = "1m", value_parser = parse_duration)]
     pub policy_denylist_poll_interval: Duration,
+=======
+    /// How frequently to poll denylist for updates
+    #[clap(long = "policy-denylist-poll-interval", default_value = "1m", value_parser = parse_duration)]
+    pub denylist_poll_interval: Duration,
+>>>>>>> c7c01b4 (whatever)
 }
 
 #[derive(Args)]
