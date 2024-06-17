@@ -94,6 +94,7 @@ reqwest = { git = "https://github.com/seanmonstar/reqwest.git", default_features
 rustls = { version = "0.23", features = ["brotli"] }
 rustls-acme = "0.10"
 rustls-pemfile = "2"
+rustls-platform-verifier = "0.3"
 sha1 = "0.10"
 serde = "1.0"
 serde_cbor = "0.11"

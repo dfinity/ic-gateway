@@ -205,7 +205,7 @@ impl DomainResolver {
             })
         });
 
-        // Combine all domains into a single lookup vec
+        // Combine all domains
         let domains_all = domains_base
             .clone()
             .into_iter()
@@ -263,7 +263,7 @@ impl DomainResolver {
         // Do not allow cases like <id>.foo.ic0.app where
         // the base subdomain is not raw or <id>.
         // TODO discuss
-        let canister_id = if depth == 1 || (depth == 2 && raw) {
+        let canister_id = if depth == 1 || raw {
             Principal::from_text(label).ok()
         } else {
             None

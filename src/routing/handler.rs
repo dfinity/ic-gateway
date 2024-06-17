@@ -6,7 +6,7 @@ use axum::{
     Extension,
 };
 use bytes::Bytes;
-use http::{HeaderValue, Uri};
+use http::HeaderValue;
 use http_body_util::{BodyExt, LengthLimitError, Limited};
 use ic_http_gateway::{CanisterRequest, HttpGatewayClient, HttpGatewayRequestArgs};
 
@@ -27,6 +27,7 @@ pub struct HandlerState {
     client: HttpGatewayClient,
 }
 
+// Main HTTP->IC request handler
 pub async fn handler(
     State(state): State<Arc<HandlerState>>,
     canister_id: Option<Extension<CanisterId>>,
@@ -38,7 +39,7 @@ pub async fn handler(
         .map(|x| (x.0).0)
         .ok_or(ErrorCause::CanisterIdNotFound)?;
 
-    let (mut parts, body) = request.into_parts();
+    let (parts, body) = request.into_parts();
 
     // Collect the request body up to the limit
     let body = Limited::new(body, MAX_REQUEST_BODY_SIZE)
@@ -53,11 +54,6 @@ pub async fn handler(
         })?
         .to_bytes()
         .to_vec();
-
-    parts.uri = Uri::builder()
-        .path_and_query(parts.uri.path_and_query().unwrap().as_str())
-        .build()
-        .unwrap();
 
     let args = HttpGatewayRequestArgs {
         canister_request: CanisterRequest::from_parts(parts, body),
