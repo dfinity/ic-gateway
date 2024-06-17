@@ -19,6 +19,7 @@ use rustls::{
     version::{TLS12, TLS13},
     RootCertStore, TicketSwitcher,
 };
+use rustls_platform_verifier::Verifier;
 
 use crate::{
     cli::Cli,
@@ -92,7 +93,8 @@ pub fn prepare_client_config() -> ClientConfig {
 
     // TODO no revocation checking currently
     let mut cfg = ClientConfig::builder_with_protocol_versions(&[&TLS13, &TLS12])
-        .with_root_certificates(root_store)
+        .dangerous() // Nothing really dangerous here
+        .with_custom_certificate_verifier(Arc::new(Verifier::new()))
         .with_no_client_auth();
 
     // Session resumption
