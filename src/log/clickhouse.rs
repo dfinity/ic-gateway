@@ -37,8 +37,8 @@ pub struct Row {
     pub duration: f64,
     pub duration_full: f64,
     pub duration_conn: f64,
-    pub cache_status: String,
-    pub cache_bypass_reason: String,
+    pub cache_status: &'static str,
+    pub cache_bypass_reason: &'static str,
 }
 
 pub struct Clickhouse {

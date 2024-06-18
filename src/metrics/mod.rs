@@ -334,13 +334,12 @@ pub async fn middleware(
         .cloned()
         .unwrap_or_default();
 
-    let cache_bypass_reason = match &cache_status {
-        CacheStatus::Bypass(v) => Some(v.to_string()),
-        _ => None,
+    let cache_bypass_reason_str: &'static str = match &cache_status {
+        CacheStatus::Bypass(v) => v.into(),
+        _ => "none",
     };
 
-    let cache_status_str = cache_status.clone().to_string();
-    let cache_bypass_reason_str = cache_bypass_reason.clone().unwrap_or("none".to_string());
+    let cache_status_str: &'static str = cache_status.into();
 
     // By this time the channel should already have the data
     // since the response headers are already received -> request body was for sure read (or an error happened)
@@ -377,8 +376,8 @@ pub async fn middleware(
             &domain,
             &status.to_string(),
             &error_cause,
-            cache_status_str.as_str(),
-            cache_bypass_reason_str.as_str(),
+            cache_status_str,
+            cache_bypass_reason_str,
         ];
 
         // Update metrics
@@ -440,8 +439,8 @@ pub async fn middleware(
             conn_rcvd,
             conn_sent,
             conn_reqs = conn_req_count,
-            cache_status = cache_status_str.as_str(),
-            cache_bypass_reason = cache_bypass_reason_str.as_str(),
+            cache_status = cache_status_str,
+            cache_bypass_reason = cache_bypass_reason_str,
         );
 
         if let Some(v) = &state.clickhouse {
@@ -470,8 +469,8 @@ pub async fn middleware(
                 duration: duration.as_secs_f64(),
                 duration_full: duration_full.as_secs_f64(),
                 duration_conn: conn_info.accepted_at.elapsed().as_secs_f64(),
-                cache_status: cache_status_str.clone(),
-                cache_bypass_reason: cache_bypass_reason_str.clone(),
+                cache_status: cache_status_str,
+                cache_bypass_reason: cache_bypass_reason_str,
             };
 
             v.send(row);

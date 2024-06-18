@@ -15,6 +15,7 @@ use http::{
 use http::{request, response};
 use moka::future::{Cache as MokaCache, CacheBuilder as MokaCacheBuilder};
 use sha1::{Digest, Sha1};
+use strum_macros::IntoStaticStr;
 
 use std::hash::Hash;
 
@@ -25,7 +26,7 @@ type FullResponse = response::Response<Vec<u8>>;
 // A list of possible Cache-Control directives that ask us not to cache the response
 const SKIP_CACHE_DIRECTIVES: &[&str] = &["no-store", "no-cache", "max-age=0"];
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default, IntoStaticStr)]
 pub enum CacheStatus {
     #[default]
     Disabled,
@@ -34,7 +35,7 @@ pub enum CacheStatus {
     Miss,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, IntoStaticStr)]
 pub enum CacheBypassReason {
     MethodNotCacheable,
     CacheControl,
