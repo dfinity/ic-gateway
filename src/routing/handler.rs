@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Request, State},
-    response::Response,
+    response::{IntoResponse, Response},
     Extension,
 };
 use bytes::Bytes;
