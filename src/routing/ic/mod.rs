@@ -25,24 +25,6 @@ impl From<&HttpGatewayResponse> for IcResponseStatus {
     }
 }
 
-// pub fn convert_response(resp: Response<HttpGatewayResponseBody>) -> Response {
-//     let (parts, body) = resp.into_parts();
-
-//     match body {
-//         HttpGatewayResponseBody::Bytes(v) => {
-//             Response::from_parts(parts, Body::new(Full::new(v.into()))).into_response()
-//         }
-
-//         HttpGatewayResponseBody::Stream(v) => {
-//             let v = v.map(|x| x.map(|y| Frame::data(Bytes::from(y))));
-//             let body = StreamBody::new(v);
-//             let body = Body::new(body);
-
-//             Response::from_parts(parts, body).into_response()
-//         }
-//     }
-// }
-
 pub fn setup(
     cli: &Cli,
     http_client: Arc<dyn HttpClient>,

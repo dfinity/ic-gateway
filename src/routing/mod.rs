@@ -60,7 +60,6 @@ pub struct RequestCtx {
     pub authority: FQDN,
     pub domain: Domain,
     pub verify: bool,
-    pub canister_id: Option<Principal>,
 }
 
 impl RequestCtx {

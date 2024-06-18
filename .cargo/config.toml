@@ -1,0 +1,11 @@
+[build]
+rustflags = [
+    "-C",
+    "link-arg=-fuse-ld=mold",
+    "-C",
+    "target-cpu=x86-64-v3",
+    "-C",
+    "symbol-mangling-version=v0",
+    "--cfg",
+    "tokio_unstable",
+]

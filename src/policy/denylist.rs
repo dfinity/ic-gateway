@@ -1,11 +1,6 @@
-use std::{
-    collections::{HashMap, HashSet},
-    fs,
-    path::PathBuf,
-    sync::Arc,
-    time::Duration,
-};
+use std::{fs, path::PathBuf, sync::Arc, time::Duration};
 
+use ahash::{AHashMap, AHashSet};
 use anyhow::{anyhow, Context, Error};
 use arc_swap::ArcSwapOption;
 use async_trait::async_trait;
@@ -24,8 +19,8 @@ use crate::{http::Client, routing::middleware::geoip::CountryCode, tasks::Run};
 pub struct Denylist {
     url: Option<Url>,
     http_client: Arc<dyn Client>,
-    denylist: ArcSwapOption<HashMap<Principal, Vec<String>>>,
-    allowlist: HashSet<Principal>,
+    denylist: ArcSwapOption<AHashMap<Principal, Vec<String>>>,
+    allowlist: AHashSet<Principal>,
     update_interval: Duration,
     metrics: MetricParams,
 }
@@ -33,7 +28,7 @@ pub struct Denylist {
 impl Denylist {
     pub fn new(
         url: Option<Url>,
-        allowlist: HashSet<Principal>,
+        allowlist: AHashSet<Principal>,
         http_client: Arc<dyn Client>,
         update_interval: Duration,
         registry: &Registry,
@@ -63,7 +58,7 @@ impl Denylist {
             warn!("Denylist allowlist loaded: {}", r.len());
             r
         } else {
-            HashSet::new()
+            AHashSet::new()
         };
 
         let denylist = Self::new(url, allowlist, http_client, update_interval, registry);
@@ -138,7 +133,7 @@ impl Denylist {
 
         #[derive(Deserialize)]
         struct Response {
-            canisters: HashMap<String, Canister>,
+            canisters: std::collections::HashMap<String, Canister>,
         }
 
         let entries =
@@ -152,7 +147,7 @@ impl Denylist {
                 let country_codes = x.1.localities.unwrap_or_default();
                 Ok((canister_id, country_codes))
             })
-            .collect::<Result<HashMap<_, _>, Error>>()?;
+            .collect::<Result<AHashMap<_, _>, Error>>()?;
 
         let count = denylist.len();
         self.denylist.store(Some(Arc::new(denylist)));
@@ -271,7 +266,7 @@ mod tests {
 
         let denylist = Denylist::new(
             Some(Url::parse(&server.url_str("/denylist.json")).unwrap()),
-            HashSet::from([Principal::from_text("g3wsl-eqaaa-aaaan-aaaaa-cai").unwrap()]),
+            AHashSet::from([Principal::from_text("g3wsl-eqaaa-aaaan-aaaaa-cai").unwrap()]),
             client,
             Duration::ZERO,
             &registry,
@@ -347,7 +342,7 @@ mod tests {
         let registry = Registry::new();
         let denylist = Denylist::new(
             Some(Url::parse(&server.url_str("/denylist.json")).unwrap()),
-            HashSet::new(),
+            AHashSet::new(),
             client,
             Duration::ZERO,
             &registry,

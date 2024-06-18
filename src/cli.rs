@@ -349,13 +349,20 @@ pub struct Misc {
     /// Environment we run in to specify in the logs
     #[clap(env, long, default_value = "dev")]
     pub env: String,
+
     /// Local hostname to identify in e.g. logs.
     /// If not specified - tries to obtain it.
     #[clap(env, long, default_value = hostname::get().unwrap().into_string().unwrap())]
     pub hostname: String,
+
     /// Path to a GeoIP database
     #[clap(env, long)]
     pub geoip_db: Option<PathBuf>,
+
+    /// Number of Tokio threads to use to serve requests
+    /// Default to the number of CPUs
+    #[clap(env, long)]
+    pub threads: Option<usize>,
 }
 
 // Some conversions

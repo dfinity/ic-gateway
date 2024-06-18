@@ -1,5 +1,6 @@
-use std::{collections::HashSet, sync::Arc};
+use std::sync::Arc;
 
+use ahash::AHashSet;
 use anyhow::{Context, Error};
 use axum::{
     extract::{Extension, Request, State},
@@ -22,7 +23,7 @@ impl CanisterMatcherState {
             if let Some(v) = cli.policy.policy_pre_isolation_canisters.as_ref() {
                 load_principal_list(v).context("unable to load pre-isolation canisters")?
             } else {
-                HashSet::new()
+                AHashSet::new()
             };
 
         let matcher = DomainCanisterMatcher::new(

@@ -15,8 +15,6 @@ pub trait StoresCertificates<T: Clone + Send + Sync>: Send + Sync {
 }
 
 struct StorageInner<T: Clone + Send + Sync> {
-    // BTreeMap seems to be faster than HashMap
-    // for smaller datasets due to cache locality
     certs: BTreeMap<FQDN, Arc<Cert<T>>>,
     certs_wildcard: BTreeMap<FQDN, Arc<Cert<T>>>,
 }

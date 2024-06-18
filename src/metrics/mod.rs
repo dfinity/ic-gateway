@@ -16,12 +16,12 @@ use axum::{
     Router,
 };
 use http::header::CONTENT_TYPE;
-use jemalloc_ctl::{epoch, stats};
 use prometheus::{
     register_histogram_vec_with_registry, register_int_counter_vec_with_registry,
     register_int_gauge_with_registry, Encoder, HistogramVec, IntCounterVec, IntGauge, Registry,
     TextEncoder,
 };
+use tikv_jemalloc_ctl::{epoch, stats};
 use tokio::{select, sync::RwLock};
 use tokio_util::sync::CancellationToken;
 use tower_http::compression::CompressionLayer;
