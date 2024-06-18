@@ -9,8 +9,8 @@ use futures::Stream;
 use http_body::Body as _;
 use sync_wrapper::SyncWrapper;
 
-// Wrapper for Axum body that makes it Sync to be usable with Request
-// TODO find a better way?
+/// Wrapper for Axum body that makes it `Sync` to be usable with Request.
+/// TODO find a better way?
 pub struct SyncBodyDataStream {
     inner: SyncWrapper<Body>,
 }

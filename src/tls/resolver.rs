@@ -11,9 +11,12 @@ use tracing::debug;
 /// https://github.com/rustls/rustls/issues/1908
 pub trait ResolvesServerCert: Debug + Send + Sync {
     fn resolve(&self, client_hello: &ClientHello) -> Option<Arc<CertifiedKey>>;
-    /// Return first available certificate if any.
+
+    /// Return first available certificate, if any.
     /// Can be used as a fallback option.
-    fn resolve_any(&self) -> Option<Arc<CertifiedKey>>;
+    fn resolve_any(&self) -> Option<Arc<CertifiedKey>> {
+        None
+    }
 }
 
 // Combines several certificate resolvers into one.
@@ -27,7 +30,9 @@ pub struct AggregatingResolver {
 // Implement certificate resolving for Rustls
 impl ResolvesServerCertRustls for AggregatingResolver {
     fn resolve(&self, ch: ClientHello) -> Option<Arc<CertifiedKey>> {
-        let sni = ch.server_name()?.to_string();
+        // Accept missing SNI e.g. for testing cases when we're accessed over IP directly
+        let sni = ch.server_name().unwrap_or("").to_string();
+
         let alpn = ch
             .alpn()
             .map(|x| x.map(String::from_utf8_lossy).collect::<Vec<_>>());
@@ -49,6 +54,7 @@ impl ResolvesServerCertRustls for AggregatingResolver {
             sni, alpn
         );
 
+        // Check if any of the resolvers provide us with a fallback
         self.resolvers.iter().find_map(|x| x.resolve_any())
     }
 }
