@@ -12,6 +12,7 @@ async-trait = "0.1"
 axum = "0.7"
 axum-extra = "0.9"
 backoff = { version = "0.4", features = ["tokio"] }
+base64 = "0.22"
 bytes = "1.6"
 candid = "0.10"
 chacha20poly1305 = "0.10"
@@ -117,6 +118,7 @@ tracing-subscriber = { version = "0.3", features = [
 ] }
 url = "2.5"
 uuid = { version = "1.8", features = ["v7"] }
+vector-lib = { git = "https://github.com/vectordotdev/vector.git", tag = "v0.39.0" }
 webpki-roots = "0.26"
 x509-parser = "0.16"
 zeroize = { version = "1.8", features = ["derive"] }

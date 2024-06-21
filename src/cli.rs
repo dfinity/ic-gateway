@@ -21,7 +21,7 @@ fn parse_size(s: &str) -> Result<u64, parse_size::Error> {
     parse_size::Config::new().with_binary().parse_size(s)
 }
 
-/// Clap does not support prefixes due to macro limitations
+/// Clap does not support prefixes due to macro limitations.
 /// So the names are a bit redundant (e.g. cli.http_client.http_client_...) to
 /// make it consistent with env vars naming etc.
 
@@ -311,6 +311,9 @@ pub struct Log {
 
     #[command(flatten, next_help_heading = "Clickhouse")]
     pub clickhouse: Clickhouse,
+
+    #[command(flatten, next_help_heading = "Vector")]
+    pub vector: Vector,
 }
 
 #[derive(Args, Clone)]
@@ -342,6 +345,33 @@ pub struct Clickhouse {
     /// Clickhouse batch flush interval
     #[clap(env, long, default_value = "5s", value_parser = parse_duration)]
     pub log_clickhouse_interval: Duration,
+}
+
+#[derive(Args, Clone)]
+pub struct Vector {
+    /// Setting this enables logging of HTTP requests to Vector using native protocol
+    #[clap(env, long)]
+    pub log_vector_url: Option<Url>,
+
+    /// Vector username
+    #[clap(env, long)]
+    pub log_vector_user: Option<String>,
+
+    /// Vector password
+    #[clap(env, long)]
+    pub log_vector_pass: Option<String>,
+
+    /// Vector batch size
+    #[clap(env, long, default_value = "25000")]
+    pub log_vector_batch: usize,
+
+    /// Vector batch flush interval
+    #[clap(env, long, default_value = "5s", value_parser = parse_duration)]
+    pub log_vector_interval: Duration,
+
+    /// Vector buffer size to account for ingest problems
+    #[clap(env, long, default_value = "131072")]
+    pub log_vector_buffer: usize,
 }
 
 #[derive(Args)]

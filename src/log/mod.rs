@@ -1,5 +1,3 @@
-pub mod clickhouse;
-
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Error};

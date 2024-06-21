@@ -30,8 +30,7 @@ use tower::{ServiceBuilder, ServiceExt};
 use crate::{
     cli::Cli,
     http::Client,
-    log::clickhouse::Clickhouse,
-    metrics,
+    metrics::{self, clickhouse::Clickhouse, Vector},
     routing::middleware::{
         canister_match, cors, geoip, headers, rate_limiter, request_id, validate,
     },
@@ -94,6 +93,7 @@ pub fn setup_router(
     http_client: Arc<dyn Client>,
     registry: &Registry,
     clickhouse: Option<Arc<Clickhouse>>,
+    vector: Option<Arc<Vector>>,
 ) -> Result<Router, Error> {
     let custom_domain_storage = Arc::new(CustomDomainStorage::new(
         custom_domain_providers,
@@ -153,6 +153,7 @@ pub fn setup_router(
             cli.misc.env.clone(),
             cli.misc.hostname.clone(),
             clickhouse,
+            vector,
         )),
         metrics::middleware,
     );
