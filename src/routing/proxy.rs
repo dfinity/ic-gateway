@@ -6,7 +6,7 @@ use std::sync::{
 use anyhow::Error;
 use axum::{
     body::Body,
-    extract::{OriginalUri, Path, Request, State},
+    extract::{MatchedPath, OriginalUri, Path, Request, State},
     response::{IntoResponse, Response},
 };
 use candid::Principal;
@@ -15,7 +15,7 @@ use ic_agent::agent::http_transport::route_provider::RouteProvider;
 use regex::Regex;
 use url::Url;
 
-use super::{body, error_cause::ErrorCause};
+use super::{body, error_cause::ErrorCause, ApiRequestType, RequestType};
 use crate::http::Client;
 
 lazy_static::lazy_static! {
@@ -60,6 +60,7 @@ pub struct ApiProxyState {
 pub async fn api_proxy(
     State(state): State<Arc<ApiProxyState>>,
     OriginalUri(uri): OriginalUri,
+    matched_path: MatchedPath,
     principal: Option<Path<String>>,
     request: Request,
 ) -> Result<impl IntoResponse, ErrorCause> {
@@ -80,10 +81,11 @@ pub async fn api_proxy(
         .map_err(|e| ErrorCause::MalformedRequest(format!("incorrect URL: {e:#}")))?;
 
     // Proxy the request
-    let response = proxy(url, request, &state.http_client)
+    let mut response = proxy(url, request, &state.http_client)
         .await
         .map_err(ErrorCause::from)?;
 
+    response.extensions_mut().insert(matched_path);
     Ok(response)
 }
 
@@ -99,6 +101,7 @@ pub struct IssuerProxyState {
 pub async fn issuer_proxy(
     State(state): State<Arc<IssuerProxyState>>,
     OriginalUri(uri): OriginalUri,
+    matched_path: MatchedPath,
     id: Option<Path<String>>,
     request: Request,
 ) -> Result<impl IntoResponse, ErrorCause> {
@@ -119,9 +122,10 @@ pub async fn issuer_proxy(
         .join(uri.path())
         .map_err(|_| ErrorCause::MalformedRequest("unable to parse path as URL part".into()))?;
 
-    let response = proxy(url, request, &state.http_client)
+    let mut response = proxy(url, request, &state.http_client)
         .await
         .map_err(ErrorCause::from)?;
 
+    response.extensions_mut().insert(matched_path);
     Ok(response)
 }

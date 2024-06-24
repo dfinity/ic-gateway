@@ -1,14 +1,48 @@
+#![allow(clippy::declare_interior_mutable_const)]
+
 pub mod health_check;
 pub mod route_provider;
 pub mod transport;
+
 use std::{fs, sync::Arc};
 
 use anyhow::{Context, Error};
+use axum::extract::Request;
+use http::header::HeaderName;
 use http_body_util::Either;
 use ic_agent::agent::http_transport::route_provider::RouteProvider;
 use ic_http_gateway::{HttpGatewayClient, HttpGatewayResponse, HttpGatewayResponseMetadata};
 
 use crate::{http::Client as HttpClient, Cli};
+
+const HEADER_IC_CACHE: HeaderName = HeaderName::from_static("x-ic-cache-status");
+const HEADER_IC_CACHE_BYPASS_REASON: HeaderName =
+    HeaderName::from_static("x-ic-cache-bypass-reason");
+const HEADER_IC_SUBNET_ID: HeaderName = HeaderName::from_static("x-ic-subnet-id");
+const HEADER_IC_NODE_ID: HeaderName = HeaderName::from_static("x-ic-node-id");
+const HEADER_IC_CANISTER_ID_CBOR: HeaderName = HeaderName::from_static("x-ic-canister-id-cbor");
+const HEADER_IC_METHOD_NAME: HeaderName = HeaderName::from_static("x-ic-method-name");
+const HEADER_IC_SENDER: HeaderName = HeaderName::from_static("x-ic-sender");
+const HEADER_IC_RETRIES: HeaderName = HeaderName::from_static("x-ic-retries");
+const HEADER_IC_ERROR_CAUSE: HeaderName = HeaderName::from_static("x-ic-error-cause");
+
+#[derive(Clone)]
+pub struct BNResponseMetadata {
+    pub node_id: String,
+    pub subnet_id: String,
+    pub canister_id_cbor: String,
+    pub method_name: String,
+    pub error_cause: String,
+    pub retries: u8,
+    pub cache_status: String,
+    pub cache_bypass_reason: String,
+}
+
+impl TryFrom<&Request> for BNResponseMetadata {
+    type Error = Error;
+
+    fn try_from(value: &Request) -> Result<Self, Self::Error> {}
+}
 
 #[derive(Clone)]
 pub struct IcResponseStatus {

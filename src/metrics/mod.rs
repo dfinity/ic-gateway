@@ -11,7 +11,7 @@ use anyhow::Error;
 use axum::{
     async_trait,
     body::Body,
-    extract::{Extension, Request, State},
+    extract::{Extension, MatchedPath, Request, State},
     middleware::Next,
     response::{IntoResponse, Response},
     routing::get,
@@ -38,7 +38,7 @@ use crate::{
     },
     routing::{
         error_cause::ErrorCause, ic::IcResponseStatus, middleware::request_id::RequestId,
-        CanisterId, RequestCtx,
+        ApiRequestType, CanisterId, RequestCtx, RequestType,
     },
     tasks::{Run, TaskManager},
     tls::sessions,
@@ -335,6 +335,24 @@ pub async fn middleware(
     let error_cause = response.extensions().get::<ErrorCause>().cloned();
     let ic_status = response.extensions().get::<IcResponseStatus>().cloned();
     let status = response.status().as_u16();
+
+    let request_type = response
+        .extensions()
+        .get::<MatchedPath>()
+        .map(|x| match x.as_str() {
+            "/api/v2/canister/:principal/query" => RequestType::Api(ApiRequestType::Query),
+            "/api/v2/canister/:principal/call" => RequestType::Api(ApiRequestType::Call),
+            "/api/v2/canister/:principal/read_state" => RequestType::Api(ApiRequestType::ReadState),
+            "/api/v2/subnet/:principal/read_state" => {
+                RequestType::Api(ApiRequestType::ReadStateSubnet)
+            }
+            "/api/v2/status" => RequestType::Api(ApiRequestType::Status),
+            "/health" => RequestType::Health,
+            "/registrations" => RequestType::Registrations,
+            "/registrations/:id" => RequestType::Registrations,
+            _ => RequestType::Unknown,
+        })
+        .unwrap_or(RequestType::Http);
 
     // By this time the channel should already have the data
     // since the response headers are already received -> request body was for sure read (or an error happened)

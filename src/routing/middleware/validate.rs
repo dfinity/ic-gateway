@@ -5,11 +5,17 @@ use axum::{
     middleware::Next,
     response::IntoResponse,
 };
-
-use crate::routing::{ErrorCause, RequestCtx};
+use fqdn::FQDN;
+use itertools::{
+    EitherOrBoth::{Both, Right},
+    Itertools,
+};
 
 use super::extract_authority;
-use crate::routing::{domain::ResolvesDomain, CanisterId};
+use crate::routing::{
+    domain::{Domain, ResolvesDomain},
+    ApiRequestType, CanisterId, ErrorCause, RequestCtx, RequestType,
+};
 
 pub async fn middleware(
     State(resolver): State<Arc<dyn ResolvesDomain>>,

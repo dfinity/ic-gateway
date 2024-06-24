@@ -1,7 +1,6 @@
 use std::{
     fmt::Display,
     net::SocketAddr,
-    str::FromStr,
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc,
@@ -11,7 +10,6 @@ use std::{
 
 use anyhow::{anyhow, Context, Error};
 use axum::{extract::Request, Router};
-use fqdn::FQDN;
 use hyper::body::Incoming;
 use hyper_util::{
     rt::{TokioExecutor, TokioIo, TokioTimer},
@@ -122,7 +120,7 @@ pub struct Options {
 // TLS information about the connection
 #[derive(Clone, Debug)]
 pub struct TlsInfo {
-    pub sni: FQDN,
+    pub sni: Option<String>,
     pub alpn: Option<String>,
     pub protocol: ProtocolVersion,
     pub cipher: CipherSuite,
@@ -136,12 +134,7 @@ impl TryFrom<&ServerConnection> for TlsInfo {
         Ok(Self {
             handshake_dur: Duration::ZERO,
 
-            sni: c
-                .server_name()
-                .ok_or_else(|| anyhow!("No SNI found"))
-                .and_then(|x| {
-                    FQDN::from_str(x).map_err(|_| anyhow!("unable to parse SNI as FQDN"))
-                })?,
+            sni: c.server_name().map(|x| x.to_string()),
             alpn: c
                 .alpn_protocol()
                 .map(|x| String::from_utf8_lossy(x).to_string()),
@@ -199,7 +192,7 @@ impl Conn {
         tls_info.handshake_dur = duration;
 
         debug!(
-            "{}: handshake finished in {}ms (server: {}, proto: {:?}, cipher: {:?}, ALPN: {:?})",
+            "{}: handshake finished in {}ms (server: {:?}, proto: {:?}, cipher: {:?}, ALPN: {:?})",
             self,
             duration.as_millis(),
             tls_info.sni,

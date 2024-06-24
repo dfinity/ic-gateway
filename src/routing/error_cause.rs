@@ -7,7 +7,7 @@ use axum::response::{IntoResponse, Response};
 use hickory_resolver::error::ResolveError;
 use http::{header::CONTENT_TYPE, HeaderValue, StatusCode};
 use ic_agent::AgentError;
-use strum_macros::Display;
+use strum_macros::{Display, IntoStaticStr};
 
 #[allow(clippy::declare_interior_mutable_const)]
 const CONTENT_TYPE_HTML: HeaderValue = HeaderValue::from_static("text/html; charset=utf-8");
@@ -22,7 +22,7 @@ pub fn error_infer<E: StdError + Send + Sync + 'static>(error: &anyhow::Error) -
     None
 }
 
-#[derive(Debug, Clone, Display)]
+#[derive(Debug, Clone, Display, IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
 pub enum RateLimitCause {
     Normal,
@@ -37,7 +37,6 @@ pub enum ErrorCause {
     RequestTooLarge,
     IncorrectPrincipal,
     MalformedRequest(String),
-    MalformedResponse(String),
     NoAuthority,
     UnknownDomain,
     CanisterIdNotFound,
@@ -49,10 +48,8 @@ pub enum ErrorCause {
     BackendTimeout,
     BackendTLSErrorOther(String),
     BackendTLSErrorCert(String),
-    BackendErrorOther(String),
     RateLimited(RateLimitCause),
     Other(String),
-    Unknown,
 }
 
 impl ErrorCause {
@@ -64,7 +61,6 @@ impl ErrorCause {
             Self::RequestTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
             Self::IncorrectPrincipal => StatusCode::BAD_REQUEST,
             Self::MalformedRequest(_) => StatusCode::BAD_REQUEST,
-            Self::MalformedResponse(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Self::NoAuthority => StatusCode::BAD_REQUEST,
             Self::UnknownDomain => StatusCode::BAD_REQUEST,
             Self::CanisterIdNotFound => StatusCode::BAD_REQUEST,
@@ -76,9 +72,7 @@ impl ErrorCause {
             Self::BackendTimeout => StatusCode::INTERNAL_SERVER_ERROR,
             Self::BackendTLSErrorOther(_) => StatusCode::SERVICE_UNAVAILABLE,
             Self::BackendTLSErrorCert(_) => StatusCode::SERVICE_UNAVAILABLE,
-            Self::BackendErrorOther(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Self::RateLimited(_) => StatusCode::TOO_MANY_REQUESTS,
-            Self::Unknown => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 
@@ -88,11 +82,9 @@ impl ErrorCause {
             Self::UnableToReadBody(x) => Some(x.clone()),
             Self::LoadShed => Some("Overloaded".into()),
             Self::MalformedRequest(x) => Some(x.clone()),
-            Self::MalformedResponse(x) => Some(x.clone()),
             Self::BackendErrorDNS(x) => Some(x.clone()),
             Self::BackendTLSErrorOther(x) => Some(x.clone()),
             Self::BackendTLSErrorCert(x) => Some(x.clone()),
-            Self::BackendErrorOther(x) => Some(x.clone()),
             Self::AgentError(x) => Some(x.clone()),
             Self::RateLimited(x) => Some(x.to_string()),
             _ => None,
@@ -116,7 +108,6 @@ impl fmt::Display for ErrorCause {
             Self::RequestTooLarge => write!(f, "request_too_large"),
             Self::IncorrectPrincipal => write!(f, "incorrect_principal"),
             Self::MalformedRequest(_) => write!(f, "malformed_request"),
-            Self::MalformedResponse(_) => write!(f, "malformed_response"),
             Self::UnknownDomain => write!(f, "unknown_domain"),
             Self::CanisterIdNotFound => write!(f, "canister_id_not_found"),
             Self::DomainCanisterMismatch => write!(f, "domain_canister_mismatch"),
@@ -128,9 +119,7 @@ impl fmt::Display for ErrorCause {
             Self::BackendTimeout => write!(f, "backend_timeout"),
             Self::BackendTLSErrorOther(_) => write!(f, "backend_tls_error"),
             Self::BackendTLSErrorCert(_) => write!(f, "backend_tls_error_cert"),
-            Self::BackendErrorOther(_) => write!(f, "backend_error_other"),
             Self::RateLimited(x) => write!(f, "rate_limited_{x}"),
-            Self::Unknown => write!(f, "unknown"),
         }
     }
 }

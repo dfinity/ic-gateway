@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use anyhow::Error;
 use axum::{
-    extract::{Host, OriginalUri, Request},
+    extract::{Host, MatchedPath, OriginalUri, Request},
     middleware::{from_fn, from_fn_with_state, FromFnLayer},
     response::{IntoResponse, Redirect},
     routing::{get, post},
@@ -21,11 +21,13 @@ use axum_extra::middleware::option_layer;
 use candid::Principal;
 use domain::{CustomDomainStorage, DomainResolver, ProvidesCustomDomains};
 use fqdn::FQDN;
-use http::method::Method;
+use http::{method::Method, StatusCode};
 use http::{uri::PathAndQuery, Uri};
 use ic::route_provider::setup_route_provider;
+use little_loadshedder::{LoadShedLayer, LoadShedResponse};
 use prometheus::Registry;
-use tower::{ServiceBuilder, ServiceExt};
+use strum::{Display, IntoStaticStr};
+use tower::{util::MapResponseLayer, ServiceBuilder, ServiceExt};
 
 use crate::{
     cli::Cli,
@@ -51,6 +53,28 @@ impl From<CanisterId> for Principal {
     fn from(value: CanisterId) -> Self {
         value.0
     }
+}
+
+// Type of IC API request
+#[derive(Debug, Clone, Copy, Display, PartialEq, Eq, Hash, IntoStaticStr)]
+#[strum(serialize_all = "snake_case")]
+pub enum ApiRequestType {
+    Status,
+    Query,
+    Call,
+    ReadState,
+    ReadStateSubnet,
+}
+
+#[derive(Debug, Clone, Copy, Display, PartialEq, Eq, Hash, IntoStaticStr)]
+#[strum(serialize_all = "snake_case")]
+pub enum RequestType {
+    Http,
+    Health,
+    Registrations,
+    #[strum(to_string = "{0}")]
+    Api(ApiRequestType),
+    Unknown,
 }
 
 #[derive(Clone)]
@@ -114,15 +138,16 @@ pub fn setup_router(
     )) as Arc<dyn ResolvesDomain>;
 
     // GeoIP
-    let geoip_mw = cli
-        .misc
-        .geoip_db
-        .as_ref()
-        .map(|x| -> Result<FromFnLayer<_, _, _>, Error> {
-            let geoip_db = geoip::GeoIp::new(x)?;
-            Ok(from_fn_with_state(Arc::new(geoip_db), geoip::middleware))
-        })
-        .transpose()?;
+    let geoip_mw = option_layer(
+        cli.misc
+            .geoip_db
+            .as_ref()
+            .map(|x| -> Result<FromFnLayer<_, _, _>, Error> {
+                let geoip_db = geoip::GeoIp::new(x)?;
+                Ok(from_fn_with_state(Arc::new(geoip_db), geoip::middleware))
+            })
+            .transpose()?,
+    );
 
     // Denylist
     let denylist_mw =
@@ -157,6 +182,16 @@ pub fn setup_router(
         )),
         metrics::middleware,
     );
+
+    // Load shedder
+    let load_shedder_mw = option_layer(cli.load.load_shed_ewma_param.map(|x| {
+        ServiceBuilder::new()
+            .layer(MapResponseLayer::new(|resp| match resp {
+                LoadShedResponse::Inner(inner) => inner,
+                LoadShedResponse::Overload => ErrorCause::LoadShed.into_response(),
+            }))
+            .layer(LoadShedLayer::new(x, cli.load.load_shed_target_latency))
+    }));
 
     // Prepare the HTTP->IC library
     let route_provider = setup_route_provider(
@@ -197,6 +232,7 @@ pub fn setup_router(
             post(proxy::api_proxy).layer(cors_post.clone()),
         )
         .route("/status", get(proxy::api_proxy).layer(cors_get.clone()))
+        .fallback(|| async { (StatusCode::NOT_FOUND, "") })
         .with_state(state_api.clone());
 
     let router_health = Router::new().route(
@@ -259,7 +295,8 @@ pub fn setup_router(
         .layer(from_fn(request_id::middleware))
         .layer(from_fn(headers::middleware))
         .layer(metrics_mw)
-        .layer(option_layer(geoip_mw))
+        .layer(geoip_mw)
+        .layer(load_shedder_mw)
         .layer(from_fn_with_state(domain_resolver, validate::middleware));
 
     // Top-level router

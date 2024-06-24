@@ -50,6 +50,9 @@ pub struct Cli {
     #[command(flatten, next_help_heading = "Policy")]
     pub policy: Policy,
 
+    #[command(flatten, next_help_heading = "Load")]
+    pub load: Load,
+
     #[command(flatten, next_help_heading = "ACME")]
     pub acme: Acme,
 
@@ -372,6 +375,21 @@ pub struct Vector {
     /// Vector buffer size to account for ingest problems
     #[clap(env, long, default_value = "131072")]
     pub log_vector_buffer: usize,
+}
+
+#[derive(Args)]
+pub struct Load {
+    /// Exponential Weighted Moving Average parameter for load shedding algorithm.
+    /// Setting this value enables load shedding.
+    /// Value of 0.1 means that the next measurement would account for 10% of moving average.
+    /// Should be in range 0..1.
+    #[clap(env, long)]
+    pub load_shed_ewma_param: Option<f64>,
+
+    /// Target latency for load shedding algorithm in milliseconds.
+    /// It tries to keep the request latency less than this.
+    #[clap(env, long, default_value = "1500ms", value_parser = parse_duration)]
+    pub load_shed_target_latency: Duration,
 }
 
 #[derive(Args)]
