@@ -26,7 +26,7 @@ type FullResponse = response::Response<Vec<u8>>;
 // A list of possible Cache-Control directives that ask us not to cache the response
 const SKIP_CACHE_DIRECTIVES: &[&str] = &["no-store", "no-cache", "max-age=0"];
 
-#[derive(Debug, Clone, PartialEq, Default, IntoStaticStr)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, IntoStaticStr)]
 pub enum CacheStatus {
     #[default]
     Disabled,
@@ -35,7 +35,7 @@ pub enum CacheStatus {
     Miss,
 }
 
-#[derive(Debug, Clone, PartialEq, IntoStaticStr)]
+#[derive(Debug, Clone, PartialEq, Eq, IntoStaticStr)]
 pub enum CacheBypassReason {
     MethodNotCacheable,
     CacheControl,
@@ -115,19 +115,11 @@ impl Cache {
     }
 
     pub async fn get(&self, key: &CacheKey) -> Option<FullResponse> {
-        self.store.get(&key).await
+        self.store.get(key).await
     }
 
     pub async fn insert(&self, key: CacheKey, resp: FullResponse) {
         self.store.insert(key, resp).await;
-    }
-
-    pub fn size(&self) -> u64 {
-        self.store.weighted_size()
-    }
-
-    pub fn len(&self) -> u64 {
-        self.store.entry_count()
     }
 
     pub async fn housekeep(&self) {

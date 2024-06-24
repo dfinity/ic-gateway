@@ -167,11 +167,9 @@ impl VectorActor {
     }
 
     async fn flush(&mut self) -> Result<(), Error> {
-        if self.batch.len() == 0 {
+        if self.batch.is_empty() {
             return Ok(());
         }
-
-        let drain = self.token.is_cancelled();
 
         let mut encoder = self.encoder.clone();
         let body = encoder
@@ -181,6 +179,7 @@ impl VectorActor {
         // Retry until we succeed or token is cancelled
         let mut interval = interval(Duration::from_secs(3));
         let mut retries = 3;
+        let drain = self.token.is_cancelled();
 
         loop {
             select! {

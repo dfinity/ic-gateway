@@ -93,9 +93,15 @@ pub fn prepare_client_config() -> ClientConfig {
     // Use a custom certificate verifier from rustls project that is more secure.
     // It also checks OCSP revocation, though OCSP support for Linux platform for now seems be no-op.
     // https://github.com/rustls/rustls-platform-verifier/issues/99
+
+    // new_with_extra_roots() method isn't available on MacOS, see
+    // https://github.com/rustls/rustls-platform-verifier/issues/58
+    #[cfg(not(target_os = "macos"))]
     let verifier = Arc::new(Verifier::new_with_extra_roots(
         webpki_roots::TLS_SERVER_ROOTS.to_vec(),
     ));
+    #[cfg(target_os = "macos")]
+    let verifier = Arc::new(Verifier::new());
 
     let mut cfg = ClientConfig::builder_with_protocol_versions(&[&TLS13, &TLS12])
         .dangerous() // Nothing really dangerous here

@@ -8,9 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::Error;
 use axum::{
-    async_trait,
     body::Body,
     extract::{Extension, MatchedPath, Request, State},
     middleware::Next,
@@ -18,18 +16,14 @@ use axum::{
     routing::get,
     Router,
 };
-use http::header::CONTENT_TYPE;
 use prometheus::{
-    register_histogram_vec_with_registry, register_int_counter_vec_with_registry,
-    register_int_gauge_with_registry, Encoder, HistogramVec, IntCounterVec, IntGauge, Registry,
-    TextEncoder,
+    register_histogram_vec_with_registry, register_int_counter_vec_with_registry, HistogramVec,
+    IntCounterVec, Registry,
 };
 use serde_json::json;
-use tikv_jemalloc_ctl::{epoch, stats};
-use tokio::{select, sync::RwLock};
-use tokio_util::sync::CancellationToken;
+use tokio::sync::RwLock;
 use tower_http::compression::CompressionLayer;
-use tracing::{debug, info, warn};
+use tracing::info;
 use vector_lib::{config::LogNamespace, event::Event};
 
 use crate::{
@@ -43,7 +37,7 @@ use crate::{
         middleware::{cache::CacheStatus, request_id::RequestId},
         CanisterId, RequestCtx, RequestType, RequestTypeApi,
     },
-    tasks::{Run, TaskManager},
+    tasks::TaskManager,
     tls::sessions,
 };
 use body::CountingBody;

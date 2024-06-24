@@ -1,4 +1,5 @@
 #![allow(clippy::declare_interior_mutable_const)]
+#![allow(clippy::borrow_interior_mutable_const)]
 
 pub mod handler;
 pub mod health_check;
@@ -45,10 +46,10 @@ impl From<&mut HeaderMap> for BNResponseMetadata {
         let mut extract = |h: &HeaderName| -> String {
             v.remove(h)
                 .and_then(|x| x.to_str().ok().map(|x| x.to_string()))
-                .unwrap_or("unknown".into())
+                .unwrap_or_else(|| "unknown".into())
         };
 
-        BNResponseMetadata {
+        Self {
             node_id: extract(&HEADER_IC_NODE_ID),
             subnet_id: extract(&HEADER_IC_SUBNET_ID),
             canister_id_cbor: extract(&HEADER_IC_CANISTER_ID_CBOR),

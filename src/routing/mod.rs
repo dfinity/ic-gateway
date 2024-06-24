@@ -252,8 +252,7 @@ pub fn setup_router(
             .expect("unable to initialize cache"),
         )
     });
-    let cache_middleware =
-        option_layer(cache.map(|x| from_fn_with_state(x.clone(), cache::middleware)));
+    let cache_middleware = option_layer(cache.map(|x| from_fn_with_state(x, cache::middleware)));
 
     // Layers for the main HTTP->IC route
     let http_layers = ServiceBuilder::new()

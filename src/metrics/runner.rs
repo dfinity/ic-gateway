@@ -1,53 +1,18 @@
 use std::{
-    sync::{atomic::Ordering, Arc},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
 use anyhow::Error;
-use axum::{
-    async_trait,
-    body::Body,
-    extract::{Extension, MatchedPath, Request, State},
-    middleware::Next,
-    response::{IntoResponse, Response},
-    routing::get,
-    Router,
-};
+use axum::{async_trait, extract::State, response::IntoResponse};
 use http::header::CONTENT_TYPE;
-use prometheus::{
-    register_histogram_vec_with_registry, register_int_counter_vec_with_registry,
-    register_int_gauge_with_registry, Encoder, HistogramVec, IntCounterVec, IntGauge, Registry,
-    TextEncoder,
-};
-use serde_json::json;
+use prometheus::{register_int_gauge_with_registry, Encoder, IntGauge, Registry, TextEncoder};
 use tikv_jemalloc_ctl::{epoch, stats};
 use tokio::{select, sync::RwLock};
 use tokio_util::sync::CancellationToken;
-use tower_http::compression::CompressionLayer;
-use tracing::{debug, info, warn};
-use vector_lib::{config::LogNamespace, event::Event};
+use tracing::{debug, warn};
 
-use crate::{
-    http::{
-        calc_headers_size, http_version,
-        server::{ConnInfo, TlsInfo},
-    },
-    routing::{
-        error_cause::ErrorCause,
-        ic::{BNResponseMetadata, IcResponseStatus},
-        middleware::{cache::CacheStatus, request_id::RequestId},
-        CanisterId, RequestCtx, RequestType, RequestTypeApi,
-    },
-    tasks::{Run, TaskManager},
-    tls::sessions,
-};
-
-const KB: f64 = 1024.0;
-const METRICS_CACHE_CAPACITY: usize = 15 * 1024 * 1024;
-
-pub const HTTP_DURATION_BUCKETS: &[f64] = &[0.05, 0.2, 1.0, 2.0];
-pub const HTTP_REQUEST_SIZE_BUCKETS: &[f64] = &[128.0, KB, 2.0 * KB, 4.0 * KB, 8.0 * KB];
-pub const HTTP_RESPONSE_SIZE_BUCKETS: &[f64] = &[1.0 * KB, 8.0 * KB, 64.0 * KB, 256.0 * KB];
+use crate::{tasks::Run, tls::sessions};
 
 // https://prometheus.io/docs/instrumenting/exposition_formats/#basic-info
 const PROMETHEUS_CONTENT_TYPE: &str = "text/plain; version=0.0.4";
