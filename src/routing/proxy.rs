@@ -15,7 +15,7 @@ use ic_agent::agent::http_transport::route_provider::RouteProvider;
 use regex::Regex;
 use url::Url;
 
-use super::{body, error_cause::ErrorCause, ApiRequestType, RequestType};
+use super::{body, error_cause::ErrorCause};
 use crate::http::Client;
 
 lazy_static::lazy_static! {

@@ -1,7 +1,6 @@
 pub mod body;
 pub mod domain;
 pub mod error_cause;
-pub mod handler;
 pub mod ic;
 #[allow(clippy::declare_interior_mutable_const)]
 pub mod middleware;
@@ -11,7 +10,7 @@ use std::{sync::Arc, time::Duration};
 
 use anyhow::Error;
 use axum::{
-    extract::{Host, MatchedPath, OriginalUri, Request},
+    extract::{Host, OriginalUri, Request},
     middleware::{from_fn, from_fn_with_state, FromFnLayer},
     response::{IntoResponse, Redirect},
     routing::{get, post},
@@ -45,6 +44,7 @@ use self::middleware::denylist;
 use {
     domain::{Domain, ResolvesDomain},
     error_cause::ErrorCause,
+    ic::handler,
 };
 
 #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
@@ -59,7 +59,7 @@ impl From<CanisterId> for Principal {
 // Type of IC API request
 #[derive(Debug, Clone, Copy, Display, PartialEq, Eq, Hash, IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
-pub enum ApiRequestType {
+pub enum RequestTypeApi {
     Status,
     Query,
     Call,
@@ -74,7 +74,7 @@ pub enum RequestType {
     Health,
     Registrations,
     #[strum(to_string = "{0}")]
-    Api(ApiRequestType),
+    Api(RequestTypeApi),
     Unknown,
 }
 

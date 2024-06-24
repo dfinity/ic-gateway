@@ -166,9 +166,8 @@ pub async fn middleware(
         return Ok(CacheStatus::Bypass(CacheBypassReason::HTTPError).with_response(response));
     }
     // Extract content length from the response header
-    let content_length = extract_content_length(&response).map_err(|_| {
-        ErrorCause::MalformedResponse("Malformed Content-Length header in response".into())
-    })?;
+    let content_length = extract_content_length(&response)
+        .map_err(|_| ErrorCause::Other("Malformed Content-Length header in response".into()))?;
     // Do not cache responses that have no known size (probably streaming etc)
     let body_size = match content_length {
         Some(v) => v,

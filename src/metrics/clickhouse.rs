@@ -20,6 +20,7 @@ pub struct Row {
     pub conn_id: uuid::Uuid,
     pub method: String,
     pub http_version: String,
+    pub request_type: String,
     pub status: u16,
     pub domain: String,
     pub host: String,

@@ -10,7 +10,7 @@ use http::HeaderValue;
 use http_body_util::{BodyExt, LengthLimitError, Limited};
 use ic_http_gateway::{CanisterRequest, HttpGatewayClient, HttpGatewayRequestArgs};
 
-use super::{
+use crate::routing::{
     error_cause::ErrorCause,
     ic::{
         transport::{PassHeaders, PASS_HEADERS},
@@ -19,6 +19,8 @@ use super::{
     middleware::{self, request_id::RequestId},
     CanisterId, RequestCtx,
 };
+
+use super::BNResponseMetadata;
 
 const MAX_REQUEST_BODY_SIZE: usize = 10 * 1_048_576;
 
@@ -61,7 +63,7 @@ pub async fn handler(
     };
 
     // Pass headers in/out the IC request
-    let resp = PASS_HEADERS
+    let (resp, bn_metadata) = PASS_HEADERS
         .scope(PassHeaders::new(), async {
             PASS_HEADERS.with(|x| {
                 let hdr =
@@ -75,7 +77,12 @@ pub async fn handler(
             // Execute the request
             let mut req = state.client.request(args);
             req.unsafe_set_allow_skip_verification(!ctx.verify);
-            req.send().await
+            let resp = req.send().await;
+
+            let bn_metadata =
+                PASS_HEADERS.with(|x| BNResponseMetadata::from(&mut x.borrow_mut().headers_in));
+
+            (resp, bn_metadata)
         })
         .await;
 
@@ -84,5 +91,7 @@ pub async fn handler(
     // Convert it into Axum response
     let mut response = resp.canister_response.into_response();
     response.extensions_mut().insert(ic_status);
+    response.extensions_mut().insert(bn_metadata);
+
     Ok(response)
 }

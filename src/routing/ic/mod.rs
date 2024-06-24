@@ -1,5 +1,6 @@
 #![allow(clippy::declare_interior_mutable_const)]
 
+pub mod handler;
 pub mod health_check;
 pub mod route_provider;
 pub mod transport;
@@ -7,15 +8,14 @@ pub mod transport;
 use std::{fs, sync::Arc};
 
 use anyhow::{Context, Error};
-use axum::extract::Request;
-use http::header::HeaderName;
+use http::{header::HeaderName, HeaderMap};
 use http_body_util::Either;
 use ic_agent::agent::http_transport::route_provider::RouteProvider;
 use ic_http_gateway::{HttpGatewayClient, HttpGatewayResponse, HttpGatewayResponseMetadata};
 
 use crate::{http::Client as HttpClient, Cli};
 
-const HEADER_IC_CACHE: HeaderName = HeaderName::from_static("x-ic-cache-status");
+const HEADER_IC_CACHE_STATUS: HeaderName = HeaderName::from_static("x-ic-cache-status");
 const HEADER_IC_CACHE_BYPASS_REASON: HeaderName =
     HeaderName::from_static("x-ic-cache-bypass-reason");
 const HEADER_IC_SUBNET_ID: HeaderName = HeaderName::from_static("x-ic-subnet-id");
@@ -26,22 +26,40 @@ const HEADER_IC_SENDER: HeaderName = HeaderName::from_static("x-ic-sender");
 const HEADER_IC_RETRIES: HeaderName = HeaderName::from_static("x-ic-retries");
 const HEADER_IC_ERROR_CAUSE: HeaderName = HeaderName::from_static("x-ic-error-cause");
 
+/// Metadata about the request by a Boundary Node (ic-boundary)
 #[derive(Clone)]
 pub struct BNResponseMetadata {
     pub node_id: String,
     pub subnet_id: String,
     pub canister_id_cbor: String,
+    pub sender: String,
     pub method_name: String,
     pub error_cause: String,
-    pub retries: u8,
+    pub retries: String,
     pub cache_status: String,
     pub cache_bypass_reason: String,
 }
 
-impl TryFrom<&Request> for BNResponseMetadata {
-    type Error = Error;
+impl From<&mut HeaderMap> for BNResponseMetadata {
+    fn from(v: &mut HeaderMap) -> Self {
+        let mut extract = |h: &HeaderName| -> String {
+            v.remove(h)
+                .and_then(|x| x.to_str().ok().map(|x| x.to_string()))
+                .unwrap_or("unknown".into())
+        };
 
-    fn try_from(value: &Request) -> Result<Self, Self::Error> {}
+        BNResponseMetadata {
+            node_id: extract(&HEADER_IC_NODE_ID),
+            subnet_id: extract(&HEADER_IC_SUBNET_ID),
+            canister_id_cbor: extract(&HEADER_IC_CANISTER_ID_CBOR),
+            sender: extract(&HEADER_IC_SENDER),
+            method_name: extract(&HEADER_IC_METHOD_NAME),
+            error_cause: extract(&HEADER_IC_ERROR_CAUSE),
+            retries: extract(&HEADER_IC_RETRIES),
+            cache_status: extract(&HEADER_IC_CACHE_STATUS),
+            cache_bypass_reason: extract(&HEADER_IC_CACHE_BYPASS_REASON),
+        }
+    }
 }
 
 #[derive(Clone)]
