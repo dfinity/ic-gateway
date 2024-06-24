@@ -1,3 +1,4 @@
+pub mod cache;
 pub mod canister_match;
 pub mod cors;
 pub mod denylist;

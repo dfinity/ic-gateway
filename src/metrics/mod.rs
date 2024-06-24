@@ -37,7 +37,9 @@ use crate::{
         server::{ConnInfo, TlsInfo},
     },
     routing::{
-        error_cause::ErrorCause, ic::IcResponseStatus, middleware::request_id::RequestId,
+        error_cause::ErrorCause,
+        ic::IcResponseStatus,
+        middleware::{cache::CacheStatus, request_id::RequestId},
         ApiRequestType, CanisterId, RequestCtx, RequestType,
     },
     tasks::{Run, TaskManager},
@@ -389,6 +391,8 @@ pub async fn middleware(
             &domain,
             &status.to_string(),
             &error_cause,
+            cache_status_str,
+            cache_bypass_reason_str,
         ];
 
         // Update metrics
@@ -450,6 +454,8 @@ pub async fn middleware(
             conn_rcvd,
             conn_sent,
             conn_reqs = conn_req_count,
+            cache_status = cache_status_str,
+            cache_bypass_reason = cache_bypass_reason_str,
         );
 
         if let Some(v) = &state.clickhouse {
@@ -478,6 +484,8 @@ pub async fn middleware(
                 duration: duration.as_secs_f64(),
                 duration_full: duration_full.as_secs_f64(),
                 duration_conn: conn_info.accepted_at.elapsed().as_secs_f64(),
+                cache_status: cache_status_str,
+                cache_bypass_reason: cache_bypass_reason_str,
             };
 
             v.send(row);

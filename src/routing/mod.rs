@@ -7,7 +7,7 @@ pub mod ic;
 pub mod middleware;
 pub mod proxy;
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::Error;
 use axum::{
@@ -25,6 +25,7 @@ use http::{method::Method, StatusCode};
 use http::{uri::PathAndQuery, Uri};
 use ic::route_provider::setup_route_provider;
 use little_loadshedder::{LoadShedLayer, LoadShedResponse};
+use middleware::cache::{self, Cache};
 use prometheus::Registry;
 use strum::{Display, IntoStaticStr};
 use tower::{util::MapResponseLayer, ServiceBuilder, ServiceExt};
@@ -240,10 +241,25 @@ pub fn setup_router(
         get(proxy::api_proxy).layer(cors_get).with_state(state_api),
     );
 
+    // Caching
+    let cache = cli.cache.cache_size_bytes.map(|x| {
+        Arc::new(
+            Cache::new(
+                x,
+                cli.cache.cache_max_item_size_bytes,
+                Duration::from_secs(cli.cache.cache_ttl_seconds),
+            )
+            .expect("unable to initialize cache"),
+        )
+    });
+    let cache_middleware =
+        option_layer(cache.map(|x| from_fn_with_state(x.clone(), cache::middleware)));
+
     // Layers for the main HTTP->IC route
     let http_layers = ServiceBuilder::new()
         .layer(option_layer(denylist_mw))
-        .layer(option_layer(canister_match_mw));
+        .layer(option_layer(canister_match_mw))
+        .layer(cache_middleware);
 
     let router_http = Router::new().fallback(
         post(handler::handler)
