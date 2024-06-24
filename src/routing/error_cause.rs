@@ -33,7 +33,6 @@ pub enum RateLimitCause {
 #[derive(Debug, Clone)]
 pub enum ErrorCause {
     UnableToReadBody(String),
-    PayloadTooLarge(usize),
     LoadShed,
     RequestTooLarge,
     IncorrectPrincipal,
@@ -60,7 +59,6 @@ impl ErrorCause {
     pub const fn status_code(&self) -> StatusCode {
         match self {
             Self::Other(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::PayloadTooLarge(_) => StatusCode::PAYLOAD_TOO_LARGE,
             Self::UnableToReadBody(_) => StatusCode::REQUEST_TIMEOUT,
             Self::LoadShed => StatusCode::TOO_MANY_REQUESTS,
             Self::RequestTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
@@ -87,7 +85,6 @@ impl ErrorCause {
     pub fn details(&self) -> Option<String> {
         match self {
             Self::Other(x) => Some(x.clone()),
-            Self::PayloadTooLarge(x) => Some(format!("maximum body size is {x} bytes")),
             Self::UnableToReadBody(x) => Some(x.clone()),
             Self::LoadShed => Some("Overloaded".into()),
             Self::MalformedRequest(x) => Some(x.clone()),
@@ -108,10 +105,6 @@ impl ErrorCause {
             _ => None,
         }
     }
-
-    pub fn from_err(e: impl StdError + Send + Sync + 'static) -> Self {
-        anyhow::Error::new(e).into()
-    }
 }
 
 impl fmt::Display for ErrorCause {
@@ -119,7 +112,6 @@ impl fmt::Display for ErrorCause {
         match self {
             Self::Other(_) => write!(f, "general_error"),
             Self::UnableToReadBody(_) => write!(f, "unable_to_read_body"),
-            Self::PayloadTooLarge(_) => write!(f, "payload_too_large"),
             Self::LoadShed => write!(f, "load_shed"),
             Self::RequestTooLarge => write!(f, "request_too_large"),
             Self::IncorrectPrincipal => write!(f, "incorrect_principal"),

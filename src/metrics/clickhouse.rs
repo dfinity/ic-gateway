@@ -82,7 +82,7 @@ pub struct ClickhouseActor {
 }
 
 impl ClickhouseActor {
-    pub fn new(c: cli::Clickhouse, rx: Receiver<Row>) -> Result<Self, Error> {
+    fn new(c: cli::Clickhouse, rx: Receiver<Row>) -> Result<Self, Error> {
         let mut client = Client::default().with_url(
             c.log_clickhouse_url
                 .ok_or_else(|| anyhow!("no URL specified"))?,

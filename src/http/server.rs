@@ -160,7 +160,6 @@ impl TryFrom<&ServerConnection> for TlsInfo {
 pub struct ConnInfo {
     pub id: Uuid,
     pub accepted_at: Instant,
-    pub local_addr: SocketAddr,
     pub remote_addr: SocketAddr,
     pub traffic: Arc<Stats>,
     pub req_count: AtomicU64,
@@ -245,7 +244,6 @@ impl Conn {
         let conn_info = Arc::new(ConnInfo {
             id: Uuid::now_v7(),
             accepted_at,
-            local_addr: self.addr,
             remote_addr: self.remote_addr,
             traffic: stats.clone(),
             req_count: AtomicU64::new(0),

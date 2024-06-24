@@ -103,7 +103,6 @@ mod tests {
         let conn_info = ConnInfo {
             id: Uuid::now_v7(),
             accepted_at: std::time::Instant::now(),
-            local_addr: "127.0.0.1:8080".parse().unwrap(),
             remote_addr: "127.0.0.1:8080".parse().unwrap(),
             traffic: Arc::new(Stats::new()),
             req_count: AtomicU64::new(0),

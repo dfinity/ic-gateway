@@ -9,7 +9,7 @@ use tracing::warn;
 
 use crate::{
     cli::Cli,
-    http, log, metrics,
+    http, metrics,
     routing::{self},
     tasks::TaskManager,
     tls::{self},
@@ -56,9 +56,16 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     ));
     let clickhouse = if cli.log.clickhouse.log_clickhouse_url.is_some() {
         Some(Arc::new(
-            log::clickhouse::Clickhouse::new(&cli.log.clickhouse)
-                .context("unable to init Clickhouse")?,
+            metrics::Clickhouse::new(&cli.log.clickhouse).context("unable to init Clickhouse")?,
         ))
+    } else {
+        None
+    };
+    let vector = if cli.log.vector.log_vector_url.is_some() {
+        Some(Arc::new(metrics::Vector::new(
+            &cli.log.vector,
+            http_client.clone(),
+        )))
     } else {
         None
     };
@@ -92,6 +99,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         http_client.clone(),
         &registry,
         clickhouse.clone(),
+        vector.clone(),
     )?;
     let http_router = Router::new().fallback(routing::redirect_to_https);
 
@@ -140,8 +148,11 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     warn!("Shutdown signal received, cleaning up");
     tasks.stop().await;
 
-    // Clickhouse should stop last to ensure that all requests are finished & flushed
+    // Clickhouse/Vector should stop last to ensure that all requests are finished & flushed
     if let Some(v) = clickhouse {
+        v.stop().await;
+    }
+    if let Some(v) = vector {
         v.stop().await;
     }
 

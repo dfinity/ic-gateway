@@ -17,7 +17,7 @@ use rustls::{
     compress::CompressionCache,
     server::{ResolvesServerCert as ResolvesServerCertRustls, ServerConfig, StoresServerSessions},
     version::{TLS12, TLS13},
-    RootCertStore, TicketSwitcher,
+    TicketSwitcher,
 };
 use rustls_platform_verifier::Verifier;
 
@@ -65,7 +65,10 @@ pub fn prepare_server_config(
     let session_storage = sessions::WithMetrics(session_storage, sessions::Metrics::new(registry));
     cfg.session_storage = Arc::new(session_storage);
 
-    // Enable ticketer to encrypt/decrypt TLS tickets
+    // Enable ticketer to encrypt/decrypt TLS tickets.
+    // TicketSwitcher rotates the inner ticketers every `ticket_lifetime`
+    // while keeping the previous one available for decryption of tickets
+    // issued earlier than `ticket_lifetime` ago.
     let ticketer = tickets::WithMetrics(
         TicketSwitcher::new(ticket_lifetime.as_secs() as u32, move || {
             Ok(Box::new(tickets::Ticketer::new()))
@@ -75,7 +78,7 @@ pub fn prepare_server_config(
     );
     cfg.ticketer = Arc::new(ticketer);
 
-    // Enable larger certificate compression caching.
+    // Enable certificate compression cache.
     // See https://datatracker.ietf.org/doc/rfc8879/ for details
     cfg.cert_compression_cache = Arc::new(CompressionCache::new(1024));
 
@@ -87,14 +90,16 @@ pub fn prepare_server_config(
 }
 
 pub fn prepare_client_config() -> ClientConfig {
-    let root_store = RootCertStore {
-        roots: webpki_roots::TLS_SERVER_ROOTS.into(),
-    };
+    // Use a custom certificate verifier from rustls project that is more secure.
+    // It also checks OCSP revocation, though OCSP support for Linux platform for now seems be no-op.
+    // https://github.com/rustls/rustls-platform-verifier/issues/99
+    let verifier = Arc::new(Verifier::new_with_extra_roots(
+        webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+    ));
 
-    // TODO no revocation checking currently
     let mut cfg = ClientConfig::builder_with_protocol_versions(&[&TLS13, &TLS12])
         .dangerous() // Nothing really dangerous here
-        .with_custom_certificate_verifier(Arc::new(Verifier::new()))
+        .with_custom_certificate_verifier(verifier)
         .with_no_client_auth();
 
     // Session resumption

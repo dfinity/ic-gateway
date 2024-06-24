@@ -1,5 +1,4 @@
-use std::collections::HashSet;
-
+use ahash::AHashSet;
 use candid::Principal;
 use fqdn::{Fqdn, FQDN};
 
@@ -37,7 +36,7 @@ pub fn is_system_subnet(canister_id: Principal) -> bool {
 // Things needed to verify domain-canister match
 #[derive(derive_new::new)]
 pub struct DomainCanisterMatcher {
-    pre_isolation_canisters: HashSet<Principal>,
+    pre_isolation_canisters: AHashSet<Principal>,
     domains_app: Vec<FQDN>,
     domains_system: Vec<FQDN>,
 }
@@ -80,7 +79,7 @@ mod tests {
 
     #[test]
     fn test_domain_canister_match() {
-        let mut pic = HashSet::new();
+        let mut pic = AHashSet::new();
         pic.insert(Principal::from_text("2dcn6-oqaaa-aaaai-abvoq-cai").unwrap());
 
         let dcm = DomainCanisterMatcher::new(pic, vec![fqdn!("icp0.io")], vec![fqdn!("ic0.app")]);

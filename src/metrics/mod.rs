@@ -1,4 +1,6 @@
 pub mod body;
+pub mod clickhouse;
+pub mod vector;
 
 use std::{
     sync::{atomic::Ordering, Arc},
@@ -16,23 +18,24 @@ use axum::{
     Router,
 };
 use http::header::CONTENT_TYPE;
-use jemalloc_ctl::{epoch, stats};
 use prometheus::{
     register_histogram_vec_with_registry, register_int_counter_vec_with_registry,
     register_int_gauge_with_registry, Encoder, HistogramVec, IntCounterVec, IntGauge, Registry,
     TextEncoder,
 };
+use serde_json::json;
+use tikv_jemalloc_ctl::{epoch, stats};
 use tokio::{select, sync::RwLock};
 use tokio_util::sync::CancellationToken;
 use tower_http::compression::CompressionLayer;
 use tracing::{debug, info, warn};
+use vector_lib::{config::LogNamespace, event::Event};
 
 use crate::{
     http::{
         calc_headers_size, http_version,
         server::{ConnInfo, TlsInfo},
     },
-    log::clickhouse::{Clickhouse, Row},
     routing::{
         error_cause::ErrorCause,
         ic::IcResponseStatus,
@@ -43,6 +46,11 @@ use crate::{
     tls::sessions,
 };
 use body::CountingBody;
+
+pub use {
+    clickhouse::{Clickhouse, Row},
+    vector::Vector,
+};
 
 const KB: f64 = 1024.0;
 const METRICS_CACHE_CAPACITY: usize = 15 * 1024 * 1024;
@@ -229,6 +237,7 @@ pub struct HttpMetrics {
     pub response_size: HistogramVec,
 
     pub clickhouse: Option<Arc<Clickhouse>>,
+    pub vector: Option<Arc<Vector>>,
 }
 
 impl HttpMetrics {
@@ -237,6 +246,7 @@ impl HttpMetrics {
         env: String,
         hostname: String,
         clickhouse: Option<Arc<Clickhouse>>,
+        vector: Option<Arc<Vector>>,
     ) -> Self {
         const LABELS_HTTP: &[&str] = &["tls", "method", "http", "domain", "status", "error"];
 
@@ -244,6 +254,7 @@ impl HttpMetrics {
             env,
             hostname,
             clickhouse,
+            vector,
 
             requests: register_int_counter_vec_with_registry!(
                 format!("http_total"),
@@ -453,13 +464,13 @@ pub async fn middleware(
                 method: method.as_str().to_string(),
                 http_version: http_version.to_string(),
                 status,
-                domain,
+                domain: domain.clone(),
                 host: host.into(),
                 path: path.into(),
-                canister_id,
+                canister_id: canister_id.clone(),
                 ic_streaming,
                 ic_upgrade,
-                error_cause,
+                error_cause: error_cause.clone(),
                 tls_version: tls_version.into(),
                 tls_cipher: tls_cipher.into(),
                 req_rcvd: request_size,
@@ -474,6 +485,42 @@ pub async fn middleware(
             };
 
             v.send(row);
+        }
+
+        if let Some(v) = &state.vector {
+            // Convert to Vector Event
+            let event = Event::from_json_value(
+                json!({
+                    "env": state.env.clone(),
+                    "hostname": state.hostname.clone(),
+                    "date": timestamp.unix_timestamp(),
+                    "request_id": request_id.to_string(),
+                    "conn_id": conn_info.id.to_string(),
+                    "method": method.as_str().to_string(),
+                    "http_version": http_version.to_string(),
+                    "status": status,
+                    "domain": domain,
+                    "host": host,
+                    "path": path,
+                    "canister_id": canister_id,
+                    "ic_streaming": ic_streaming,
+                    "ic_upgrade": ic_upgrade,
+                    "error_cause": error_cause,
+                    "tls_version": tls_version.to_string(),
+                    "tls_cipher": tls_cipher.to_string(),
+                    "req_rcvd": request_size,
+                    "req_sent": response_size,
+                    "conn_rcvd": conn_rcvd,
+                    "conn_sent": conn_sent,
+                    "duration": duration.as_secs_f64(),
+                    "duration_full": duration_full.as_secs_f64(),
+                    "duration_conn": conn_info.accepted_at.elapsed().as_secs_f64(),
+                }),
+                LogNamespace::Vector,
+            )
+            .unwrap(); // This never fails in our case
+
+            v.send(event);
         }
     };
 
