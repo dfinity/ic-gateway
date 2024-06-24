@@ -61,6 +61,9 @@ pub struct Cli {
 
     #[command(flatten, next_help_heading = "Misc")]
     pub misc: Misc,
+
+    #[command(flatten, next_help_heading = "Cache")]
+    pub cache: CacheConfig,
 }
 
 #[derive(Args)]
@@ -393,6 +396,19 @@ pub struct Misc {
     /// Default to the number of CPUs
     #[clap(env, long)]
     pub threads: Option<usize>,
+}
+
+#[derive(Args)]
+pub struct CacheConfig {
+    /// Maximum size of in-memory cache in bytes. Specify a size to enable caching.
+    #[clap(env, long)]
+    pub cache_size_bytes: Option<u64>,
+    /// Maximum size of a single cached response item in bytes
+    #[clap(env, long, default_value = "10MB", value_parser = parse_size)]
+    pub cache_max_item_size_bytes: u64,
+    /// Time-to-live for cache entries in seconds
+    #[clap(env, long, default_value = "10")]
+    pub cache_ttl_seconds: u64,
 }
 
 // Some conversions

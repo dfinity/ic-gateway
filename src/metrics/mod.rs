@@ -37,7 +37,9 @@ use crate::{
         server::{ConnInfo, TlsInfo},
     },
     routing::{
-        error_cause::ErrorCause, ic::IcResponseStatus, middleware::request_id::RequestId,
+        error_cause::ErrorCause,
+        ic::IcResponseStatus,
+        middleware::{cache::CacheStatus, request_id::RequestId},
         CanisterId, RequestCtx,
     },
     tasks::{Run, TaskManager},
@@ -336,6 +338,20 @@ pub async fn middleware(
     let ic_status = response.extensions().get::<IcResponseStatus>().cloned();
     let status = response.status().as_u16();
 
+    // Gather cache info
+    let cache_status = response
+        .extensions()
+        .get::<CacheStatus>()
+        .cloned()
+        .unwrap_or_default();
+
+    let cache_bypass_reason_str: &'static str = match &cache_status {
+        CacheStatus::Bypass(v) => v.into(),
+        _ => "none",
+    };
+
+    let cache_status_str: &'static str = cache_status.into();
+
     // By this time the channel should already have the data
     // since the response headers are already received -> request body was for sure read (or an error happened)
     let request_size = rx.recv().unwrap_or(0) + request_size_headers;
@@ -371,6 +387,8 @@ pub async fn middleware(
             &domain,
             &status.to_string(),
             &error_cause,
+            cache_status_str,
+            cache_bypass_reason_str,
         ];
 
         // Update metrics
@@ -432,6 +450,8 @@ pub async fn middleware(
             conn_rcvd,
             conn_sent,
             conn_reqs = conn_req_count,
+            cache_status = cache_status_str,
+            cache_bypass_reason = cache_bypass_reason_str,
         );
 
         if let Some(v) = &state.clickhouse {
@@ -460,6 +480,8 @@ pub async fn middleware(
                 duration: duration.as_secs_f64(),
                 duration_full: duration_full.as_secs_f64(),
                 duration_conn: conn_info.accepted_at.elapsed().as_secs_f64(),
+                cache_status: cache_status_str,
+                cache_bypass_reason: cache_bypass_reason_str,
             };
 
             v.send(row);
