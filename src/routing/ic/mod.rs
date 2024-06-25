@@ -16,22 +16,28 @@ use ic_http_gateway::{HttpGatewayClient, HttpGatewayResponse, HttpGatewayRespons
 
 use crate::{http::Client as HttpClient, Cli};
 
-const HEADER_IC_CACHE_STATUS: HeaderName = HeaderName::from_static("x-ic-cache-status");
-const HEADER_IC_CACHE_BYPASS_REASON: HeaderName =
+pub const HEADER_IC_CACHE_STATUS: HeaderName = HeaderName::from_static("x-ic-cache-status");
+pub const HEADER_IC_CACHE_BYPASS_REASON: HeaderName =
     HeaderName::from_static("x-ic-cache-bypass-reason");
-const HEADER_IC_SUBNET_ID: HeaderName = HeaderName::from_static("x-ic-subnet-id");
-const HEADER_IC_NODE_ID: HeaderName = HeaderName::from_static("x-ic-node-id");
-const HEADER_IC_CANISTER_ID_CBOR: HeaderName = HeaderName::from_static("x-ic-canister-id-cbor");
-const HEADER_IC_METHOD_NAME: HeaderName = HeaderName::from_static("x-ic-method-name");
-const HEADER_IC_SENDER: HeaderName = HeaderName::from_static("x-ic-sender");
-const HEADER_IC_RETRIES: HeaderName = HeaderName::from_static("x-ic-retries");
-const HEADER_IC_ERROR_CAUSE: HeaderName = HeaderName::from_static("x-ic-error-cause");
+pub const HEADER_IC_SUBNET_ID: HeaderName = HeaderName::from_static("x-ic-subnet-id");
+pub const HEADER_IC_NODE_ID: HeaderName = HeaderName::from_static("x-ic-node-id");
+pub const HEADER_IC_SUBNET_TYPE: HeaderName = HeaderName::from_static("x-ic-subnet-type");
+pub const HEADER_IC_CANISTER_ID_CBOR: HeaderName = HeaderName::from_static("x-ic-canister-id-cbor");
+pub const HEADER_IC_METHOD_NAME: HeaderName = HeaderName::from_static("x-ic-method-name");
+pub const HEADER_IC_SENDER: HeaderName = HeaderName::from_static("x-ic-sender");
+pub const HEADER_IC_RETRIES: HeaderName = HeaderName::from_static("x-ic-retries");
+pub const HEADER_IC_ERROR_CAUSE: HeaderName = HeaderName::from_static("x-ic-error-cause");
+pub const HEADER_IC_REQUEST_TYPE: HeaderName = HeaderName::from_static("x-ic-request-type");
+pub const HEADER_IC_CANISTER_ID: HeaderName = HeaderName::from_static("x-ic-canister-id");
+pub const HEADER_IC_COUNTRY_CODE: http::HeaderName =
+    http::HeaderName::from_static("x-ic-country-code");
 
 /// Metadata about the request by a Boundary Node (ic-boundary)
 #[derive(Clone)]
 pub struct BNResponseMetadata {
     pub node_id: String,
     pub subnet_id: String,
+    pub subnet_type: String,
     pub canister_id_cbor: String,
     pub sender: String,
     pub method_name: String,
@@ -41,17 +47,28 @@ pub struct BNResponseMetadata {
     pub cache_bypass_reason: String,
 }
 
+// This defaults to all fields as ""
+impl Default for BNResponseMetadata {
+    fn default() -> Self {
+        let mut map = HeaderMap::new();
+        Self::from(&mut map)
+    }
+}
+
 impl From<&mut HeaderMap> for BNResponseMetadata {
     fn from(v: &mut HeaderMap) -> Self {
         let mut extract = |h: &HeaderName| -> String {
             v.remove(h)
+                // It seems there's no way to get the inner Bytes from HeaderValue,
+                // so we'll have to accept the allocation
                 .and_then(|x| x.to_str().ok().map(|x| x.to_string()))
-                .unwrap_or_else(|| "unknown".into())
+                .unwrap_or_else(|| "".into())
         };
 
         Self {
             node_id: extract(&HEADER_IC_NODE_ID),
             subnet_id: extract(&HEADER_IC_SUBNET_ID),
+            subnet_type: extract(&HEADER_IC_SUBNET_TYPE),
             canister_id_cbor: extract(&HEADER_IC_CANISTER_ID_CBOR),
             sender: extract(&HEADER_IC_SENDER),
             method_name: extract(&HEADER_IC_METHOD_NAME),

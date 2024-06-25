@@ -122,12 +122,22 @@ impl Cache {
         self.store.insert(key, resp).await;
     }
 
+    #[cfg(test)]
     pub async fn housekeep(&self) {
         self.store.run_pending_tasks().await;
     }
 
-    // For now stuff below is used only in tests, but belongs here
-    #[allow(dead_code)]
+    #[cfg(test)]
+    pub fn size(&self) -> u64 {
+        self.store.weighted_size()
+    }
+
+    #[cfg(test)]
+    pub fn len(&self) -> u64 {
+        self.store.entry_count()
+    }
+
+    #[cfg(test)]
     async fn clear(&self) {
         self.store.invalidate_all();
         self.housekeep().await;

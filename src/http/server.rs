@@ -158,6 +158,12 @@ pub struct ConnInfo {
     pub req_count: AtomicU64,
 }
 
+impl ConnInfo {
+    pub fn req_count(&self) -> u64 {
+        self.req_count.load(Ordering::SeqCst)
+    }
+}
+
 struct Conn {
     addr: SocketAddr,
     remote_addr: SocketAddr,

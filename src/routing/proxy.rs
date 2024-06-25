@@ -15,7 +15,7 @@ use ic_agent::agent::http_transport::route_provider::RouteProvider;
 use regex::Regex;
 use url::Url;
 
-use super::{body, error_cause::ErrorCause};
+use super::{body, error_cause::ErrorCause, ic::BNResponseMetadata};
 use crate::http::Client;
 
 lazy_static::lazy_static! {
@@ -85,6 +85,8 @@ pub async fn api_proxy(
         .await
         .map_err(ErrorCause::from)?;
 
+    let bn_metadata = BNResponseMetadata::from(response.headers_mut());
+    response.extensions_mut().insert(bn_metadata);
     response.extensions_mut().insert(matched_path);
     Ok(response)
 }

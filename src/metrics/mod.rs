@@ -4,7 +4,7 @@ pub mod runner;
 pub mod vector;
 
 use std::{
-    sync::{atomic::Ordering, Arc},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -225,7 +225,10 @@ pub async fn middleware(
         .unwrap_or(RequestType::Http);
     let request_type: &'static str = request_type.into();
 
-    let bn_metadata = response.extensions_mut().remove::<BNResponseMetadata>();
+    let meta = response
+        .extensions_mut()
+        .remove::<BNResponseMetadata>()
+        .unwrap_or_default();
 
     // By this time the channel should already have the data
     // since the response headers are already received -> request body was for sure read (or an error happened)
@@ -235,6 +238,7 @@ pub async fn middleware(
     // or the error happens
     let response_callback = move |response_size: u64, _: Result<(), String>| {
         let duration_full = start.elapsed();
+        let meta = meta.clone();
 
         let (tls_version, tls_cipher, tls_handshake) = tls_info
             .as_ref()
@@ -293,7 +297,7 @@ pub async fn middleware(
 
         let conn_rcvd = conn_info.traffic.rcvd();
         let conn_sent = conn_info.traffic.sent();
-        let conn_req_count = conn_info.req_count.load(Ordering::SeqCst);
+        let conn_req_count = conn_info.req_count();
 
         let (ic_streaming, ic_upgrade) = ic_status
             .as_ref()
@@ -316,6 +320,16 @@ pub async fn middleware(
             canister_id,
             ic_streaming,
             ic_upgrade,
+            ic_node_id = meta.node_id,
+            ic_subnet_id = meta.subnet_id,
+            ic_subnet_type = meta.subnet_type,
+            ic_method_name = meta.method_name,
+            ic_sender = meta.sender,
+            ic_canister_id_cbor = meta.canister_id_cbor,
+            ic_error_cause = meta.error_cause,
+            ic_retries = meta.retries,
+            ic_cache_status = meta.cache_status,
+            ic_cache_bypass_reason = meta.cache_bypass_reason,
             error = error_cause,
             req_size = request_size,
             resp_size = response_size,
@@ -330,6 +344,8 @@ pub async fn middleware(
         );
 
         if let Some(v) = &state.clickhouse {
+            let meta = meta.clone();
+
             let row = Row {
                 env: state.env.clone(),
                 hostname: state.hostname.clone(),
@@ -346,6 +362,16 @@ pub async fn middleware(
                 canister_id: canister_id.clone(),
                 ic_streaming,
                 ic_upgrade,
+                ic_node_id: meta.node_id,
+                ic_subnet_id: meta.subnet_id,
+                ic_subnet_type: meta.subnet_type,
+                ic_method_name: meta.method_name,
+                ic_sender: meta.sender,
+                ic_canister_id_cbor: meta.canister_id_cbor,
+                ic_error_cause: meta.error_cause,
+                ic_retries: meta.retries.parse().unwrap_or(0),
+                ic_cache_status: meta.cache_status,
+                ic_cache_bypass_reason: meta.cache_bypass_reason,
                 error_cause: error_cause.clone(),
                 tls_version: tls_version.into(),
                 tls_cipher: tls_cipher.into(),
@@ -382,6 +408,16 @@ pub async fn middleware(
                     "canister_id": canister_id,
                     "ic_streaming": ic_streaming,
                     "ic_upgrade": ic_upgrade,
+                    "ic_node_id": meta.node_id,
+                    "ic_subnet_id": meta.subnet_id,
+                    "ic_subnet_type": meta.subnet_type,
+                    "ic_method_name": meta.method_name,
+                    "ic_sender": meta.sender,
+                    "ic_canister_id_cbor": meta.canister_id_cbor,
+                    "ic_error_cause": meta.error_cause,
+                    "ic_retries": meta.retries,
+                    "ic_cache_status": meta.cache_status,
+                    "ic_cache_bypass_reason": meta.cache_bypass_reason,
                     "error_cause": error_cause,
                     "tls_version": tls_version.to_string(),
                     "tls_cipher": tls_cipher.to_string(),
