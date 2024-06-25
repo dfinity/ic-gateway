@@ -28,7 +28,7 @@ use vector_lib::{config::LogNamespace, event::Event};
 
 use crate::{
     http::{
-        calc_headers_size, http_version,
+        calc_headers_size, http_method, http_version,
         server::{ConnInfo, TlsInfo},
     },
     routing::{
@@ -169,16 +169,13 @@ pub async fn middleware(
 ) -> impl IntoResponse {
     // Prepare to execute the request and count its body size
     let (parts, body) = request.into_parts();
-    let (tx, rx) = std::sync::mpsc::sync_channel(1);
-    let request_callback = move |size: u64, _: Result<(), String>| {
-        let _ = tx.send(size);
-    };
-    let body = Body::new(CountingBody::new(body, request_callback));
+    let (body, rx) = CountingBody::new(body);
+    let body = Body::new(body);
     let request = Request::from_parts(parts, body);
 
     // Gather needed stuff from request before it's consumed
-    let method = request.method().clone();
-    let http_version = http_version(request.version());
+    let method: &'static str = http_method(request.method());
+    let http_version: &'static str = http_version(request.version());
     let request_size_headers = calc_headers_size(request.headers()) as u64;
     let uri = request.uri().clone();
 
@@ -232,11 +229,16 @@ pub async fn middleware(
 
     // By this time the channel should already have the data
     // since the response headers are already received -> request body was for sure read (or an error happened)
-    let request_size = rx.recv().unwrap_or(0) + request_size_headers;
+    let request_size = rx.await.unwrap_or(Ok(0)).unwrap_or(0) + request_size_headers;
 
-    // The callback will be executed when the streaming of the response body to the client will finish
-    // or the error happens
-    let response_callback = move |response_size: u64, _: Result<(), String>| {
+    let (parts, body) = response.into_parts();
+    let (body, rx) = CountingBody::new(body);
+
+    // Fire up a task that will receive the size of the body when it's done streaming and will log the results
+    tokio::spawn(async move {
+        // Wait for the streaming to finish
+        let response_size = rx.await.unwrap_or(Ok(0)).unwrap_or(0);
+
         let duration_full = start.elapsed();
         let meta = meta.clone();
 
@@ -249,19 +251,19 @@ pub async fn middleware(
                     x.handshake_dur,
                 )
             })
-            .unwrap_or(("no", "no", Duration::ZERO));
+            .unwrap_or(("", "", Duration::ZERO));
         let domain = ctx
             .as_ref()
             .map(|x| x.domain.name.to_string())
-            .unwrap_or_else(|| "unknown".into());
+            .unwrap_or_else(|| "".into());
         let error_cause = error_cause
             .clone()
             .map(|x| x.to_string())
-            .unwrap_or_else(|| "no".into());
+            .unwrap_or_else(|| "".into());
 
         let labels = &[
             tls_version,
-            method.as_str(),
+            method,
             http_version,
             &domain,
             &status.to_string(),
@@ -293,7 +295,7 @@ pub async fn middleware(
         let path = uri.path();
         let canister_id = canister_id
             .map(|x| x.0.to_string())
-            .unwrap_or_else(|| "unknown".into());
+            .unwrap_or_else(|| "".into());
 
         let conn_rcvd = conn_info.traffic.rcvd();
         let conn_sent = conn_info.traffic.sent();
@@ -308,7 +310,7 @@ pub async fn middleware(
         info!(
             request_id = request_id.to_string(),
             conn_id = conn_info.id.to_string(),
-            method = method.as_str(),
+            method,
             http = http_version,
             status,
             tls_version,
@@ -352,9 +354,9 @@ pub async fn middleware(
                 date: timestamp,
                 request_id: request_id.0,
                 conn_id: conn_info.id,
-                method: method.as_str().to_string(),
-                http_version: http_version.to_string(),
-                request_type: request_type.to_string(),
+                method,
+                http_version,
+                request_type,
                 status,
                 domain: domain.clone(),
                 host: host.into(),
@@ -398,7 +400,7 @@ pub async fn middleware(
                     "date": timestamp.unix_timestamp(),
                     "request_id": request_id.to_string(),
                     "conn_id": conn_info.id.to_string(),
-                    "method": method.as_str().to_string(),
+                    "method": method,
                     "http_version": http_version.to_string(),
                     "request_type": request_type,
                     "status": status,
@@ -428,6 +430,8 @@ pub async fn middleware(
                     "duration": duration.as_secs_f64(),
                     "duration_full": duration_full.as_secs_f64(),
                     "duration_conn": conn_info.accepted_at.elapsed().as_secs_f64(),
+                    "cache_status": cache_status_str,
+                    "cache_bypass_reason": cache_bypass_reason_str,
                 }),
                 LogNamespace::Vector,
             )
@@ -435,9 +439,7 @@ pub async fn middleware(
 
             v.send(event);
         }
-    };
+    });
 
-    let (parts, body) = response.into_parts();
-    let body = CountingBody::new(body, response_callback);
     Response::from_parts(parts, body)
 }

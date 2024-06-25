@@ -13,7 +13,7 @@ use std::{
 };
 
 use derive_new::new;
-use http::{HeaderMap, Version};
+use http::{HeaderMap, Method, Version};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 pub use client::{Client, ReqwestClient};
@@ -30,6 +30,7 @@ pub fn calc_headers_size(h: &HeaderMap) -> usize {
     h.iter().map(|(k, v)| k.as_str().len() + v.len() + 2).sum()
 }
 
+/// Some non-allocating functions to get static str
 pub const fn http_version(v: Version) -> &'static str {
     match v {
         Version::HTTP_09 => "0.9",
@@ -38,6 +39,21 @@ pub const fn http_version(v: Version) -> &'static str {
         Version::HTTP_2 => "2.0",
         Version::HTTP_3 => "3.0",
         _ => "-",
+    }
+}
+
+pub const fn http_method(v: &Method) -> &'static str {
+    match *v {
+        Method::OPTIONS => "OPTIONS",
+        Method::GET => "GET",
+        Method::POST => "POST",
+        Method::PUT => "PUT",
+        Method::DELETE => "DELETE",
+        Method::HEAD => "HEAD",
+        Method::TRACE => "TRACE",
+        Method::CONNECT => "CONNECT",
+        Method::PATCH => "PATCH",
+        _ => "",
     }
 }
 

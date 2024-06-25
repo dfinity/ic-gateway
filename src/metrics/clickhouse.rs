@@ -18,9 +18,9 @@ pub struct Row {
     #[serde(with = "clickhouse::serde::uuid")]
     pub request_id: uuid::Uuid,
     pub conn_id: uuid::Uuid,
-    pub method: String,
-    pub http_version: String,
-    pub request_type: String,
+    pub method: &'static str,
+    pub http_version: &'static str,
+    pub request_type: &'static str,
     pub status: u16,
     pub domain: String,
     pub host: String,

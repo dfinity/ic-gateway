@@ -1,60 +1,53 @@
-use bytes::Buf;
-use http_body::{Body, Frame, SizeHint};
 use std::{
     pin::{pin, Pin},
-    sync::atomic::AtomicBool,
     task::{Context, Poll},
 };
 
+use bytes::Buf;
+use http_body::{Body, Frame, SizeHint};
+use tokio::sync::oneshot::{self, Receiver, Sender};
+
 use crate::http::calc_headers_size;
+
+pub type BodyResult = Result<u64, String>;
 
 // Body that counts the bytes streamed
 pub struct CountingBody<D, E> {
     inner: Pin<Box<dyn Body<Data = D, Error = E> + Send + 'static>>,
-    callback: Box<dyn Fn(u64, Result<(), String>) + Send + 'static>,
-    callback_done: AtomicBool,
+    tx: Option<Sender<BodyResult>>,
     expected_size: Option<u64>,
     bytes_sent: u64,
 }
 
 impl<D, E> CountingBody<D, E> {
-    pub fn new<B>(inner: B, callback: impl Fn(u64, Result<(), String>) + Send + 'static) -> Self
+    pub fn new<B>(inner: B) -> (Self, Receiver<BodyResult>)
     where
         B: Body<Data = D, Error = E> + Send + 'static,
         D: Buf,
     {
         let expected_size = inner.size_hint().exact();
+        let (tx, rx) = oneshot::channel();
 
         let mut body = Self {
             inner: Box::pin(inner),
-            callback: Box::new(callback),
-            callback_done: AtomicBool::new(false),
+            tx: Some(tx),
             expected_size,
             bytes_sent: 0,
         };
 
-        // If the size is known and zero - just execute the callback now,
+        // If the size is known and zero - finish now,
         // otherwise it won't be called anywhere else
         if expected_size == Some(0) {
-            body.do_callback(Ok(()));
+            body.finish(Ok(0));
         }
 
-        body
+        (body, rx)
     }
 
-    // It seems that in certain cases the users of Body trait can cause us to run callbacks more than once.
-    // Use AtomicBool to prevent that and run it at most once.
-    pub fn do_callback(&mut self, res: Result<(), String>) {
-        // Make locking scope shorter
-        {
-            let done = self.callback_done.get_mut();
-            if *done {
-                return;
-            }
-            *done = true;
+    pub fn finish(&mut self, res: Result<u64, String>) {
+        if let Some(v) = self.tx.take() {
+            let _ = v.send(res);
         }
-
-        (self.callback)(self.bytes_sent, res);
     }
 }
 
@@ -86,19 +79,23 @@ where
 
                     // Check if we already got what was expected
                     if Some(self.bytes_sent) >= self.expected_size {
-                        self.do_callback(Ok(()));
+                        // Make borrow checker happy
+                        let x = self.bytes_sent;
+                        self.finish(Ok(x));
                     }
                 }
 
-                // Error occured, execute callback
+                // Error occured
                 Err(e) => {
-                    self.do_callback(Err(e.to_string()));
+                    self.finish(Err(e.to_string()));
                 }
             },
 
-            // Nothing left, execute callback
+            // Nothing left
             Poll::Ready(None) => {
-                self.do_callback(Ok(()));
+                // Make borrow checker happy
+                let x = self.bytes_sent;
+                self.finish(Ok(x));
             }
 
             // Do nothing
@@ -129,19 +126,15 @@ mod test {
         let stream = tokio_util::io::ReaderStream::new(&data[..]);
         let body = axum::body::Body::from_stream(stream);
 
-        let (tx, rx) = std::sync::mpsc::channel();
-        let callback = move |response_size: u64, _body_result: Result<(), String>| {
-            let _ = tx.send(response_size);
-        };
-        let body = CountingBody::new(body, callback);
+        let (body, rx) = CountingBody::new(body);
 
         // Check that the body streams the same data back
         let body = body.collect().await.unwrap().to_bytes().to_vec();
         assert_eq!(body, data);
 
         // Check that the counting body got right number
-        let count = rx.recv().unwrap();
-        assert_eq!(count, data.len() as u64);
+        let size = rx.await.unwrap().unwrap();
+        assert_eq!(size, data.len() as u64);
     }
 
     #[tokio::test]
@@ -150,18 +143,14 @@ mod test {
         let buf = bytes::Bytes::from_iter(data.clone());
         let body = http_body_util::Full::new(buf);
 
-        let (tx, rx) = std::sync::mpsc::channel();
-        let callback = move |response_size: u64, _body_result: Result<(), String>| {
-            let _ = tx.send(response_size);
-        };
-        let body = CountingBody::new(body, callback);
+        let (body, rx) = CountingBody::new(body);
 
         // Check that the body streams the same data back
         let body = body.collect().await.unwrap().to_bytes().to_vec();
         assert_eq!(body, data);
 
         // Check that the counting body got right number
-        let count = rx.recv().unwrap();
-        assert_eq!(count, data.len() as u64);
+        let size = rx.await.unwrap().unwrap();
+        assert_eq!(size, data.len() as u64);
     }
 }
