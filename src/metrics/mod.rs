@@ -104,7 +104,16 @@ impl HttpMetrics {
         clickhouse: Option<Arc<Clickhouse>>,
         vector: Option<Arc<Vector>>,
     ) -> Self {
-        const LABELS_HTTP: &[&str] = &["tls", "method", "http", "domain", "status", "error"];
+        const LABELS_HTTP: &[&str] = &[
+            "tls",
+            "method",
+            "http",
+            "domain",
+            "status",
+            "error",
+            "cache_status",
+            "cache_bypass_reason",
+        ];
 
         Self {
             env,

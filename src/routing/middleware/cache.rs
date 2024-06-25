@@ -15,7 +15,7 @@ use http::{
 use http::{request, response};
 use moka::future::{Cache as MokaCache, CacheBuilder as MokaCacheBuilder};
 use sha1::{Digest, Sha1};
-use strum_macros::IntoStaticStr;
+use strum_macros::{Display, IntoStaticStr};
 
 use std::hash::Hash;
 
@@ -26,16 +26,8 @@ type FullResponse = response::Response<Vec<u8>>;
 // A list of possible Cache-Control directives that ask us not to cache the response
 const SKIP_CACHE_DIRECTIVES: &[&str] = &["no-store", "no-cache", "max-age=0"];
 
-#[derive(Debug, Clone, PartialEq, Eq, Default, IntoStaticStr)]
-pub enum CacheStatus {
-    #[default]
-    Disabled,
-    Bypass(CacheBypassReason),
-    Hit,
-    Miss,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, IntoStaticStr)]
+#[derive(Debug, Clone, Display, PartialEq, Eq, IntoStaticStr)]
+#[strum(serialize_all = "snake_case")]
 pub enum CacheBypassReason {
     MethodNotCacheable,
     CacheControl,
@@ -44,16 +36,14 @@ pub enum CacheBypassReason {
     HTTPError,
 }
 
-impl std::fmt::Display for CacheBypassReason {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Self::MethodNotCacheable => write!(f, "method_not_cacheable"),
-            Self::CacheControl => write!(f, "cache_control"),
-            Self::SizeUnknown => write!(f, "size_unknown"),
-            Self::BodyTooBig => write!(f, "body_too_big"),
-            Self::HTTPError => write!(f, "http_error"),
-        }
-    }
+#[derive(Debug, Clone, Display, PartialEq, Eq, Default, IntoStaticStr)]
+#[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
+pub enum CacheStatus {
+    #[default]
+    Disabled,
+    Bypass(CacheBypassReason),
+    Hit,
+    Miss,
 }
 
 // Injects itself into a given response to be accessible by middleware
@@ -61,17 +51,6 @@ impl CacheStatus {
     fn with_response(self, mut resp: Response) -> Response {
         resp.extensions_mut().insert(self);
         resp
-    }
-}
-
-impl std::fmt::Display for CacheStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Self::Disabled => write!(f, "DISABLED"),
-            Self::Bypass(_) => write!(f, "BYPASS"),
-            Self::Hit => write!(f, "HIT"),
-            Self::Miss => write!(f, "MISS"),
-        }
     }
 }
 
@@ -154,6 +133,7 @@ pub async fn middleware(
     if let Some(reason) = cache_bypass_reason {
         return Ok(CacheStatus::Bypass(reason).with_response(next.run(request).await));
     }
+
     // Use cached response if found.
     let cache_key = extract_key(&request).map_err(|err| {
         ErrorCause::Other(format!("Unable to extract cache key from request: {err}"))
@@ -161,15 +141,19 @@ pub async fn middleware(
     if let Some(full_response) = cache.get(&cache_key).await {
         return Ok(CacheStatus::Hit.with_response(from_full_response(full_response)));
     }
+
     // If response is not cached, we propagate request as is further.
     let response = next.run(request).await;
+
     // Do not cache non-2xx responses
     if !response.status().is_success() {
         return Ok(CacheStatus::Bypass(CacheBypassReason::HTTPError).with_response(response));
     }
+
     // Extract content length from the response header
     let content_length = extract_content_length(&response)
         .map_err(|_| ErrorCause::Other("Malformed Content-Length header in response".into()))?;
+
     // Do not cache responses that have no known size (probably streaming etc)
     let body_size = match content_length {
         Some(v) => v,
@@ -177,13 +161,16 @@ pub async fn middleware(
             return Ok(CacheStatus::Bypass(CacheBypassReason::SizeUnknown).with_response(response))
         }
     };
+
     // Do not cache items larger than configured
     if body_size > cache.max_item_size {
         return Ok(CacheStatus::Bypass(CacheBypassReason::BodyTooBig).with_response(response));
     }
+
     // We convert axum Response<Body> into Response<Vec<u8>> for caching.
     let full_response = into_full_response(response).await;
     cache.insert(cache_key, full_response.clone()).await;
+
     Ok(CacheStatus::Miss.with_response(from_full_response(full_response)))
 }
 
