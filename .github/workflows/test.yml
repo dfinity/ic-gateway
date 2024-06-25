@@ -20,5 +20,8 @@ jobs:
 
     - uses: Swatinem/rust-cache@v2
 
+    - name: Install protoc
+      run: apt-get update && apt-get install protobuf-compiler
+
     - name: Run tests
       run: cargo test

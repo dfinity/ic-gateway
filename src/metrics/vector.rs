@@ -18,7 +18,7 @@ use tokio_util::{
 };
 use tracing::warn;
 use url::Url;
-use vector_lib::{codecs::encoding::NativeSerializer, event::Event};
+use vector_lib::{codecs::encoding::NativeSerializer, config::LogNamespace, event::Event};
 
 use crate::{cli, http};
 
@@ -102,9 +102,11 @@ impl Vector {
         Self { tx, tracker, token }
     }
 
-    pub fn send(&self, r: Event) {
+    pub fn send(&self, v: serde_json::Value) {
+        // This never fails with LogNamespace::Vector
+        let event = Event::from_json_value(v, LogNamespace::Vector).unwrap();
         // If it fails we'll lose the message, but it's better than to block & eat memory.
-        let _ = self.tx.try_send(r);
+        let _ = self.tx.try_send(event);
     }
 
     pub async fn stop(&self) {

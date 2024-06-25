@@ -24,7 +24,6 @@ use serde_json::json;
 use tokio::sync::RwLock;
 use tower_http::compression::CompressionLayer;
 use tracing::info;
-use vector_lib::{config::LogNamespace, event::Event};
 
 use crate::{
     http::{
@@ -401,52 +400,47 @@ pub async fn middleware(
         }
 
         if let Some(v) = &state.vector {
-            // Convert to Vector Event
-            let event = Event::from_json_value(
-                json!({
-                    "env": state.env.clone(),
-                    "hostname": state.hostname.clone(),
-                    "date": timestamp.unix_timestamp(),
-                    "request_id": request_id.to_string(),
-                    "conn_id": conn_info.id.to_string(),
-                    "method": method,
-                    "http_version": http_version.to_string(),
-                    "request_type": request_type,
-                    "status": status,
-                    "domain": domain,
-                    "host": host,
-                    "path": path,
-                    "canister_id": canister_id,
-                    "ic_streaming": ic_streaming,
-                    "ic_upgrade": ic_upgrade,
-                    "ic_node_id": meta.node_id,
-                    "ic_subnet_id": meta.subnet_id,
-                    "ic_subnet_type": meta.subnet_type,
-                    "ic_method_name": meta.method_name,
-                    "ic_sender": meta.sender,
-                    "ic_canister_id_cbor": meta.canister_id_cbor,
-                    "ic_error_cause": meta.error_cause,
-                    "ic_retries": meta.retries,
-                    "ic_cache_status": meta.cache_status,
-                    "ic_cache_bypass_reason": meta.cache_bypass_reason,
-                    "error_cause": error_cause,
-                    "tls_version": tls_version.to_string(),
-                    "tls_cipher": tls_cipher.to_string(),
-                    "req_rcvd": request_size,
-                    "req_sent": response_size,
-                    "conn_rcvd": conn_rcvd,
-                    "conn_sent": conn_sent,
-                    "duration": duration.as_secs_f64(),
-                    "duration_full": duration_full.as_secs_f64(),
-                    "duration_conn": conn_info.accepted_at.elapsed().as_secs_f64(),
-                    "cache_status": cache_status_str,
-                    "cache_bypass_reason": cache_bypass_reason_str,
-                }),
-                LogNamespace::Vector,
-            )
-            .unwrap(); // This never fails in our case
+            let val = json!({
+                "env": state.env.clone(),
+                "hostname": state.hostname.clone(),
+                "date": timestamp.unix_timestamp(),
+                "request_id": request_id.to_string(),
+                "conn_id": conn_info.id.to_string(),
+                "method": method,
+                "http_version": http_version,
+                "request_type": request_type,
+                "status": status,
+                "domain": domain,
+                "host": host,
+                "path": path,
+                "canister_id": canister_id,
+                "ic_streaming": ic_streaming,
+                "ic_upgrade": ic_upgrade,
+                "ic_node_id": meta.node_id,
+                "ic_subnet_id": meta.subnet_id,
+                "ic_subnet_type": meta.subnet_type,
+                "ic_method_name": meta.method_name,
+                "ic_sender": meta.sender,
+                "ic_canister_id_cbor": meta.canister_id_cbor,
+                "ic_error_cause": meta.error_cause,
+                "ic_retries": meta.retries,
+                "ic_cache_status": meta.cache_status,
+                "ic_cache_bypass_reason": meta.cache_bypass_reason,
+                "error_cause": error_cause,
+                "tls_version": tls_version,
+                "tls_cipher": tls_cipher,
+                "req_rcvd": request_size,
+                "req_sent": response_size,
+                "conn_rcvd": conn_rcvd,
+                "conn_sent": conn_sent,
+                "duration": duration.as_secs_f64(),
+                "duration_full": duration_full.as_secs_f64(),
+                "duration_conn": conn_info.accepted_at.elapsed().as_secs_f64(),
+                "cache_status": cache_status_str,
+                "cache_bypass_reason": cache_bypass_reason_str,
+            });
 
-            v.send(event);
+            v.send(val);
         }
     });
 
