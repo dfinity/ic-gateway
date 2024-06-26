@@ -11,8 +11,8 @@ use crate::cli;
 
 #[derive(clickhouse::Row, Serialize, Deserialize)]
 pub struct Row {
-    pub env: String,
-    pub hostname: String,
+    pub env: &'static str,
+    pub hostname: &'static str,
     #[serde(with = "clickhouse::serde::time::datetime")]
     pub date: time::OffsetDateTime,
     #[serde(with = "clickhouse::serde::uuid")]

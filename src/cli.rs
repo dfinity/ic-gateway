@@ -368,14 +368,15 @@ pub struct Vector {
     pub log_vector_pass: Option<String>,
 
     /// Vector batch size
-    #[clap(env, long, default_value = "25000")]
+    #[clap(env, long, default_value = "50000")]
     pub log_vector_batch: usize,
 
     /// Vector batch flush interval
     #[clap(env, long, default_value = "5s", value_parser = parse_duration)]
     pub log_vector_interval: Duration,
 
-    /// Vector buffer size to account for ingest problems
+    /// Vector buffer size (in number of events) to account for ingest problems.
+    /// If the buffer is full then new events will be dropped.
     #[clap(env, long, default_value = "131072")]
     pub log_vector_buffer: usize,
 }
@@ -393,6 +394,11 @@ pub struct Load {
     /// It tries to keep the request latency less than this.
     #[clap(env, long, default_value = "1500ms", value_parser = parse_duration)]
     pub load_shed_target_latency: Duration,
+
+    /// Maximum number of concurrent requests to process.
+    /// If more are coming in - they will be throttled.
+    #[clap(env, long)]
+    pub load_max_concurrency: Option<usize>,
 }
 
 #[derive(Args)]
@@ -410,8 +416,8 @@ pub struct Misc {
     #[clap(env, long)]
     pub geoip_db: Option<PathBuf>,
 
-    /// Number of Tokio threads to use to serve requests
-    /// Default to the number of CPUs
+    /// Number of Tokio threads to use to serve requests.
+    /// Defaults to the number of CPUs
     #[clap(env, long)]
     pub threads: Option<usize>,
 }

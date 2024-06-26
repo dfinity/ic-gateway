@@ -27,7 +27,7 @@ use little_loadshedder::{LoadShedLayer, LoadShedResponse};
 use middleware::cache::{self, Cache};
 use prometheus::Registry;
 use strum::{Display, IntoStaticStr};
-use tower::{util::MapResponseLayer, ServiceBuilder, ServiceExt};
+use tower::{limit::ConcurrencyLimitLayer, util::MapResponseLayer, ServiceBuilder, ServiceExt};
 
 use crate::{
     cli::Cli,
@@ -174,14 +174,15 @@ pub fn setup_router(
 
     // Metrics
     let metrics_mw = from_fn_with_state(
-        Arc::new(metrics::HttpMetrics::new(
-            registry,
-            cli.misc.env.clone(),
-            cli.misc.hostname.clone(),
-            clickhouse,
-            vector,
-        )),
+        Arc::new(metrics::HttpMetrics::new(registry, clickhouse, vector)),
         metrics::middleware,
+    );
+
+    // Concurrency
+    let concurrency_limit_mw = option_layer(
+        cli.load
+            .load_max_concurrency
+            .map(ConcurrencyLimitLayer::new),
     );
 
     // Load shedder
@@ -310,6 +311,7 @@ pub fn setup_router(
         .layer(from_fn(request_id::middleware))
         .layer(from_fn(headers::middleware))
         .layer(metrics_mw)
+        .layer(concurrency_limit_mw)
         .layer(geoip_mw)
         .layer(load_shedder_mw)
         .layer(from_fn_with_state(domain_resolver, validate::middleware));

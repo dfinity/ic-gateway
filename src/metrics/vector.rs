@@ -25,7 +25,7 @@ use crate::{cli, http};
 #[allow(clippy::declare_interior_mutable_const)]
 const CONTENT_TYPE_OCTET_STREAM: HeaderValue = HeaderValue::from_static("application/octet-stream");
 
-// Encodes Vector events into a native format with length delimiting
+/// Encodes Vector events into a native format with length delimiting
 #[derive(Clone)]
 struct EventEncoder {
     framer: LengthDelimitedCodec,
@@ -41,6 +41,7 @@ impl EventEncoder {
     }
 
     // Encodes the event into provided buffer and adds framing
+    #[inline(always)]
     fn encode_event(&mut self, event: Event, buf: &mut BytesMut) -> Result<(), Error> {
         // Serialize
         let len = buf.len();
@@ -80,6 +81,7 @@ impl Vector {
         let (tx, rx) = channel(cli.log_vector_buffer);
         let token = CancellationToken::new();
 
+        // Prepare auth header
         let auth = cli
             .log_vector_user
             .map(|x| http::client::basic_auth(x, cli.log_vector_pass));
@@ -129,7 +131,7 @@ struct VectorActor {
 }
 
 impl VectorActor {
-    async fn buffer_event(&mut self, event: Event) -> Result<(), Error> {
+    async fn add_to_batch(&mut self, event: Event) -> Result<(), Error> {
         self.batch.push(event);
 
         if self.batch.len() == self.batch.capacity() {
@@ -173,13 +175,15 @@ impl VectorActor {
             return Ok(());
         }
 
+        // Encode the batch
         let mut encoder = self.encoder.clone();
         let body = encoder
             .encode_batch(&mut self.batch)
             .context("unable to encode batch")?;
 
         // Retry until we succeed or token is cancelled
-        let mut interval = interval(Duration::from_secs(3));
+        // TODO make configurable
+        let mut interval = interval(Duration::from_secs(1));
         let mut retries = 3;
         let drain = self.token.is_cancelled();
 
@@ -188,6 +192,7 @@ impl VectorActor {
                 biased;
 
                 _ = interval.tick() => {
+                    // Bytes is cheap to clone
                     if let Err(e) = self.send(body.clone()).await {
                         warn!("Vector: unable to flush batch: {e:#}");
 
@@ -205,6 +210,7 @@ impl VectorActor {
                     return Ok(())
                 }
 
+                // If we're draining then the token is already cancelled, so exclude this branch
                 () = self.token.cancelled(), if !drain => {
                     warn!("Vector: exiting, aborting batch sending");
                     return Ok(());
@@ -228,9 +234,9 @@ impl VectorActor {
 
                     // Drain the buffer
                     while let Some(v) = self.rx.recv().await {
-                        if let Err(e) = self.buffer_event(v).await {
+                        if let Err(e) = self.add_to_batch(v).await {
                             warn!("Vector: unable to drain: {e:#}");
-                            return;
+                            break;
                         }
                     }
 
@@ -250,7 +256,7 @@ impl VectorActor {
 
                 event = self.rx.recv() => {
                     if let Some(v) = event {
-                        if let Err(e) = self.buffer_event(v).await {
+                        if let Err(e) = self.add_to_batch(v).await {
                             warn!("Vector: unable to flush: {e:#}");
                         }
                     }

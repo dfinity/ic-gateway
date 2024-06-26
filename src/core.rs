@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use anyhow::{anyhow, Context, Error};
 use axum::Router;
@@ -18,7 +18,14 @@ use crate::{
 pub const SERVICE_NAME: &str = "ic_gateway";
 pub const AUTHOR_NAME: &str = "Boundary Node Team <boundary-nodes@dfinity.org>";
 
+// Store env/hostname in statics so that we don't have to clone them
+pub static ENV: OnceLock<String> = OnceLock::new();
+pub static HOSTNAME: OnceLock<String> = OnceLock::new();
+
 pub async fn main(cli: &Cli) -> Result<(), Error> {
+    ENV.set(cli.misc.env.clone()).unwrap();
+    HOSTNAME.set(cli.misc.hostname.clone()).unwrap();
+
     // Make a list of all supported domains
     let mut domains = cli.domain.domain.clone();
     domains.extend_from_slice(&cli.domain.domain_system);

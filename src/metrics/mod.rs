@@ -26,6 +26,7 @@ use tower_http::compression::CompressionLayer;
 use tracing::info;
 
 use crate::{
+    core::{ENV, HOSTNAME},
     http::{
         calc_headers_size, http_method, http_version,
         server::{ConnInfo, TlsInfo},
@@ -82,9 +83,6 @@ pub fn setup(
 
 #[derive(Clone)]
 pub struct HttpMetrics {
-    pub env: String,
-    pub hostname: String,
-
     pub requests: IntCounterVec,
     pub duration: HistogramVec,
     pub duration_full: HistogramVec,
@@ -98,8 +96,6 @@ pub struct HttpMetrics {
 impl HttpMetrics {
     pub fn new(
         registry: &Registry,
-        env: String,
-        hostname: String,
         clickhouse: Option<Arc<Clickhouse>>,
         vector: Option<Arc<Vector>>,
     ) -> Self {
@@ -115,8 +111,6 @@ impl HttpMetrics {
         ];
 
         Self {
-            env,
-            hostname,
             clickhouse,
             vector,
 
@@ -357,8 +351,8 @@ pub async fn middleware(
             let meta = meta.clone();
 
             let row = Row {
-                env: state.env.clone(),
-                hostname: state.hostname.clone(),
+                env: ENV.get().unwrap().as_str(),
+                hostname: HOSTNAME.get().unwrap().as_str(),
                 date: timestamp,
                 request_id: request_id.0,
                 conn_id: conn_info.id,
@@ -401,8 +395,8 @@ pub async fn middleware(
 
         if let Some(v) = &state.vector {
             let val = json!({
-                "env": state.env.clone(),
-                "hostname": state.hostname.clone(),
+                "env": ENV.get().unwrap().as_str(),
+                "hostname": HOSTNAME.get().unwrap().as_str(),
                 "date": timestamp.unix_timestamp(),
                 "request_id": request_id.to_string(),
                 "conn_id": conn_info.id.to_string(),
