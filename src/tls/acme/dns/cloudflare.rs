@@ -134,7 +134,7 @@ impl DnsManager for Cloudflare {
 
         // Find records
         let resp = self
-            .find_record(&zone_id, format!("{}.{}", name, zone))
+            .find_record(&zone_id, format!("{name}.{zone}"))
             .await
             .context("unable to find records")?;
 

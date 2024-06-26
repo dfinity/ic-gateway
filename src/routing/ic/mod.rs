@@ -62,7 +62,7 @@ impl From<&mut HeaderMap> for BNResponseMetadata {
                 // It seems there's no way to get the inner Bytes from HeaderValue,
                 // so we'll have to accept the allocation
                 .and_then(|x| x.to_str().ok().map(|x| x.to_string()))
-                .unwrap_or_else(|| "".into())
+                .unwrap_or_default()
         };
 
         Self {
@@ -101,7 +101,7 @@ pub fn setup(
     route_provider: Arc<dyn RouteProvider>,
 ) -> Result<HttpGatewayClient, Error> {
     let transport =
-        transport::ReqwestTransport::create_with_client_route(route_provider, http_client)?;
+        transport::ReqwestTransport::create_with_client_route(route_provider, http_client);
     let agent = ic_agent::Agent::builder()
         .with_transport(transport)
         .build()?;

@@ -19,7 +19,7 @@ use crate::{http::Client, routing::middleware::geoip::CountryCode, tasks::Run};
 pub struct Denylist {
     url: Option<Url>,
     http_client: Arc<dyn Client>,
-    denylist: ArcSwapOption<AHashMap<Principal, Vec<String>>>,
+    inner: ArcSwapOption<AHashMap<Principal, Vec<String>>>,
     allowlist: AHashSet<Principal>,
     update_interval: Duration,
     metrics: MetricParams,
@@ -38,7 +38,7 @@ impl Denylist {
         Self {
             url,
             http_client,
-            denylist: ArcSwapOption::empty(),
+            inner: ArcSwapOption::empty(),
             allowlist,
             update_interval,
             metrics,
@@ -78,15 +78,14 @@ impl Denylist {
         }
 
         // Load the list
-        let list = match self.denylist.load_full() {
+        let list = match self.inner.load_full() {
             None => return false,
             Some(v) => v,
         };
 
         // See if there's an entry
-        let entry = match list.get(&canister_id) {
-            Some(v) => v,
-            None => return false,
+        let Some(entry) = list.get(&canister_id) else {
+            return false;
         };
 
         // if there are no codes - then all regions are blocked
@@ -150,7 +149,7 @@ impl Denylist {
             .collect::<Result<AHashMap<_, _>, Error>>()?;
 
         let count = denylist.len();
-        self.denylist.store(Some(Arc::new(denylist)));
+        self.inner.store(Some(Arc::new(denylist)));
 
         Ok(count)
     }

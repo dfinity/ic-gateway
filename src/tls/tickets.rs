@@ -35,10 +35,10 @@ impl Metrics {
 
 /// Encrypts & decrypts tickets for TLS 1.3 session resumption.
 /// Must be used with `rustls::ticketer::TicketSwitcher` to facilitate key rotation.
-/// We're using XChaCha20Poly1305 authenicated encryption (AEAD).
-/// ZeroizeOnDrop is derived below to make sure the encryption keys are wiped from
+/// We're using `XChaCha20Poly1305` authenicated encryption (AEAD).
+/// `ZeroizeOnDrop` is derived below to make sure the encryption keys are wiped from
 /// memory when the Ticketer is dropped.
-/// See https://docs.rs/zeroize/latest/zeroize/#what-guarantees-does-this-crate-provide
+/// See <https://docs.rs/zeroize/latest/zeroize/#what-guarantees-does-this-crate-provide>
 #[derive(ZeroizeOnDrop)]
 pub struct Ticketer {
     #[zeroize(skip)]
@@ -64,8 +64,8 @@ impl Ticketer {
     }
 
     /// Generates a random nonce and then replaces first 4 bytes of it with a counter.
-    /// Purely random nonces seem to be less secure, though 192-bit XNonce that we're using might be Ok.
-    /// See https://docs.rs/aead/latest/aead/trait.AeadCore.html#security-warning
+    /// Purely random nonces seem to be less secure, though 192-bit `XNonce` that we're using might be Ok.
+    /// See <https://docs.rs/aead/latest/aead/trait.AeadCore.html#security-warning>
     fn nonce(&self) -> XNonce {
         let mut nonce = XChaCha20Poly1305::generate_nonce(&mut OsRng);
         let count = self.counter.fetch_add(1, Ordering::SeqCst);

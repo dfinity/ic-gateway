@@ -153,7 +153,7 @@ impl Acme {
             .flat_map(|x| {
                 let mut out = vec![x.clone()];
                 if self.wildcard {
-                    out.push(format!("*.{x}"))
+                    out.push(format!("*.{x}"));
                 }
                 out.into_iter()
             })

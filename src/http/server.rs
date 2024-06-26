@@ -295,8 +295,7 @@ impl Conn {
             if tls_info
                 .alpn
                 .as_ref()
-                .map(|x| x.as_bytes() == ALPN_ACME)
-                .unwrap_or(false)
+                .is_some_and(|x| x.as_bytes() == ALPN_ACME)
             {
                 debug!("{}: ACME ALPN - closing connection", self);
 
@@ -425,10 +424,10 @@ impl Server {
                     self.tracker.close();
 
                     select! {
-                        _ = tokio::time::sleep(self.options.grace_period + Duration::from_secs(5)) => {
+                        () = tokio::time::sleep(self.options.grace_period + Duration::from_secs(5)) => {
                             warn!("Server {}: connections didn't close in time, shutting down anyway", self.addr);
                         },
-                        _ = self.tracker.wait() => {},
+                        () = self.tracker.wait() => {},
                     }
 
                     warn!("Server {}: shut down", self.addr);

@@ -6,9 +6,9 @@ use rustls::{
 };
 use tracing::debug;
 
-/// Custom ResolvesServerCert trait that borrows ClientHello.
-/// It's needed because Rustls' ResolvesServerCert consumes ClientHello
-/// https://github.com/rustls/rustls/issues/1908
+/// Custom `ResolvesServerCert` trait that borrows `ClientHello`.
+/// It's needed because Rustls' `ResolvesServerCert` consumes `ClientHello`
+/// <https://github.com/rustls/rustls/issues/1908>
 pub trait ResolvesServerCert: Debug + Send + Sync {
     fn resolve(&self, client_hello: &ClientHello) -> Option<Arc<CertifiedKey>>;
 

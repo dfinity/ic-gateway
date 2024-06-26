@@ -1,6 +1,7 @@
 #![deny(clippy::all)]
-//#![warn(clippy::pedantic)]
+#![warn(clippy::pedantic)]
 #![warn(clippy::nursery)]
+#![allow(clippy::too_many_lines)]
 
 use anyhow::{Context, Error};
 use clap::Parser;

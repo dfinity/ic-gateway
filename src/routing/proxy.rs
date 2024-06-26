@@ -59,7 +59,7 @@ pub struct ApiProxyState {
 // Proxies /api/v2/... endpoints to the IC
 pub async fn api_proxy(
     State(state): State<Arc<ApiProxyState>>,
-    OriginalUri(uri): OriginalUri,
+    OriginalUri(original_uri): OriginalUri,
     matched_path: MatchedPath,
     principal: Option<Path<String>>,
     request: Request,
@@ -77,7 +77,7 @@ pub async fn api_proxy(
 
     // Append the query URL to the IC url
     let url = url
-        .join(uri.path())
+        .join(original_uri.path())
         .map_err(|e| ErrorCause::MalformedRequest(format!("incorrect URL: {e:#}")))?;
 
     // Proxy the request
@@ -102,7 +102,7 @@ pub struct IssuerProxyState {
 // Proxies /registrations endpoint to the certificate issuers if they're defined
 pub async fn issuer_proxy(
     State(state): State<Arc<IssuerProxyState>>,
-    OriginalUri(uri): OriginalUri,
+    OriginalUri(original_uri): OriginalUri,
     matched_path: MatchedPath,
     id: Option<Path<String>>,
     request: Request,
@@ -121,7 +121,7 @@ pub async fn issuer_proxy(
     let next = state.next.fetch_add(1, Ordering::SeqCst) % state.issuers.len();
     let url = state.issuers[next]
         .clone()
-        .join(uri.path())
+        .join(original_uri.path())
         .map_err(|_| ErrorCause::MalformedRequest("unable to parse path as URL part".into()))?;
 
     let mut response = proxy(url, request, &state.http_client)

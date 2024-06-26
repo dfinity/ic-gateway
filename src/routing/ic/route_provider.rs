@@ -27,18 +27,14 @@ const API_NODE_HEALTH_TIMEOUT: Duration = Duration::from_secs(2);
 const API_NODE_HEALTH_CHECK_PERIOD: Duration = Duration::from_secs(1);
 
 pub fn setup_route_provider(
-    urls: Vec<Url>,
-    http_client: Arc<dyn Client>,
+    urls: &[Url],
+    http_client: &Arc<dyn Client>,
     task_manager: &mut TaskManager,
     ic_use_discovery: bool,
 ) -> anyhow::Result<Arc<dyn RouteProvider>> {
-    let urls_str = urls.iter().map(|url| url.as_str()).collect::<Vec<_>>();
+    let urls_str = urls.iter().map(Url::as_str).collect::<Vec<_>>();
 
-    let route_provider = if !ic_use_discovery {
-        info!("Using static URLs {urls_str:?} for routing");
-
-        Arc::new(RoundRobinRouteProvider::new(urls_str)?)
-    } else {
+    let route_provider = if ic_use_discovery {
         let api_seed_nodes = urls
             .iter()
             .filter_map(|url| url.domain())
@@ -78,6 +74,10 @@ pub fn setup_route_provider(
         task_manager.add("route_provider", route_provider.clone());
 
         route_provider as Arc<dyn RouteProvider>
+    } else {
+        info!("Using static URLs {urls_str:?} for routing");
+
+        Arc::new(RoundRobinRouteProvider::new(urls_str)?)
     };
 
     Ok(route_provider)

@@ -90,7 +90,7 @@ impl<T: AsyncRead + AsyncWrite + Send + Sync + Unpin> AsyncRead for AsyncCounter
     ) -> Poll<io::Result<()>> {
         let size_before = buf.filled().len();
         let poll = Pin::new(&mut self.inner).poll_read(cx, buf);
-        if let Poll::Ready(Ok(_)) = &poll {
+        if matches!(&poll, Poll::Ready(Ok(()))) {
             let rcvd = buf.filled().len() - size_before;
             self.stats.rcvd.fetch_add(rcvd as u64, Ordering::SeqCst);
         }

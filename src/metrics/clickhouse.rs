@@ -62,7 +62,7 @@ impl Clickhouse {
     pub fn new(cli: &cli::Clickhouse) -> Result<Self, Error> {
         let (tx, rx) = channel(65536);
         let token = CancellationToken::new();
-        let actor = ClickhouseActor::new(cli.clone(), rx)?;
+        let actor = Actor::new(cli.clone(), rx)?;
 
         let child_token = token.child_token();
         let tracker = TaskTracker::new();
@@ -72,7 +72,7 @@ impl Clickhouse {
             }
         });
 
-        Ok(Self { tx, tracker, token })
+        Ok(Self { token, tracker, tx })
     }
 
     pub fn send(&self, r: Row) {
@@ -87,12 +87,12 @@ impl Clickhouse {
     }
 }
 
-pub struct ClickhouseActor {
+struct Actor {
     inserter: Inserter<Row>,
     rx: Receiver<Row>,
 }
 
-impl ClickhouseActor {
+impl Actor {
     fn new(c: cli::Clickhouse, rx: Receiver<Row>) -> Result<Self, Error> {
         let mut client = Client::default().with_url(
             c.log_clickhouse_url

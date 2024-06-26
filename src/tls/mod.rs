@@ -53,7 +53,7 @@ pub fn sni_matches(host: &Fqdn, domains: &[FQDN], wildcard: bool) -> bool {
 pub fn prepare_server_config(
     resolver: Arc<dyn ResolvesServerCertRustls>,
     session_storage: Arc<dyn StoresServerSessions + Send + Sync>,
-    additional_alpn: Vec<Vec<u8>>,
+    additional_alpn: &[Vec<u8>],
     ticket_lifetime: Duration,
     registry: &Registry,
 ) -> ServerConfig {
@@ -84,7 +84,7 @@ pub fn prepare_server_config(
 
     // Enable ALPN
     cfg.alpn_protocols = vec![ALPN_H2.to_vec(), ALPN_H1.to_vec()];
-    cfg.alpn_protocols.extend_from_slice(&additional_alpn);
+    cfg.alpn_protocols.extend_from_slice(additional_alpn);
 
     cfg
 }
@@ -133,7 +133,7 @@ async fn setup_acme(
     );
 
     let resolver = match challenge {
-        acme::Challenge::Alpn => acme::alpn::AcmeAlpn::new(opts, tasks)?,
+        acme::Challenge::Alpn => acme::alpn::AcmeAlpn::new(opts, tasks),
 
         acme::Challenge::Dns => {
             let dns_backend = match cli.acme.acme_dns_backend {
@@ -224,23 +224,25 @@ pub async fn setup(
 
     // Optionally wrap resolver with OCSP stapler
     let certificate_resolver: Arc<dyn ResolvesServerCertRustls> =
-        if !cli.cert.cert_ocsp_stapling_disable {
+        if cli.cert.cert_ocsp_stapling_disable {
+            certificate_resolver
+        } else {
             let stapler = Arc::new(Stapler::new_with_registry(certificate_resolver, registry));
             tasks.add("ocsp_stapler", stapler.clone());
             stapler
-        } else {
-            certificate_resolver
         };
+
+    let alpn = if cli.acme.acme_challenge == Some(Challenge::Alpn) {
+        &[ALPN_ACME.to_vec()]
+    } else {
+        &[vec![]; 1]
+    };
 
     // Generate Rustls config
     let config = prepare_server_config(
         certificate_resolver,
         tls_session_storage,
-        if cli.acme.acme_challenge == Some(Challenge::Alpn) {
-            vec![ALPN_ACME.to_vec()]
-        } else {
-            vec![]
-        },
+        alpn,
         cli.http_server.http_server_tls_ticket_lifetime,
         registry,
     );

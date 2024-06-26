@@ -80,7 +80,7 @@ impl CertificatesImporter {
             http_client,
             exporter_url,
             cache: Mutex::new(Cache {
-                updated_at: Instant::now() - CACHE_TTL * 2,
+                updated_at: Instant::now().checked_sub(CACHE_TTL * 2).unwrap(),
                 packages: vec![],
             }),
         }
@@ -136,7 +136,7 @@ impl Import for CertificatesImporter {
         // Return result from cache if available
         let now = Instant::now();
         let mut cache = self.cache.lock().await;
-        if cache.updated_at >= now - CACHE_TTL {
+        if cache.updated_at >= now.checked_sub(CACHE_TTL).unwrap() {
             return Ok(cache.packages.clone());
         }
 

@@ -88,7 +88,7 @@ impl FromStr for CanisterAlias {
 struct CustomDomainStorageInner(BTreeMap<FQDN, DomainLookup>);
 
 /// Custom domain storage.
-/// Fetches custom domains from several providers and stores them as DomainLookups
+/// Fetches custom domains from several providers and stores them as `DomainLookups`
 #[derive(new)]
 pub struct CustomDomainStorage {
     providers: Vec<Arc<dyn ProvidesCustomDomains>>,
@@ -120,7 +120,7 @@ impl CustomDomainStorage {
             )
         });
 
-        let inner = CustomDomainStorageInner(BTreeMap::from_iter(domains));
+        let inner = CustomDomainStorageInner(domains.collect::<BTreeMap<_, _>>());
         self.inner.store(Some(Arc::new(inner)));
 
         Ok(())
@@ -223,7 +223,7 @@ impl DomainResolver {
             .chain(aliases);
 
         Self {
-            domains_all: BTreeMap::from_iter(domains_all),
+            domains_all: domains_all.collect::<BTreeMap<_, _>>(),
             domains_base,
             custom_domains,
         }

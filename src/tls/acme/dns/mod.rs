@@ -120,23 +120,19 @@ impl AcmeDns {
             .await
             .context("unable to check validity")?;
 
-        match validity {
-            Validity::Valid => {
-                debug!("ACME-DNS: Certificate is still valid");
+        if matches!(validity, Validity::Valid) {
+            debug!("ACME-DNS: Certificate is still valid");
 
-                if self.cert.load_full().is_none() {
-                    self.reload().await.context("unable to load certificate")?;
-                }
-            }
-
-            _ => {
-                warn!("ACME-DNS: Certificate needs to be renewed ({validity})");
-                self.acme
-                    .issue()
-                    .await
-                    .context("unable to issue a certificate")?;
+            if self.cert.load_full().is_none() {
                 self.reload().await.context("unable to load certificate")?;
             }
+        } else {
+            warn!("ACME-DNS: Certificate needs to be renewed ({validity})");
+            self.acme
+                .issue()
+                .await
+                .context("unable to issue a certificate")?;
+            self.reload().await.context("unable to load certificate")?;
         }
 
         Ok(())

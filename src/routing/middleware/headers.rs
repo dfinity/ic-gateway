@@ -36,7 +36,7 @@ pub async fn middleware(request: Request, next: Next) -> Response {
     }
 
     // Insert canister id into response if it was resolved
-    if let Some(v) = response.extensions().get::<CanisterId>().cloned() {
+    if let Some(v) = response.extensions().get::<CanisterId>().copied() {
         response.headers_mut().insert(
             X_IC_CANISTER_ID,
             HeaderValue::from_maybe_shared(Bytes::from(v.0.to_string())).unwrap(),

@@ -24,8 +24,8 @@ pub struct Stats {
 }
 
 /// Stores TLS sessions for TLSv1.2 only.
-/// SipHash is replaced with ~10x faster aHash.
-/// see https://github.com/tkaitchuck/aHash/blob/master/compare/readme.md
+/// `SipHash` is replaced with ~10x faster aHash.
+/// see <https://github.com/tkaitchuck/aHash/blob/master/compare/readme.md>
 #[derive(Debug)]
 pub struct Storage {
     cache: Cache<Key, Val, RandomState>,

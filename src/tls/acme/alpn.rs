@@ -18,10 +18,7 @@ pub struct AcmeAlpn(Mutex<AcmeState<io::Error, io::Error>>);
 
 impl AcmeAlpn {
     #[allow(clippy::new_ret_no_self)]
-    pub fn new(
-        opts: AcmeOptions,
-        tasks: &mut TaskManager,
-    ) -> Result<Arc<dyn ResolvesServerCert>, Error> {
+    pub fn new(opts: AcmeOptions, tasks: &mut TaskManager) -> Arc<dyn ResolvesServerCert> {
         let state = AcmeConfig::new(opts.domains)
             .contact_push(opts.contact)
             .directory_lets_encrypt(!opts.staging);
@@ -30,7 +27,7 @@ impl AcmeAlpn {
         let resolver = state.resolver();
         tasks.add("acme_alpn_runner", Arc::new(Self(Mutex::new(state))));
 
-        Ok(resolver)
+        resolver
     }
 }
 

@@ -15,9 +15,8 @@ pub async fn middleware(
     next: Next,
 ) -> Result<impl IntoResponse, ErrorCause> {
     // Extract the authority
-    let authority = match extract_authority(&request) {
-        Some(v) => v,
-        None => return Err(ErrorCause::NoAuthority),
+    let Some(authority) = extract_authority(&request) else {
+        return Err(ErrorCause::NoAuthority);
     };
 
     // Resolve the domain

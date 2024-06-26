@@ -167,9 +167,7 @@ impl From<anyhow::Error> for ErrorCause {
         // Check if it's a Rustls error
         if let Some(e) = error_infer::<rustls::Error>(&e) {
             return match e {
-                rustls::Error::InvalidCertificate(v) => {
-                    Self::BackendTLSErrorCert(format!("{:?}", v))
-                }
+                rustls::Error::InvalidCertificate(v) => Self::BackendTLSErrorCert(format!("{v:?}")),
                 rustls::Error::NoCertificatesPresented => {
                     Self::BackendTLSErrorCert("no certificate presented".into())
                 }

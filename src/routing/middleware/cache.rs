@@ -69,7 +69,7 @@ pub struct Cache {
 fn weigh_entry(_k: &CacheKey, v: &FullResponse) -> u32 {
     let mut size = KEY_HASH_BYTES + size_of::<FullResponse>();
     size += v.body().len();
-    for (k, v) in v.headers().iter() {
+    for (k, v) in v.headers() {
         size += k.as_str().as_bytes().len();
         size += v.as_bytes().len();
     }
@@ -135,9 +135,7 @@ pub async fn middleware(
     }
 
     // Use cached response if found.
-    let cache_key = extract_key(&request).map_err(|err| {
-        ErrorCause::Other(format!("Unable to extract cache key from request: {err}"))
-    })?;
+    let cache_key = extract_key(&request);
     if let Some(full_response) = cache.get(&cache_key).await {
         return Ok(CacheStatus::Hit.with_response(from_full_response(full_response)));
     }
@@ -155,11 +153,8 @@ pub async fn middleware(
         .map_err(|_| ErrorCause::Other("Malformed Content-Length header in response".into()))?;
 
     // Do not cache responses that have no known size (probably streaming etc)
-    let body_size = match content_length {
-        Some(v) => v,
-        None => {
-            return Ok(CacheStatus::Bypass(CacheBypassReason::SizeUnknown).with_response(response))
-        }
+    let Some(body_size) = content_length else {
+        return Ok(CacheStatus::Bypass(CacheBypassReason::SizeUnknown).with_response(response));
     };
 
     // Do not cache items larger than configured
@@ -201,7 +196,7 @@ fn extract_content_length(resp: &Response) -> Result<Option<u64>, Error> {
     Ok(Some(size))
 }
 
-fn extract_key(request: &Request) -> anyhow::Result<CacheKey> {
+fn extract_key(request: &Request) -> CacheKey {
     let uri_str = request.uri().to_string();
     let uri_bytes = uri_str.as_bytes();
 
@@ -218,8 +213,7 @@ fn extract_key(request: &Request) -> anyhow::Result<CacheKey> {
 
     // Sha1 is a 20 byte hash value.
     let hash: [u8; KEY_HASH_BYTES] = hash.into();
-
-    Ok(CacheKey(hash))
+    CacheKey(hash)
 }
 
 // Helpers to convert Response from axum Body type to Vec<u8> type.

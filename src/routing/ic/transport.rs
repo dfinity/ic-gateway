@@ -60,12 +60,12 @@ impl ReqwestTransport {
     pub fn create_with_client_route(
         route_provider: Arc<dyn RouteProvider>,
         client: Arc<dyn HttpClient>,
-    ) -> Result<Self, AgentError> {
-        Ok(Self {
+    ) -> Self {
+        Self {
             route_provider,
             client,
             max_response_body_size: Some(MAX_RESPONSE_SIZE),
-        })
+        }
     }
 
     async fn request(
@@ -126,7 +126,7 @@ impl ReqwestTransport {
         // Add HTTP headers if requested
         let _ = PASS_HEADERS.try_with(|x| {
             let mut pass = x.borrow_mut();
-            for (k, v) in pass.headers_out.iter() {
+            for (k, v) in &pass.headers_out {
                 http_request.headers_mut().append(k, v.clone());
             }
             pass.headers_out.clear();
@@ -165,7 +165,7 @@ impl ReqwestTransport {
                 let mut pass = x.borrow_mut();
                 pass.headers_in.clear();
 
-                for (k, v) in headers.iter() {
+                for (k, v) in &headers {
                     pass.headers_in.insert(k, v.clone());
                 }
             });
@@ -262,10 +262,10 @@ impl TransportProvider for ReqwestTransportProvider {
                 .map_err(|err| TransportProviderError::UnableToGetTransport(err.to_string()))?,
         );
 
-        let transport = Arc::new(
-            ReqwestTransport::create_with_client_route(route_provider, self.http_client.clone())
-                .map_err(|err| TransportProviderError::UnableToGetTransport(err.to_string()))?,
-        );
+        let transport = Arc::new(ReqwestTransport::create_with_client_route(
+            route_provider,
+            self.http_client.clone(),
+        ));
 
         Ok(transport)
     }

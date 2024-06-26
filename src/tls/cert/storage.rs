@@ -104,11 +104,7 @@ impl ResolvesServerCert for StorageKey {
     fn resolve(&self, ch: &ClientHello) -> Option<Arc<CertifiedKey>> {
         // If the ALPN is ACME - don't return anything to make sure
         // we don't break ACME challenge
-        if ch
-            .alpn()
-            .map(|mut x| x.all(|x| x == ALPN_ACME))
-            .unwrap_or(false)
-        {
+        if ch.alpn().is_some_and(|mut x| x.all(|x| x == ALPN_ACME)) {
             return None;
         }
 

@@ -41,7 +41,7 @@ impl EventEncoder {
     }
 
     // Encodes the event into provided buffer and adds framing
-    #[inline(always)]
+    #[inline]
     fn encode_event(&mut self, event: Event, buf: &mut BytesMut) -> Result<(), Error> {
         // Serialize
         let len = buf.len();
@@ -98,10 +98,10 @@ impl Vector {
 
         let tracker = TaskTracker::new();
         tracker.spawn(async move {
-            let _ = actor.run(cli.log_vector_interval).await;
+            actor.run(cli.log_vector_interval).await;
         });
 
-        Self { tx, tracker, token }
+        Self { token, tracker, tx }
     }
 
     pub fn send(&self, v: serde_json::Value) {
