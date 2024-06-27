@@ -16,7 +16,7 @@ use axum::{
     routing::get,
     Router,
 };
-use http::header::{ORIGIN, REFERER, USER_AGENT};
+use http::header::{CONTENT_TYPE, ORIGIN, REFERER, USER_AGENT};
 use prometheus::{
     register_histogram_vec_with_registry, register_int_counter_vec_with_registry, HistogramVec,
     IntCounterVec, Registry,
@@ -206,17 +206,21 @@ pub async fn middleware(
         .and_then(|x| x.to_str().ok())
         .unwrap_or_default()
         .to_string();
-
     let header_referer = request
         .headers()
         .get(REFERER)
         .and_then(|x| x.to_str().ok())
         .unwrap_or_default()
         .to_string();
-
     let header_user_agent = request
         .headers()
         .get(USER_AGENT)
+        .and_then(|x| x.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    let header_content_type = request
+        .headers()
+        .get(CONTENT_TYPE)
         .and_then(|x| x.to_str().ok())
         .unwrap_or_default()
         .to_string();
@@ -238,6 +242,12 @@ pub async fn middleware(
         .unwrap_or_default();
     let status = response.status().as_u16();
 
+    // IC response metadata
+    let meta = response
+        .extensions_mut()
+        .remove::<BNResponseMetadata>()
+        .unwrap_or_default();
+
     // Gather cache info
     let cache_status = response
         .extensions_mut()
@@ -255,11 +265,6 @@ pub async fn middleware(
         .remove::<MatchedPath>()
         .map_or(RequestType::Http, |x| infer_request_type(x.as_str()));
     let request_type: &'static str = request_type.into();
-
-    let meta = response
-        .extensions_mut()
-        .remove::<BNResponseMetadata>()
-        .unwrap_or_default();
 
     // By this time the channel should already have the data
     // since the response headers are already received -> request body was for sure read (or an error happened)
@@ -422,6 +427,7 @@ pub async fn middleware(
 
         if let Some(v) = &state.vector {
             // TODO use proper names when the DB is updated
+
             // let val = json!({
             //     "env": ENV.get().unwrap().as_str(),
             //     "hostname": HOSTNAME.get().unwrap().as_str(),
@@ -464,31 +470,33 @@ pub async fn middleware(
             //     "cache_bypass_reason": cache_bypass_reason_str,
             // });
 
+            // Nginx-compatible log entry
             let val = json!({
                 "env": ENV.get().unwrap().as_str(),
                 "hostname": HOSTNAME.get().unwrap().as_str(),
-                "date": timestamp.unix_timestamp(),
+                "msec": timestamp.unix_timestamp(),
                 "request_id": request_id.to_string(),
                 "request_method": method,
                 "server_protocol": http_version,
-                "ic_request_type": request_type,
                 "status": status,
+                "status_upstream": status,
                 "http_host": host,
                 "http_origin": header_origin,
                 "http_referer": header_referer,
                 "http_user_agent": header_user_agent,
+                "content_type": header_content_type,
                 "geo_country_code": country_code,
                 "request_uri": uri.path_and_query().map(|x| x.as_str()).unwrap_or_default(),
+                "query_string": uri.query().unwrap_or_default(),
                 "ic_node_id": meta.node_id,
                 "ic_subnet_id": meta.subnet_id,
                 "ic_method_name": meta.method_name,
+                "ic_request_type": request_type,
                 "ic_sender": meta.sender,
                 "ic_canister_id": canister_id,
                 "ic_canister_id_cbor": meta.canister_id_cbor,
                 "ic_error_cause": meta.error_cause,
                 "retries": meta.retries,
-                "ic_cache_status": meta.cache_status,
-                "ic_cache_bypass_reason": meta.cache_bypass_reason,
                 "error_cause": error_cause,
                 "ssl_protocol": tls_version,
                 "ssl_cipher": tls_cipher,
@@ -497,8 +505,11 @@ pub async fn middleware(
                 "bytes_sent": response_size,
                 "remote_addr": conn_info.remote_addr.to_string(),
                 "request_time": duration_full.as_secs_f64(),
-                "cache_status": cache_status_str,
-                "cache_bypass_reason": cache_bypass_reason_str,
+                "request_time_headers": 0,
+                "cache_status": meta.cache_status,
+                "cache_status_nginx": cache_status_str,
+                "cache_bypass_reason": meta.cache_bypass_reason,
+                "upstream": "127.0.0.1",
             });
 
             v.send(val);
