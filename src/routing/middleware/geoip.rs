@@ -48,6 +48,8 @@ pub async fn middleware(
 ) -> Response {
     // Lookup code
     let country_code = geoip.lookup(conn_info.remote_addr.ip());
-    request.extensions_mut().insert(country_code);
-    next.run(request).await
+    request.extensions_mut().insert(country_code.clone());
+    let mut response = next.run(request).await;
+    response.extensions_mut().insert(country_code);
+    response
 }

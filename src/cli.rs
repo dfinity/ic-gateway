@@ -315,6 +315,12 @@ pub struct Log {
     #[clap(env, long)]
     pub log_null: bool,
 
+    /// Enables logging of HTTP requests to stdout/journald/null.
+    /// This does not affect Clickhouse/Vector logging targets -
+    /// if they're enabled they'll log the requests in any case.
+    #[clap(env, long)]
+    pub log_requests: bool,
+
     #[command(flatten, next_help_heading = "Clickhouse")]
     pub clickhouse: Clickhouse,
 

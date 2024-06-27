@@ -1,7 +1,9 @@
 #![deny(clippy::all)]
-#![warn(clippy::pedantic)]
+//#![warn(clippy::pedantic)]
 #![warn(clippy::nursery)]
 #![allow(clippy::too_many_lines)]
+// Needed for certain macros
+#![recursion_limit = "256"]
 
 use anyhow::{Context, Error};
 use clap::Parser;

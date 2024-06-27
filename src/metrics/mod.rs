@@ -16,6 +16,7 @@ use axum::{
     routing::get,
     Router,
 };
+use http::header::{ORIGIN, REFERER, USER_AGENT};
 use prometheus::{
     register_histogram_vec_with_registry, register_int_counter_vec_with_registry, HistogramVec,
     IntCounterVec, Registry,
@@ -34,7 +35,7 @@ use crate::{
     routing::{
         error_cause::ErrorCause,
         ic::{BNResponseMetadata, IcResponseStatus},
-        middleware::{cache::CacheStatus, request_id::RequestId},
+        middleware::{cache::CacheStatus, geoip::CountryCode, request_id::RequestId},
         CanisterId, RequestCtx, RequestType, RequestTypeApi,
     },
     tasks::TaskManager,
@@ -83,6 +84,8 @@ pub fn setup(
 
 #[derive(Clone)]
 pub struct HttpMetrics {
+    pub log_requests: bool,
+
     pub requests: IntCounterVec,
     pub duration: HistogramVec,
     pub duration_full: HistogramVec,
@@ -96,6 +99,7 @@ pub struct HttpMetrics {
 impl HttpMetrics {
     pub fn new(
         registry: &Registry,
+        log_requests: bool,
         clickhouse: Option<Arc<Clickhouse>>,
         vector: Option<Arc<Vector>>,
     ) -> Self {
@@ -111,6 +115,7 @@ impl HttpMetrics {
         ];
 
         Self {
+            log_requests,
             clickhouse,
             vector,
 
@@ -161,6 +166,19 @@ impl HttpMetrics {
     }
 }
 
+fn infer_request_type(path: &str) -> RequestType {
+    match path {
+        "/api/v2/canister/:principal/query" => RequestType::Api(RequestTypeApi::Query),
+        "/api/v2/canister/:principal/call" => RequestType::Api(RequestTypeApi::Call),
+        "/api/v2/canister/:principal/read_state" => RequestType::Api(RequestTypeApi::ReadState),
+        "/api/v2/subnet/:principal/read_state" => RequestType::Api(RequestTypeApi::ReadStateSubnet),
+        "/api/v2/status" => RequestType::Api(RequestTypeApi::Status),
+        "/health" => RequestType::Health,
+        "/registrations" | "/registrations/:id" => RequestType::Registrations,
+        _ => RequestType::Unknown,
+    }
+}
+
 pub async fn middleware(
     State(state): State<Arc<HttpMetrics>>,
     Extension(conn_info): Extension<Arc<ConnInfo>>,
@@ -181,6 +199,28 @@ pub async fn middleware(
     let request_size_headers = calc_headers_size(request.headers()) as u64;
     let uri = request.uri().clone();
 
+    // Some headers for logging
+    let header_origin = request
+        .headers()
+        .get(ORIGIN)
+        .and_then(|x| x.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+
+    let header_referer = request
+        .headers()
+        .get(REFERER)
+        .and_then(|x| x.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+
+    let header_user_agent = request
+        .headers()
+        .get(USER_AGENT)
+        .and_then(|x| x.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+
     // Execute the request
     let start = Instant::now();
     let timestamp = time::OffsetDateTime::now_utc();
@@ -191,6 +231,11 @@ pub async fn middleware(
     let canister_id = response.extensions_mut().remove::<CanisterId>();
     let error_cause = response.extensions_mut().remove::<ErrorCause>();
     let ic_status = response.extensions_mut().remove::<IcResponseStatus>();
+    let country_code = response
+        .extensions_mut()
+        .remove::<CountryCode>()
+        .map(|x| x.0)
+        .unwrap_or_default();
     let status = response.status().as_u16();
 
     // Gather cache info
@@ -208,20 +253,7 @@ pub async fn middleware(
     let request_type = response
         .extensions_mut()
         .remove::<MatchedPath>()
-        .map(|x| match x.as_str() {
-            "/api/v2/canister/:principal/query" => RequestType::Api(RequestTypeApi::Query),
-            "/api/v2/canister/:principal/call" => RequestType::Api(RequestTypeApi::Call),
-            "/api/v2/canister/:principal/read_state" => RequestType::Api(RequestTypeApi::ReadState),
-            "/api/v2/subnet/:principal/read_state" => {
-                RequestType::Api(RequestTypeApi::ReadStateSubnet)
-            }
-            "/api/v2/status" => RequestType::Api(RequestTypeApi::Status),
-            "/health" => RequestType::Health,
-            "/registrations" => RequestType::Registrations,
-            "/registrations/:id" => RequestType::Registrations,
-            _ => RequestType::Unknown,
-        })
-        .unwrap_or(RequestType::Http);
+        .map_or(RequestType::Http, |x| infer_request_type(x.as_str()));
     let request_type: &'static str = request_type.into();
 
     let meta = response
@@ -244,24 +276,20 @@ pub async fn middleware(
         let duration_full = start.elapsed();
         let meta = meta.clone();
 
-        let (tls_version, tls_cipher, tls_handshake) = tls_info
-            .as_ref()
-            .map(|x| {
+        let (tls_version, tls_cipher, tls_handshake) =
+            tls_info.as_ref().map_or(("", "", Duration::ZERO), |x| {
                 (
                     x.protocol.as_str().unwrap(),
                     x.cipher.as_str().unwrap(),
                     x.handshake_dur,
                 )
-            })
-            .unwrap_or(("", "", Duration::ZERO));
+            });
         let domain = ctx
             .as_ref()
-            .map(|x| x.domain.name.to_string())
-            .unwrap_or_else(|| "".into());
+            .map_or_else(String::new, |x| x.domain.name.to_string());
         let error_cause = error_cause
             .clone()
-            .map(|x| x.to_string())
-            .unwrap_or_else(|| "".into());
+            .map_or_else(String::new, |x| x.to_string());
 
         let labels = &[
             tls_version,
@@ -295,57 +323,56 @@ pub async fn middleware(
 
         let host = uri.host().unwrap_or("");
         let path = uri.path();
-        let canister_id = canister_id
-            .map(|x| x.0.to_string())
-            .unwrap_or_else(|| "".into());
+        let canister_id = canister_id.map_or_else(String::new, |x| x.0.to_string());
 
         let conn_rcvd = conn_info.traffic.rcvd();
         let conn_sent = conn_info.traffic.sent();
         let conn_req_count = conn_info.req_count();
 
-        let (ic_streaming, ic_upgrade) = ic_status
-            .as_ref()
-            .map(|x| (x.streaming, x.metadata.upgraded_to_update_call))
-            .unwrap_or((false, false));
+        let (ic_streaming, ic_upgrade) = ic_status.as_ref().map_or((false, false), |x| {
+            (x.streaming, x.metadata.upgraded_to_update_call)
+        });
 
         // Log the request
-        info!(
-            request_id = request_id.to_string(),
-            conn_id = conn_info.id.to_string(),
-            method,
-            http = http_version,
-            status,
-            tls_version,
-            tls_cipher,
-            tls_handshake = tls_handshake.as_millis(),
-            domain,
-            host,
-            path,
-            canister_id,
-            ic_streaming,
-            ic_upgrade,
-            ic_node_id = meta.node_id,
-            ic_subnet_id = meta.subnet_id,
-            ic_subnet_type = meta.subnet_type,
-            ic_method_name = meta.method_name,
-            ic_sender = meta.sender,
-            ic_canister_id_cbor = meta.canister_id_cbor,
-            ic_error_cause = meta.error_cause,
-            ic_retries = meta.retries,
-            ic_cache_status = meta.cache_status,
-            ic_cache_bypass_reason = meta.cache_bypass_reason,
-            error = error_cause,
-            req_size = request_size,
-            resp_size = response_size,
-            dur = duration.as_millis(),
-            dur_full = duration_full.as_millis(),
-            dur_conn = conn_info.accepted_at.elapsed().as_millis(),
-            conn_rcvd,
-            conn_sent,
-            conn_reqs = conn_req_count,
-            cache_status = cache_status_str,
-            cache_bypass_reason = cache_bypass_reason_str,
-        );
+        if state.log_requests {
+            info!(
+                request_id = request_id.to_string(),
+                conn_id = conn_info.id.to_string(),
+                method,
+                http = http_version,
+                status,
+                tls_version,
+                tls_cipher,
+                tls_handshake = tls_handshake.as_millis(),
+                domain,
+                host,
+                path,
+                canister_id,
+                ic_streaming,
+                ic_upgrade,
+                ic_node_id = meta.node_id,
+                ic_subnet_id = meta.subnet_id,
+                ic_subnet_type = meta.subnet_type,
+                ic_method_name = meta.method_name,
+                ic_sender = meta.sender,
+                ic_canister_id_cbor = meta.canister_id_cbor,
+                ic_error_cause = meta.error_cause,
+                ic_retries = meta.retries,
+                ic_cache_status = meta.cache_status,
+                ic_cache_bypass_reason = meta.cache_bypass_reason,
+                error = error_cause,
+                req_size = request_size,
+                resp_size = response_size,
+                dur = duration.as_millis(),
+                dur_full = duration_full.as_millis(),
+                dur_conn = conn_info.accepted_at.elapsed().as_millis(),
+                conn_rcvd,
+                conn_sent,
+                conn_reqs = conn_req_count,
+                cache_status = cache_status_str,
+                cache_bypass_reason = cache_bypass_reason_str,
+            );
+        }
 
         if let Some(v) = &state.clickhouse {
             let meta = meta.clone();
@@ -394,42 +421,82 @@ pub async fn middleware(
         }
 
         if let Some(v) = &state.vector {
+            // TODO use proper names when the DB is updated
+            // let val = json!({
+            //     "env": ENV.get().unwrap().as_str(),
+            //     "hostname": HOSTNAME.get().unwrap().as_str(),
+            //     "date": timestamp.unix_timestamp(),
+            //     "request_id": request_id.to_string(),
+            //     "conn_id": conn_info.id.to_string(),
+            //     "method": method,
+            //     "http_version": http_version,
+            //     "request_type": request_type,
+            //     "geo_country_code": country_code,
+            //     "status": status,
+            //     "domain": domain,
+            //     "host": host,
+            //     "path": path,
+            //     "canister_id": canister_id,
+            //     "ic_streaming": ic_streaming,
+            //     "ic_upgrade": ic_upgrade,
+            //     "ic_node_id": meta.node_id,
+            //     "ic_subnet_id": meta.subnet_id,
+            //     "ic_subnet_type": meta.subnet_type,
+            //     "ic_method_name": meta.method_name,
+            //     "ic_sender": meta.sender,
+            //     "ic_canister_id_cbor": meta.canister_id_cbor,
+            //     "ic_error_cause": meta.error_cause,
+            //     "ic_retries": meta.retries,
+            //     "ic_cache_status": meta.cache_status,
+            //     "ic_cache_bypass_reason": meta.cache_bypass_reason,
+            //     "error_cause": error_cause,
+            //     "tls_version": tls_version,
+            //     "tls_cipher": tls_cipher,
+            //     "remote_addr": conn_info.remote_addr.to_string(),
+            //     "req_rcvd": request_size,
+            //     "req_sent": response_size,
+            //     "conn_rcvd": conn_rcvd,
+            //     "conn_sent": conn_sent,
+            //     "duration": duration.as_secs_f64(),
+            //     "duration_full": duration_full.as_secs_f64(),
+            //     "duration_conn": conn_info.accepted_at.elapsed().as_secs_f64(),
+            //     "cache_status": cache_status_str,
+            //     "cache_bypass_reason": cache_bypass_reason_str,
+            // });
+
             let val = json!({
                 "env": ENV.get().unwrap().as_str(),
                 "hostname": HOSTNAME.get().unwrap().as_str(),
                 "date": timestamp.unix_timestamp(),
                 "request_id": request_id.to_string(),
-                "conn_id": conn_info.id.to_string(),
-                "method": method,
-                "http_version": http_version,
-                "request_type": request_type,
+                "request_method": method,
+                "server_protocol": http_version,
+                "ic_request_type": request_type,
                 "status": status,
-                "domain": domain,
-                "host": host,
-                "path": path,
-                "canister_id": canister_id,
-                "ic_streaming": ic_streaming,
-                "ic_upgrade": ic_upgrade,
+                "http_host": host,
+                "http_origin": header_origin,
+                "http_referer": header_referer,
+                "http_user_agent": header_user_agent,
+                "geo_country_code": country_code,
+                "request_uri": uri.path_and_query().map(|x| x.as_str()).unwrap_or_default(),
                 "ic_node_id": meta.node_id,
                 "ic_subnet_id": meta.subnet_id,
-                "ic_subnet_type": meta.subnet_type,
                 "ic_method_name": meta.method_name,
                 "ic_sender": meta.sender,
+                "ic_canister_id": canister_id,
                 "ic_canister_id_cbor": meta.canister_id_cbor,
                 "ic_error_cause": meta.error_cause,
-                "ic_retries": meta.retries,
+                "retries": meta.retries,
                 "ic_cache_status": meta.cache_status,
                 "ic_cache_bypass_reason": meta.cache_bypass_reason,
                 "error_cause": error_cause,
-                "tls_version": tls_version,
-                "tls_cipher": tls_cipher,
-                "req_rcvd": request_size,
-                "req_sent": response_size,
-                "conn_rcvd": conn_rcvd,
-                "conn_sent": conn_sent,
-                "duration": duration.as_secs_f64(),
-                "duration_full": duration_full.as_secs_f64(),
-                "duration_conn": conn_info.accepted_at.elapsed().as_secs_f64(),
+                "ssl_protocol": tls_version,
+                "ssl_cipher": tls_cipher,
+                "request_length": request_size,
+                "body_bytes_sent": response_size,
+                "bytes_sent": response_size,
+                "remote_addr": conn_info.remote_addr.to_string(),
+                "request_time": duration_full.as_secs_f64(),
                 "cache_status": cache_status_str,
                 "cache_bypass_reason": cache_bypass_reason_str,
             });

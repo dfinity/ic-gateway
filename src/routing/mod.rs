@@ -174,7 +174,12 @@ pub fn setup_router(
 
     // Metrics
     let metrics_mw = from_fn_with_state(
-        Arc::new(metrics::HttpMetrics::new(registry, clickhouse, vector)),
+        Arc::new(metrics::HttpMetrics::new(
+            registry,
+            cli.log.log_requests,
+            clickhouse,
+            vector,
+        )),
         metrics::middleware,
     );
 
