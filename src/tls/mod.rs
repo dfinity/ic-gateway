@@ -233,16 +233,16 @@ pub async fn setup(
         };
 
     let alpn = if cli.acme.acme_challenge == Some(Challenge::Alpn) {
-        &[ALPN_ACME.to_vec()]
+        vec![ALPN_ACME.to_vec()]
     } else {
-        &[vec![]; 1]
+        vec![vec![]]
     };
 
     // Generate Rustls config
     let config = prepare_server_config(
         certificate_resolver,
         tls_session_storage,
-        alpn,
+        &alpn,
         cli.http_server.http_server_tls_ticket_lifetime,
         registry,
     );
