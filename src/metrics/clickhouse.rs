@@ -3,7 +3,10 @@ use std::time::Duration;
 use anyhow::{anyhow, Context, Error};
 use clickhouse::{inserter::Inserter, Client};
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::{
+    select,
+    sync::mpsc::{channel, Receiver, Sender},
+};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::{debug, error, warn};
 
@@ -125,7 +128,7 @@ impl Actor {
 
         warn!("Clickhouse: started");
         loop {
-            tokio::select! {
+            select! {
                 biased;
 
                 () = token.cancelled() => {

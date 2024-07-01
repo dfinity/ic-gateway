@@ -144,7 +144,8 @@ impl Aggregator {
 }
 
 impl Aggregator {
-    // Fetches certificates concurrently from all providers
+    /// Fetches certificates concurrently from all providers.
+    /// It returns both raw & parsed since parsed can't be compared.
     async fn fetch(&self) -> (Vec<Pem>, Vec<CertKey>) {
         // Get a snapshot of current data to update
         let mut data = self.data.lock().await.clone();

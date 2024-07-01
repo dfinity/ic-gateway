@@ -227,7 +227,7 @@ impl VectorActor {
             select! {
                 biased;
 
-                _ = self.token.cancelled() => {
+                () = self.token.cancelled() => {
                     warn!("Vector: stopping, draining");
                     // Close the channel
                     self.rx.close();
