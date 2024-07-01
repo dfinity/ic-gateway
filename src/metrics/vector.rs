@@ -40,7 +40,7 @@ impl EventEncoder {
         }
     }
 
-    // Encodes the event into provided buffer and adds framing
+    /// Encodes the event into provided buffer and adds framing
     #[inline]
     fn encode_event(&mut self, event: Event, buf: &mut BytesMut) -> Result<(), Error> {
         // Serialize
@@ -191,6 +191,12 @@ impl VectorActor {
             select! {
                 biased;
 
+                // If we're draining then the token is already cancelled, so exclude this branch
+                () = self.token.cancelled(), if !drain => {
+                    warn!("Vector: exiting, aborting batch sending");
+                    return Ok(());
+                }
+
                 _ = interval.tick() => {
                     // Bytes is cheap to clone
                     if let Err(e) = self.send(body.clone()).await {
@@ -204,15 +210,9 @@ impl VectorActor {
                             }
                         }
 
-                        continue
+                        continue;
                     }
 
-                    return Ok(())
-                }
-
-                // If we're draining then the token is already cancelled, so exclude this branch
-                () = self.token.cancelled(), if !drain => {
-                    warn!("Vector: exiting, aborting batch sending");
                     return Ok(());
                 }
             }
@@ -227,7 +227,7 @@ impl VectorActor {
             select! {
                 biased;
 
-                () = self.token.cancelled() => {
+                _ = self.token.cancelled() => {
                     warn!("Vector: stopping, draining");
                     // Close the channel
                     self.rx.close();

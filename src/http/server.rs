@@ -24,6 +24,7 @@ use tokio::{
     io::{AsyncRead, AsyncWrite, AsyncWriteExt},
     net::{TcpListener, TcpSocket, TcpStream},
     select,
+    time::sleep,
 };
 use tokio_rustls::TlsAcceptor;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
@@ -133,7 +134,6 @@ impl TryFrom<&ServerConnection> for TlsInfo {
     fn try_from(c: &ServerConnection) -> Result<Self, Self::Error> {
         Ok(Self {
             handshake_dur: Duration::ZERO,
-
             sni: c.server_name().map(|x| x.to_string()),
             alpn: c
                 .alpn_protocol()
@@ -234,7 +234,9 @@ impl Conn {
         self.metrics.conns_open.with_label_values(labels).inc();
 
         // Disable Nagle's algo
-        stream.set_nodelay(true).context("unable to set NODELAY")?;
+        stream
+            .set_nodelay(true)
+            .context("unable to set TCP_NODELAY")?;
 
         // Wrap with traffic counter
         let stats = Arc::new(Stats::new());
@@ -328,7 +330,7 @@ impl Conn {
             self.router.clone().call(request)
         });
 
-        // Call the service
+        // Serve the connection
         let conn = self.builder.serve_connection(stream, service);
         // Using mutable future reference requires pinning, otherwise .await consumes it
         tokio::pin!(conn);
@@ -346,7 +348,7 @@ impl Conn {
                 // Connection must still be polled for the shutdown to proceed.
                 select! {
                     biased;
-                    () = tokio::time::sleep(self.options.grace_period) => return Ok(()),
+                    () = sleep(self.options.grace_period) => return Ok(()),
                     _ = conn.as_mut() => {},
                 }
             }
@@ -424,7 +426,7 @@ impl Server {
                     self.tracker.close();
 
                     select! {
-                        () = tokio::time::sleep(self.options.grace_period + Duration::from_secs(5)) => {
+                        () = sleep(self.options.grace_period + Duration::from_secs(5)) => {
                             warn!("Server {}: connections didn't close in time, shutting down anyway", self.addr);
                         },
                         () = self.tracker.wait() => {},
@@ -442,7 +444,7 @@ impl Server {
                             warn!("Unable to accept connection: {e:#}");
                             // Wait few ms just in case that there's an overflown backlog
                             // so that we don't run into infinite error loop
-                            tokio::time::sleep(Duration::from_millis(10)).await;
+                            sleep(Duration::from_millis(10)).await;
                             continue;
                         }
                     };

@@ -264,7 +264,9 @@ pub async fn middleware(
         .extensions_mut()
         .remove::<MatchedPath>()
         .map_or(RequestType::Http, |x| infer_request_type(x.as_str()));
-    let request_type: &'static str = request_type.into();
+    // Strum IntoStaticStr doesn't respect to_string macro option, so fall back to allocation for now
+    //let request_type: &'static str = request_type.into();
+    let request_type = request_type.to_string();
 
     // By this time the channel should already have the data
     // since the response headers are already received -> request body was for sure read (or an error happened)
@@ -390,7 +392,7 @@ pub async fn middleware(
                 conn_id: conn_info.id,
                 method,
                 http_version,
-                request_type,
+                request_type: request_type.clone(),
                 status,
                 domain: domain.clone(),
                 host: host.into(),
@@ -503,7 +505,7 @@ pub async fn middleware(
                 "request_length": request_size,
                 "body_bytes_sent": response_size,
                 "bytes_sent": response_size,
-                "remote_addr": conn_info.remote_addr.to_string(),
+                "remote_addr": conn_info.remote_addr.ip().to_string(),
                 "request_time": duration_full.as_secs_f64(),
                 "request_time_headers": 0,
                 "cache_status": meta.cache_status,

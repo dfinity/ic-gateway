@@ -173,6 +173,34 @@ impl Aggregator {
             parsed.into_iter().flatten().collect(),
         )
     }
+
+    async fn refresh(&self) {
+        let pem_old = self
+            .data
+            .lock()
+            .await
+            .clone()
+            .into_iter()
+            .flatten()
+            .flatten()
+            .collect::<Vec<_>>();
+
+        let (pem, certs) = self.fetch().await;
+
+        debug!("CertAggregator: {} certs fetched:", certs.len());
+        for v in &certs {
+            debug!("CertAggregator: {:?}", v.san);
+        }
+
+        if pem == pem_old {
+            debug!("CertAggregator: certs haven't changed, not updating");
+            return;
+        }
+
+        if let Err(e) = self.storage.store(certs) {
+            warn!("CertAggregator: error storing certificates: {e:#}");
+        }
+    }
 }
 
 #[async_trait]
@@ -182,28 +210,15 @@ impl Run for Aggregator {
 
         loop {
             select! {
+                biased;
+
                 () = token.cancelled() => {
                     warn!("CertAggregator: exiting");
                     return Ok(());
                 },
 
                 _ = interval.tick() => {
-                    let pem_old = self.data.lock().await.clone().into_iter().flatten().flatten().collect::<Vec<_>>();
-                    let (pem, certs) = self.fetch().await;
-
-                    debug!("CertAggregator: {} certs fetched:", certs.len());
-                    for v in &certs {
-                        debug!("CertAggregator: {:?}", v.san);
-                    }
-
-                    if pem == pem_old {
-                        debug!("CertAggregator: certs haven't changed, not updating");
-                        continue
-                    }
-
-                    if let Err(e) = self.storage.store(certs) {
-                        warn!("CertAggregator: error storing certificates: {e:#}");
-                    }
+                    self.refresh().await;
                 }
             }
         }

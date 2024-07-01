@@ -12,7 +12,7 @@ use crate::{
     http, metrics,
     routing::{self},
     tasks::TaskManager,
-    tls::{self},
+    tls,
 };
 
 pub const SERVICE_NAME: &str = "ic_gateway";
