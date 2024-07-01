@@ -16,6 +16,7 @@ use http::{request, response};
 use moka::future::{Cache as MokaCache, CacheBuilder as MokaCacheBuilder};
 use sha1::{Digest, Sha1};
 use strum_macros::{Display, IntoStaticStr};
+use tokio::sync::Mutex;
 
 use std::hash::Hash;
 
@@ -61,9 +62,16 @@ const KEY_HASH_BYTES: usize = 20;
 #[derive(Clone, Hash, PartialEq, Eq)]
 pub struct CacheKey([u8; KEY_HASH_BYTES]);
 
+use dashmap::DashMap;
+
+// const PROXY_AWAIT_TIMEOUT: Duration = Duration::from_millis(200);
+
+type LockMap = Arc<DashMap<CacheKey, Arc<Mutex<()>>>>;
+
 pub struct Cache {
     store: MokaCache<CacheKey, FullResponse, RandomState>,
     max_item_size: u64,
+    lock_map: LockMap,
 }
 
 fn weigh_entry(_k: &CacheKey, v: &FullResponse) -> u32 {
@@ -90,6 +98,7 @@ impl Cache {
                 .time_to_live(ttl)
                 .weigher(weigh_entry)
                 .build_with_hasher(RandomState::default()),
+            lock_map: Arc::new(DashMap::new()),
         })
     }
 
@@ -140,31 +149,73 @@ pub async fn middleware(
         return Ok(CacheStatus::Hit.with_response(from_full_response(full_response)));
     }
 
-    // If response is not cached, we propagate request as is further.
+    // Get (or insert) the mutex value into lock_map for the synchronization with other parallel requests.
+    let cache_entry = cache
+        .lock_map
+        .entry(cache_key.clone())
+        .or_insert_with(|| Arc::new(Mutex::new(())));
+
+    // Acquire the lock for the request.
+    // In case there are multiple parallel requests with the same key, only one request gets the lock, others are waiting.
+    let guard = cache_entry.value().lock().await;
+
+    // Check cache again, if key is found, another parallel request finished earlier.
+    if let Some(full_response) = cache.get(&cache_key).await {
+        // This request was not the first one to execute the response.
+        drop(guard);
+        drop(cache_entry);
+        cache.lock_map.remove(&cache_key);
+        return Ok(CacheStatus::Hit.with_response(from_full_response(full_response)));
+    }
+
+    // This request was the first out of all parallel ones (if any).
+    // We propagate request as is further.
     let response = next.run(request).await;
 
     // Do not cache non-2xx responses
     if !response.status().is_success() {
+        drop(guard);
+        drop(cache_entry);
+        cache.lock_map.remove(&cache_key);
         return Ok(CacheStatus::Bypass(CacheBypassReason::HTTPError).with_response(response));
     }
 
     // Extract content length from the response header
-    let content_length = extract_content_length(&response)
-        .map_err(|_| ErrorCause::Other("Malformed Content-Length header in response".into()))?;
+    let content_length = match extract_content_length(&response) {
+        Ok(res) => res,
+        Err(_) => {
+            drop(guard);
+            drop(cache_entry);
+            cache.lock_map.remove(&cache_key);
+            return Err(ErrorCause::Other(
+                "Malformed Content-Length header in response".into(),
+            ));
+        }
+    };
 
     // Do not cache responses that have no known size (probably streaming etc)
     let Some(body_size) = content_length else {
+        drop(guard);
+        drop(cache_entry);
+        cache.lock_map.remove(&cache_key);
         return Ok(CacheStatus::Bypass(CacheBypassReason::SizeUnknown).with_response(response));
     };
 
     // Do not cache items larger than configured
     if body_size > cache.max_item_size {
+        drop(guard);
+        drop(cache_entry);
+        cache.lock_map.remove(&cache_key);
         return Ok(CacheStatus::Bypass(CacheBypassReason::BodyTooBig).with_response(response));
     }
 
     // We convert axum Response<Body> into Response<Vec<u8>> for caching.
     let full_response = into_full_response(response).await;
-    cache.insert(cache_key, full_response.clone()).await;
+    cache.insert(cache_key.clone(), full_response.clone()).await;
+
+    drop(guard);
+    drop(cache_entry);
+    cache.lock_map.remove(&cache_key);
 
     Ok(CacheStatus::Miss.with_response(from_full_response(full_response)))
 }
