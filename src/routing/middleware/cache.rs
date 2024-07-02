@@ -163,19 +163,25 @@ pub async fn middleware(
 
     select! {
         _ = mutex.lock() => {
-            // check again if key is cached, yes => remove sync_entry from the map, notify.notify_waiters(), return the response.
-            // no => executed response and cache it
-            // remove sync_entry from the map, notify.notify_waiters(), return the response.
+            let response = execute_request(request, next, cache.clone(), cache_key.clone()).await;
+            notify.notify_waiters();
+            return response;
         }
-        _ = notified => {
-            // Another parallel request finished earlier and cached the response.
-            // Get cached response
-        }
-        _ = timeout(PROXY_LOCK_TIMEOUT, async {
-            sleep(2 * PROXY_LOCK_TIMEOUT).await;
-        }) => {
-            // Execute the request and cache the response.
-        }
+        _ = notified => {}
+        _ = sleep(PROXY_LOCK_TIMEOUT) => {}
+    }
+    return execute_request(request, next, cache, cache_key).await;
+}
+
+async fn execute_request(
+    request: Request,
+    next: Next,
+    cache: Arc<Cache>,
+    cache_key: CacheKey,
+) -> Result<Response, ErrorCause> {
+    // Use cached response if found.
+    if let Some(full_response) = cache.get(&cache_key).await {
+        return Ok(CacheStatus::Hit.with_response(from_full_response(full_response)));
     }
 
     // If response is not cached, we propagate request as is further.
