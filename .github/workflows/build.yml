@@ -10,7 +10,9 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: bazel-runner-small
+    container:
+      image: ghcr.io/catthehacker/ubuntu:rust-22.04
 
     permissions:
       contents: write
@@ -23,7 +25,10 @@ jobs:
         wget 'https://github.com/kpcyrd/repro-env/releases/download/v0.4.0/repro-env'
         echo 'e331825a19d41a5ad4dd7c1ce7a810eccbb9eb8945c3fc78abe9f040df8c1204  repro-env' | sha256sum -c -
         sudo install -m755 repro-env -t /usr/bin
-  
+
+    - name: Install protoc
+      run: sudo apt-get update && sudo apt-get install protobuf-compiler
+
     - name: Build
       run: repro-env build -- cargo build --release --target x86_64-unknown-linux-musl
 
