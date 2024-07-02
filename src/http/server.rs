@@ -239,8 +239,7 @@ impl Conn {
             .context("unable to set TCP_NODELAY")?;
 
         // Wrap with traffic counter
-        let stats = Arc::new(Stats::new());
-        let stream = AsyncCounter::new(stream, stats.clone());
+        let (stream, stats) = AsyncCounter::new(stream);
 
         let conn_info = Arc::new(ConnInfo {
             id: Uuid::now_v7(),

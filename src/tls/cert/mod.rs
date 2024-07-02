@@ -122,6 +122,7 @@ fn parse_pem(pem: &[Pem]) -> Result<Vec<CertKey>, Error> {
 pub struct Aggregator {
     providers: Vec<Arc<dyn ProvidesCertificates>>,
     storage: Arc<dyn StoresCertificates<Arc<CertifiedKey>>>,
+    // Mutex here only to make it Sync
     data: Mutex<Vec<Option<Vec<Pem>>>>,
     poll_interval: Duration,
 }
