@@ -112,7 +112,8 @@ impl Cache {
 
     #[cfg(test)]
     pub async fn housekeep(&self) {
-        self.store.run_pending_tasks()
+        self.store.run_pending_tasks();
+        self.lock_map.run_pending_tasks();
     }
 
     #[cfg(test)]
@@ -128,6 +129,7 @@ impl Cache {
     #[cfg(test)]
     async fn clear(&self) {
         self.store.invalidate_all();
+        self.lock_map.invalidate_all();
         self.housekeep().await;
     }
 }
@@ -610,6 +612,8 @@ mod tests {
             }
             assert_eq!(count_hits, expected_hits[idx]);
             assert_eq!(count_misses, expected_misses[idx]);
+            cache.housekeep().await;
+            cache.clear().await;
         }
     }
 }
