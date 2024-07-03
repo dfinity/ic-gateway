@@ -10,7 +10,7 @@ env:
 
 jobs:
   build:
-    runs-on: dind-small
+    runs-on: dind-large
     container:
       image: ghcr.io/catthehacker/ubuntu:rust-22.04
 
@@ -53,13 +53,12 @@ jobs:
         mkdir -p .debpkg/etc/systemd/system
         mkdir -p .debpkg/etc/default
         mkdir -p .debpkg/DEBIAN
-        
+
         cp target/x86_64-unknown-linux-musl/release/ic-gateway .debpkg/usr/sbin
         cp deploy/ic-gateway.service .debpkg/etc/systemd/system
         cp deploy/ic-gateway.env .debpkg/etc/default/ic-gateway
-        
-        chmod 0755 .debpkg
-        chmod 0755 .debpkg/DEBIAN
+
+        chmod -R g-s .debpkg
 
     - uses: jiro4989/build-deb-action@v3
       with:
