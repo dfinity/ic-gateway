@@ -1,6 +1,5 @@
 pub mod denylist;
 pub mod domain_canister;
-mod test;
 
 use std::{fs, path::PathBuf};
 

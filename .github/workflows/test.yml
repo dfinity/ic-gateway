@@ -11,9 +11,9 @@ env:
 
 jobs:
   test:
-    runs-on: bazel-runner-small
+    runs-on: dind-small
     container:
-      image: ghcr.io/catthehacker/ubuntu:full-22.04
+      image: ghcr.io/catthehacker/ubuntu:rust-22.04
 
     steps:
     - uses: actions/checkout@v4
@@ -21,7 +21,7 @@ jobs:
     - uses: Swatinem/rust-cache@v2
 
     - name: Install protoc
-      run: sudo apt-get update && sudo apt-get install protobuf-compiler
+      run: sudo apt-get update && sudo apt-get -y install protobuf-compiler
 
     - name: Run tests
       run: cargo test
