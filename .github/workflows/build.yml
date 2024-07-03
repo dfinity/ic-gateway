@@ -10,7 +10,7 @@ env:
 
 jobs:
   build:
-    runs-on: bazel-runner-small
+    runs-on: dind-small
     container:
       image: ghcr.io/catthehacker/ubuntu:rust-22.04
 
