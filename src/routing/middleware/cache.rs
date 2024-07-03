@@ -19,7 +19,7 @@ use strum_macros::{Display, IntoStaticStr};
 use tokio::{
     select,
     sync::{Mutex, Notify},
-    time::{sleep, timeout},
+    time::sleep,
 };
 
 use std::hash::Hash;
@@ -30,7 +30,8 @@ type FullResponse = response::Response<Vec<u8>>;
 
 // A list of possible Cache-Control directives that ask us not to cache the response
 const SKIP_CACHE_DIRECTIVES: &[&str] = &["no-store", "no-cache", "max-age=0"];
-const PROXY_LOCK_TIMEOUT: Duration = Duration::from_millis(200);
+// Wait at most this time before the first parallel request executes response and populates the cache.
+const PROXY_LOCK_TIMEOUT: Duration = Duration::from_millis(300);
 
 #[derive(Debug, Clone, Display, PartialEq, Eq, IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
@@ -290,11 +291,13 @@ mod tests {
         HeaderValue, StatusCode,
     };
     use tokio::time::sleep;
-    use tower::Service;
+    use tower::{Service, ServiceExt};
 
     use crate::routing::{
         error_cause::ErrorCause,
-        middleware::cache::{self, Cache, CacheBypassReason, CacheStatus, SKIP_CACHE_DIRECTIVES},
+        middleware::cache::{
+            self, Cache, CacheBypassReason, CacheStatus, PROXY_LOCK_TIMEOUT, SKIP_CACHE_DIRECTIVES,
+        },
     };
 
     const MAX_ITEM_SIZE: u64 = 1024;
@@ -315,6 +318,19 @@ mod tests {
     }
 
     async fn handler_cache_hit(_request: Request<Body>) -> Result<impl IntoResponse, ErrorCause> {
+        let mut response = Response::new(Body::from(b"test_body".to_vec()));
+        response
+            .headers_mut()
+            .insert(CONTENT_LENGTH, HeaderValue::from_str("10").unwrap());
+        Ok(response)
+    }
+
+    async fn handler_proxy_cache_lock(
+        request: Request<Body>,
+    ) -> Result<impl IntoResponse, ErrorCause> {
+        if request.uri().path().contains("slow_response") {
+            sleep(2 * PROXY_LOCK_TIMEOUT).await;
+        }
         let mut response = Response::new(Body::from(b"test_body".to_vec()));
         response
             .headers_mut()
@@ -554,5 +570,49 @@ mod tests {
         // Check that adding one more entry to the cache would overflow its max capacity.
         assert!(MAX_CACHE_SIZE > cache.size());
         assert!(MAX_CACHE_SIZE < cache.size() + entry_size);
+    }
+
+    #[tokio::test]
+    async fn test_proxy_cache_lock() {
+        let cache_ttl = Duration::from_secs(3);
+        let cache = Cache::new(MAX_CACHE_SIZE, MAX_ITEM_SIZE, cache_ttl).unwrap();
+        let cache = Arc::new(cache);
+        let app = Router::new()
+            .route("/:key", get(handler_proxy_cache_lock))
+            .layer(middleware::from_fn_with_state(
+                Arc::clone(&cache),
+                cache::middleware,
+            ));
+
+        let req_count = 50;
+        // Expected cache misses/hits for fast/slow responses, respectively.
+        let expected_misses = [1, req_count];
+        let expected_hits = [req_count - 1, 0];
+        for (idx, uri) in ["/fast_response", "/slow_response"].iter().enumerate() {
+            let mut tasks = vec![];
+            // Dispatch requests simultaneously.
+            for _ in 0..req_count {
+                let app = app.clone();
+                tasks.push(tokio::spawn(async move {
+                    let req = Request::get(*uri).body(Body::from("")).unwrap();
+                    let result = app.oneshot(req).await.unwrap();
+                    assert_eq!(result.status(), StatusCode::OK);
+                    result.extensions().get::<CacheStatus>().cloned()
+                }));
+            }
+            let mut count_hits = 0;
+            let mut count_misses = 0;
+            for task in tasks {
+                task.await
+                    .map(|res| match res {
+                        Some(CacheStatus::Hit) => count_hits += 1,
+                        Some(CacheStatus::Miss) => count_misses += 1,
+                        _ => panic!("Unexpected cache status"),
+                    })
+                    .unwrap();
+            }
+            assert_eq!(count_hits, expected_hits[idx]);
+            assert_eq!(count_misses, expected_misses[idx]);
+        }
     }
 }
