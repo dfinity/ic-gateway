@@ -13,7 +13,7 @@ use http::{
     Method,
 };
 use http::{request, response};
-use moka::future::{Cache as MokaCache, CacheBuilder as MokaCacheBuilder};
+use moka::sync::{Cache as MokaCache, CacheBuilder as MokaCacheBuilder};
 use sha1::{Digest, Sha1};
 use strum_macros::{Display, IntoStaticStr};
 use tokio::{
@@ -103,16 +103,16 @@ impl Cache {
     }
 
     pub async fn get(&self, key: &CacheKey) -> Option<FullResponse> {
-        self.store.get(key).await
+        self.store.get(key)
     }
 
     pub async fn insert(&self, key: CacheKey, resp: FullResponse) {
-        self.store.insert(key, resp).await;
+        self.store.insert(key, resp)
     }
 
     #[cfg(test)]
     pub async fn housekeep(&self) {
-        self.store.run_pending_tasks().await;
+        self.store.run_pending_tasks()
     }
 
     #[cfg(test)]
@@ -150,12 +150,9 @@ pub async fn middleware(
     }
 
     // Get (or insert) a synchronization entry atomically into the concurrent map.
-    let sync_entry = cache
-        .lock_map
-        .get_with(cache_key.clone(), async {
-            (Arc::new(Mutex::new(())), Arc::new(Notify::new()))
-        })
-        .await;
+    let sync_entry = cache.lock_map.get_with(cache_key.clone(), || {
+        (Arc::new(Mutex::new(())), Arc::new(Notify::new()))
+    });
 
     let (mutex, notify) = sync_entry;
 
