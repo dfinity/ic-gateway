@@ -29,6 +29,9 @@ jobs:
     - name: Install deps
       run: sudo apt-get update && sudo apt-get -y install protobuf-compiler podman
 
+    - name: Update permissions
+      run: sudo chmod 0755 .
+
     - name: Build
       run: repro-env build -- cargo build --release --target x86_64-unknown-linux-musl
 
