@@ -11,7 +11,8 @@ use http::{
 };
 use tower_http::cors::{Any, CorsLayer};
 
-use super::{X_IC_CANISTER_ID, X_REQUESTED_WITH, X_REQUEST_ID};
+use super::{X_REQUESTED_WITH, X_REQUEST_ID};
+use crate::routing::ic::HEADER_IC_CANISTER_ID;
 
 const MINUTE: Duration = Duration::from_secs(60);
 
@@ -32,7 +33,7 @@ pub fn layer(methods: &[Method]) -> CorsLayer {
             CONTENT_LENGTH,
             CONTENT_RANGE,
             X_REQUEST_ID,
-            X_IC_CANISTER_ID,
+            HEADER_IC_CANISTER_ID,
         ])
         .allow_headers([
             USER_AGENT,
@@ -44,7 +45,7 @@ pub fn layer(methods: &[Method]) -> CorsLayer {
             RANGE,
             COOKIE,
             X_REQUESTED_WITH,
-            X_IC_CANISTER_ID,
+            HEADER_IC_CANISTER_ID,
         ])
         .max_age(10 * MINUTE)
 }

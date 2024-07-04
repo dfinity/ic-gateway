@@ -232,7 +232,7 @@ pub async fn middleware(
     let duration = start.elapsed();
 
     let ctx = response.extensions_mut().remove::<Arc<RequestCtx>>();
-    let canister_id = response.extensions_mut().remove::<CanisterId>();
+    let canister_id = response.extensions_mut().get::<CanisterId>().copied();
     let error_cause = response.extensions_mut().remove::<ErrorCause>();
     let ic_status = response.extensions_mut().remove::<IcResponseStatus>();
     let country_code = response

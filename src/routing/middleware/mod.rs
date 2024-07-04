@@ -17,7 +17,6 @@ use http::HeaderName;
 // Headers
 pub const X_REQUEST_ID: HeaderName = HeaderName::from_static("x-request-id");
 pub const X_REQUESTED_WITH: HeaderName = HeaderName::from_static("x-requested-with");
-pub const X_IC_CANISTER_ID: HeaderName = HeaderName::from_static("x-ic-canister-id");
 
 // Attempts to extract host from HTTP2 "authority" pseudo-header or from HTTP/1.1 "Host" header
 fn extract_authority(request: &Request) -> Option<FQDN> {
