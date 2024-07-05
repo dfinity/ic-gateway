@@ -1,138 +1,28 @@
-use std::{mem::size_of, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
-use ahash::RandomState;
-use anyhow::{anyhow, Error};
+use anyhow::Error;
 use axum::{
     body::{to_bytes, Body},
     extract::{Request, State},
     middleware::Next,
     response::{IntoResponse, Response},
 };
+use http::request;
 use http::{
-    header::{CACHE_CONTROL, CONTENT_LENGTH, PRAGMA, RANGE},
+    header::{CACHE_CONTROL, CONTENT_LENGTH, PRAGMA},
     Method,
 };
-use http::{request, response};
-use moka::sync::{Cache as MokaCache, CacheBuilder as MokaCacheBuilder};
-use sha1::{Digest, Sha1};
-use strum_macros::{Display, IntoStaticStr};
-use tokio::{
-    select,
-    sync::{Mutex, Notify},
-    time::sleep,
+use tokio::{select, time::sleep};
+
+use crate::{
+    cache::{extract_key, Cache, CacheBypassReason, CacheKey, CacheStatus, FullResponse},
+    routing::error_cause::ErrorCause,
 };
-
-use std::hash::Hash;
-
-use crate::routing::error_cause::ErrorCause;
-
-type FullResponse = response::Response<Vec<u8>>;
 
 // A list of possible Cache-Control directives that ask us not to cache the response
 const SKIP_CACHE_DIRECTIVES: &[&str] = &["no-store", "no-cache", "max-age=0"];
 // Wait at most this time before the first parallel request executes response and populates the cache.
 const PROXY_LOCK_TIMEOUT: Duration = Duration::from_millis(300);
-
-#[derive(Debug, Clone, Display, PartialEq, Eq, IntoStaticStr)]
-#[strum(serialize_all = "snake_case")]
-pub enum CacheBypassReason {
-    MethodNotCacheable,
-    CacheControl,
-    SizeUnknown,
-    BodyTooBig,
-    HTTPError,
-}
-
-#[derive(Debug, Clone, Display, PartialEq, Eq, Default, IntoStaticStr)]
-#[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
-pub enum CacheStatus {
-    #[default]
-    Disabled,
-    Bypass(CacheBypassReason),
-    Hit,
-    Miss,
-}
-
-// Injects itself into a given response to be accessible by middleware
-impl CacheStatus {
-    fn with_response(self, mut resp: Response) -> Response {
-        resp.extensions_mut().insert(self);
-        resp
-    }
-}
-
-// We don't need to store full key in cache.
-// Storing sha1 hash of the key (20 bytes) is enough.
-const KEY_HASH_BYTES: usize = 20;
-
-#[derive(Clone, Hash, PartialEq, Eq)]
-pub struct CacheKey([u8; KEY_HASH_BYTES]);
-
-pub struct Cache {
-    store: MokaCache<CacheKey, FullResponse, RandomState>,
-    lock_map: MokaCache<CacheKey, (Arc<Mutex<()>>, Arc<Notify>)>,
-    max_item_size: u64,
-}
-
-fn weigh_entry(_k: &CacheKey, v: &FullResponse) -> u32 {
-    let mut size = KEY_HASH_BYTES + size_of::<FullResponse>();
-    size += v.body().len();
-    for (k, v) in v.headers() {
-        size += k.as_str().as_bytes().len();
-        size += v.as_bytes().len();
-    }
-    size as u32
-}
-
-impl Cache {
-    pub fn new(cache_size: u64, max_item_size: u64, ttl: Duration) -> anyhow::Result<Self> {
-        if max_item_size >= cache_size {
-            return Err(anyhow!(
-                "Cache item size should be less than whole cache size"
-            ));
-        }
-
-        Ok(Self {
-            max_item_size,
-            store: MokaCacheBuilder::new(cache_size)
-                .time_to_live(ttl)
-                .weigher(weigh_entry)
-                .build_with_hasher(RandomState::default()),
-            lock_map: MokaCacheBuilder::new(cache_size).time_to_live(ttl).build(),
-        })
-    }
-
-    pub async fn get(&self, key: &CacheKey) -> Option<FullResponse> {
-        self.store.get(key)
-    }
-
-    pub async fn insert(&self, key: CacheKey, resp: FullResponse) {
-        self.store.insert(key, resp)
-    }
-
-    #[cfg(test)]
-    pub async fn housekeep(&self) {
-        self.store.run_pending_tasks();
-        self.lock_map.run_pending_tasks();
-    }
-
-    #[cfg(test)]
-    pub fn size(&self) -> u64 {
-        self.store.weighted_size()
-    }
-
-    #[cfg(test)]
-    pub fn len(&self) -> u64 {
-        self.store.entry_count()
-    }
-
-    #[cfg(test)]
-    async fn clear(&self) {
-        self.store.invalidate_all();
-        self.lock_map.invalidate_all();
-        self.housekeep().await;
-    }
-}
 
 pub async fn middleware(
     State(cache): State<Arc<Cache>>,
@@ -151,25 +41,20 @@ pub async fn middleware(
         return Ok(CacheStatus::Hit.with_response(from_full_response(full_response)));
     }
 
-    // Get (or insert) a synchronization entry atomically into the concurrent map.
-    let sync_entry = cache.lock_map.get_with(cache_key.clone(), || {
-        (Arc::new(Mutex::new(())), Arc::new(Notify::new()))
-    });
-
-    let (mutex, notify) = sync_entry;
-
-    // Register for notification, in case another request acquires the lock and executes the request.
-    let notified = notify.notified();
+    // Get synchronization lock to handle parallel requests.
+    let lock = cache.get_lock(&cache_key).await;
 
     select! {
-        _ = mutex.lock() => {
+        // Only one parallel request will execute the response and populate the cache.
+        // Other requests will wait for the lock to be released, but get results from the cache.
+        _ = lock.lock() => {
             let response = execute_request(request, next, cache.clone(), cache_key.clone()).await;
-            notify.notify_waiters();
             return response;
         }
-        _ = notified => {}
+        // In case it takes too long to get the lock, we proceed with the request as is.
         _ = sleep(PROXY_LOCK_TIMEOUT) => {}
     }
+
     return execute_request(request, next, cache, cache_key).await;
 }
 
@@ -202,7 +87,7 @@ async fn execute_request(
     };
 
     // Do not cache items larger than configured
-    if body_size > cache.max_item_size {
+    if body_size > cache.max_item_size() {
         return Ok(CacheStatus::Bypass(CacheBypassReason::BodyTooBig).with_response(response));
     }
 
@@ -238,26 +123,6 @@ fn extract_content_length(resp: &Response) -> Result<Option<u64>, Error> {
     };
 
     Ok(Some(size))
-}
-
-fn extract_key(request: &Request) -> CacheKey {
-    let uri_str = request.uri().to_string();
-    let uri_bytes = uri_str.as_bytes();
-
-    let slice_range_bytes = request
-        .headers()
-        .get(RANGE)
-        .map_or_else(Vec::new, |value| value.as_bytes().to_vec());
-
-    // Compute a composite hash of two variables: uri and header.
-    let hash = Sha1::new()
-        .chain_update(uri_bytes)
-        .chain_update(slice_range_bytes)
-        .finalize();
-
-    // Sha1 is a 20 byte hash value.
-    let hash: [u8; KEY_HASH_BYTES] = hash.into();
-    CacheKey(hash)
 }
 
 // Helpers to convert Response from axum Body type to Vec<u8> type.
@@ -608,7 +473,7 @@ mod tests {
                         Some(CacheStatus::Miss) => count_misses += 1,
                         _ => panic!("Unexpected cache status"),
                     })
-                    .unwrap();
+                    .expect("failed to complete task");
             }
             assert_eq!(count_hits, expected_hits[idx]);
             assert_eq!(count_misses, expected_misses[idx]);

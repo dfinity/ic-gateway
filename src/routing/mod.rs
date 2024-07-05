@@ -24,12 +24,13 @@ use http::{method::Method, StatusCode};
 use http::{uri::PathAndQuery, Uri};
 use ic::route_provider::setup_route_provider;
 use little_loadshedder::{LoadShedLayer, LoadShedResponse};
-use middleware::cache::{self, Cache};
+use middleware::cache;
 use prometheus::Registry;
 use strum::{Display, IntoStaticStr};
 use tower::{limit::ConcurrencyLimitLayer, util::MapResponseLayer, ServiceBuilder, ServiceExt};
 
 use crate::{
+    cache::Cache,
     cli::Cli,
     http::Client,
     metrics::{self, clickhouse::Clickhouse, Vector},

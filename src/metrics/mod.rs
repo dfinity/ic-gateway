@@ -27,6 +27,7 @@ use tower_http::compression::CompressionLayer;
 use tracing::info;
 
 use crate::{
+    cache::CacheStatus,
     core::{ENV, HOSTNAME},
     http::{
         calc_headers_size, http_method, http_version,
@@ -35,7 +36,7 @@ use crate::{
     routing::{
         error_cause::ErrorCause,
         ic::{BNResponseMetadata, IcResponseStatus},
-        middleware::{cache::CacheStatus, geoip::CountryCode, request_id::RequestId},
+        middleware::{geoip::CountryCode, request_id::RequestId},
         CanisterId, RequestCtx, RequestType, RequestTypeApi,
     },
     tasks::TaskManager,
