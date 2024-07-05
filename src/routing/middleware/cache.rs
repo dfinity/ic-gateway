@@ -12,7 +12,10 @@ use http::{
     header::{CACHE_CONTROL, CONTENT_LENGTH, PRAGMA},
     Method,
 };
-use tokio::{select, time::sleep};
+use tokio::{
+    select,
+    time::{sleep, Instant},
+};
 
 use crate::{
     cache::{extract_key, Cache, CacheBypassReason, CacheKey, CacheStatus, FullResponse},
@@ -44,16 +47,19 @@ pub async fn middleware(
     // Get synchronization lock to handle parallel requests.
     let lock = cache.get_lock(&cache_key).await;
 
+    // Record the time spent waiting for the lock.
+    let start = Instant::now();
+
     select! {
-        // Only one parallel request will execute the response and populate the cache.
-        // Other requests will wait for the lock to be released, but get results from the cache.
-        _ = lock.lock() => {
-            let response = execute_request(request, next, cache.clone(), cache_key.clone()).await;
-            return response;
-        }
-        // In case it takes too long to get the lock, we proceed with the request as is.
+        // Only one parallel request should execute the response and populate the cache.
+        // Other requests will wait for the lock to be released and get results from the cache.
+        _ = lock.lock() => {}
+        // We proceed with the request as is if takes too long to get the lock.
         _ = sleep(PROXY_LOCK_TIMEOUT) => {}
     }
+
+    // Record prometheus metrics for the time spent waiting for the lock.
+    cache.metrics().observe(start.elapsed());
 
     return execute_request(request, next, cache, cache_key).await;
 }
@@ -154,6 +160,7 @@ mod tests {
         header::{CACHE_CONTROL, CONTENT_LENGTH, PRAGMA, RANGE},
         HeaderValue, StatusCode,
     };
+    use prometheus::Registry;
     use tokio::time::sleep;
     use tower::{Service, ServiceExt};
 
@@ -227,13 +234,26 @@ mod tests {
     #[tokio::test]
     #[should_panic(expected = "Cache item size should be less than whole cache size")]
     async fn test_cache_creation_errors() {
-        let cache = Cache::new(1024, 1024, Duration::from_secs(60));
+        let cache = Cache::new(
+            1024,
+            1024,
+            Duration::from_secs(60),
+            Duration::from_secs(60),
+            &Registry::default(),
+        );
         cache.unwrap();
     }
 
     #[tokio::test]
     async fn test_cache_bypass() {
-        let cache = Cache::new(MAX_CACHE_SIZE, MAX_ITEM_SIZE, Duration::from_secs(3600)).unwrap();
+        let cache = Cache::new(
+            MAX_CACHE_SIZE,
+            MAX_ITEM_SIZE,
+            Duration::from_secs(3600),
+            Duration::from_secs(60),
+            &Registry::default(),
+        )
+        .unwrap();
         let cache = Arc::new(cache);
         let mut app = Router::new()
             .route("/", post(handler_bypassing_cache))
@@ -320,7 +340,15 @@ mod tests {
     #[tokio::test]
     async fn test_cache_hit() {
         let cache_ttl = Duration::from_secs(3);
-        let cache = Cache::new(MAX_CACHE_SIZE, MAX_ITEM_SIZE, Duration::from_secs(2)).unwrap();
+        let cache_lock_tti = Duration::from_secs(10);
+        let cache = Cache::new(
+            MAX_CACHE_SIZE,
+            MAX_ITEM_SIZE,
+            cache_ttl,
+            cache_lock_tti,
+            &Registry::default(),
+        )
+        .unwrap();
         let cache = Arc::new(cache);
         let mut app = Router::new().route("/:key", get(handler_cache_hit)).layer(
             middleware::from_fn_with_state(Arc::clone(&cache), cache::middleware),
@@ -439,7 +467,15 @@ mod tests {
     #[tokio::test]
     async fn test_proxy_cache_lock() {
         let cache_ttl = Duration::from_secs(3);
-        let cache = Cache::new(MAX_CACHE_SIZE, MAX_ITEM_SIZE, cache_ttl).unwrap();
+        let cache_lock_tti = Duration::from_secs(10);
+        let cache = Cache::new(
+            MAX_CACHE_SIZE,
+            MAX_ITEM_SIZE,
+            cache_ttl,
+            cache_lock_tti,
+            &Registry::default(),
+        )
+        .unwrap();
         let cache = Arc::new(cache);
         let app = Router::new()
             .route("/:key", get(handler_proxy_cache_lock))

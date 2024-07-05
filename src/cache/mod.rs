@@ -8,6 +8,7 @@ use axum::{
 };
 use http::header::RANGE;
 use moka::sync::{Cache as MokaCache, CacheBuilder as MokaCacheBuilder};
+use prometheus::{register_histogram_with_registry, Error, Histogram, Registry};
 use sha1::{Digest, Sha1};
 use strum_macros::{Display, IntoStaticStr};
 use tokio::sync::Mutex;
@@ -52,6 +53,28 @@ pub struct Cache {
     store: MokaCache<CacheKey, FullResponse, RandomState>,
     lock_map: MokaCache<CacheKey, Arc<Mutex<()>>>,
     max_item_size: u64,
+    metrics: CacheMetrics,
+}
+
+#[derive(Clone)]
+pub struct CacheMetrics {
+    lock_await: Histogram,
+}
+
+impl CacheMetrics {
+    pub fn new(registry: &Registry) -> Result<Self, Error> {
+        Ok(Self {
+            lock_await: register_histogram_with_registry!(
+                "cache_proxy_lock_await",
+                "Time spent waiting for the proxy cache lock",
+                registry,
+            )?,
+        })
+    }
+
+    pub fn observe(&self, duration: Duration) {
+        self.lock_await.observe(duration.as_secs_f64());
+    }
 }
 
 fn weigh_entry(_k: &CacheKey, v: &FullResponse) -> u32 {
@@ -65,7 +88,13 @@ fn weigh_entry(_k: &CacheKey, v: &FullResponse) -> u32 {
 }
 
 impl Cache {
-    pub fn new(cache_size: u64, max_item_size: u64, ttl: Duration) -> anyhow::Result<Self> {
+    pub fn new(
+        cache_size: u64,
+        max_item_size: u64,
+        ttl: Duration,
+        lock_map_tti: Duration,
+        registry: &Registry,
+    ) -> anyhow::Result<Self> {
         if max_item_size >= cache_size {
             return Err(anyhow!(
                 "Cache item size should be less than whole cache size"
@@ -78,8 +107,15 @@ impl Cache {
                 .time_to_live(ttl)
                 .weigher(weigh_entry)
                 .build_with_hasher(RandomState::default()),
-            lock_map: MokaCacheBuilder::new(cache_size).time_to_live(ttl).build(),
+            lock_map: MokaCacheBuilder::new(cache_size)
+                .time_to_idle(lock_map_tti)
+                .build(),
+            metrics: CacheMetrics::new(registry)?,
         })
+    }
+
+    pub fn metrics(&self) -> CacheMetrics {
+        self.metrics.clone()
     }
 
     pub fn max_item_size(&self) -> u64 {

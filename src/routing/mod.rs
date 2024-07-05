@@ -251,6 +251,8 @@ pub fn setup_router(
                 x,
                 cli.cache.cache_max_item_size_bytes,
                 Duration::from_secs(cli.cache.cache_ttl_seconds),
+                Duration::from_secs(cli.cache.proxy_lock_tti_seconds),
+                registry,
             )
             .expect("unable to initialize cache"),
         )

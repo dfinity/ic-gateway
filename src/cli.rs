@@ -439,6 +439,9 @@ pub struct CacheConfig {
     /// Time-to-live for cache entries in seconds
     #[clap(env, long, default_value = "10")]
     pub cache_ttl_seconds: u64,
+    /// Time-to-idle for cache proxy lock entries in seconds
+    #[clap(env, long, default_value = "60")]
+    pub proxy_lock_tti_seconds: u64,
 }
 
 // Some conversions
