@@ -260,7 +260,9 @@ pub async fn middleware(
         _ => "none",
     };
 
-    let response_verification_version = response.extensions_mut().remove::<ResponseVerificationVersion>();
+    let response_verification_version = response
+        .extensions_mut()
+        .remove::<ResponseVerificationVersion>();
     let response_verification_version_str = match response_verification_version {
         Some(ResponseVerificationVersion(v)) => v.to_string(),
         _ => "none".to_string(),

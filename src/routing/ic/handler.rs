@@ -93,7 +93,9 @@ pub async fn handler(
     response.extensions_mut().insert(ic_status);
     response.extensions_mut().insert(bn_metadata);
     if let Some(response_verification_version) = resp.metadata.response_verification_version {
-        response.extensions_mut().insert(ResponseVerificationVersion(response_verification_version));
+        response
+            .extensions_mut()
+            .insert(ResponseVerificationVersion(response_verification_version));
     }
 
     Ok(response)
