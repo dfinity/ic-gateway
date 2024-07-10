@@ -272,7 +272,6 @@ pub async fn middleware(
         .remove::<MatchedPath>()
         .map_or(RequestType::Http, |x| infer_request_type(x.as_str()));
     // Strum IntoStaticStr doesn't respect to_string macro option, so fall back to allocation for now
-    //let request_type: &'static str = request_type.into();
     let request_type = request_type.to_string();
 
     // By this time the channel should already have the data
