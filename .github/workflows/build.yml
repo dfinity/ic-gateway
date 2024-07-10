@@ -10,7 +10,9 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: dind-large
+    container:
+      image: ghcr.io/catthehacker/ubuntu:rust-22.04
 
     permissions:
       contents: write
@@ -23,9 +25,24 @@ jobs:
         wget 'https://github.com/kpcyrd/repro-env/releases/download/v0.4.0/repro-env'
         echo 'e331825a19d41a5ad4dd7c1ce7a810eccbb9eb8945c3fc78abe9f040df8c1204  repro-env' | sha256sum -c -
         sudo install -m755 repro-env -t /usr/bin
-  
+
+    - name: Install deps
+      run: sudo apt-get update && sudo apt-get -y install protobuf-compiler podman
+
     - name: Build
       run: repro-env build -- cargo build --release --target x86_64-unknown-linux-musl
+
+    - name: Generate SHA checksum
+      run: shasum target/x86_64-unknown-linux-musl/release/ic-gateway > ic-gateway.shasum
+
+    - name: Remove build files
+      run: rm -rf target
+
+    - name: Build again
+      run: repro-env build -- cargo build --release --target x86_64-unknown-linux-musl
+    
+    - name: Check SHA checksum
+      run: shasum -c ic-gateway.shasum
 
     - name: Strip
       run: /usr/bin/strip target/x86_64-unknown-linux-musl/release/ic-gateway
@@ -35,9 +52,13 @@ jobs:
         mkdir -p .debpkg/usr/sbin
         mkdir -p .debpkg/etc/systemd/system
         mkdir -p .debpkg/etc/default
+        mkdir -p .debpkg/DEBIAN
+
         cp target/x86_64-unknown-linux-musl/release/ic-gateway .debpkg/usr/sbin
         cp deploy/ic-gateway.service .debpkg/etc/systemd/system
         cp deploy/ic-gateway.env .debpkg/etc/default/ic-gateway
+
+        chmod -R g-s .debpkg
 
     - uses: jiro4989/build-deb-action@v3
       with:

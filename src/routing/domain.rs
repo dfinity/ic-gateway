@@ -134,6 +134,8 @@ impl Run for CustomDomainStorage {
 
         loop {
             select! {
+                biased;
+
                 () = token.cancelled() => {
                     warn!("CustomDomainStorage: exiting");
                     return Ok(());

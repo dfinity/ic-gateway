@@ -122,6 +122,7 @@ fn parse_pem(pem: &[Pem]) -> Result<Vec<CertKey>, Error> {
 pub struct Aggregator {
     providers: Vec<Arc<dyn ProvidesCertificates>>,
     storage: Arc<dyn StoresCertificates<Arc<CertifiedKey>>>,
+    // Mutex here only to make it Sync
     data: Mutex<Vec<Option<Vec<Pem>>>>,
     poll_interval: Duration,
 }
@@ -144,7 +145,8 @@ impl Aggregator {
 }
 
 impl Aggregator {
-    // Fetches certificates concurrently from all providers
+    /// Fetches certificates concurrently from all providers.
+    /// It returns both raw & parsed since parsed can't be compared.
     async fn fetch(&self) -> (Vec<Pem>, Vec<CertKey>) {
         // Get a snapshot of current data to update
         let mut data = self.data.lock().await.clone();
@@ -173,6 +175,34 @@ impl Aggregator {
             parsed.into_iter().flatten().collect(),
         )
     }
+
+    async fn refresh(&self) {
+        let pem_old = self
+            .data
+            .lock()
+            .await
+            .clone()
+            .into_iter()
+            .flatten()
+            .flatten()
+            .collect::<Vec<_>>();
+
+        let (pem, certs) = self.fetch().await;
+
+        debug!("CertAggregator: {} certs fetched:", certs.len());
+        for v in &certs {
+            debug!("CertAggregator: {:?}", v.san);
+        }
+
+        if pem == pem_old {
+            debug!("CertAggregator: certs haven't changed, not updating");
+            return;
+        }
+
+        if let Err(e) = self.storage.store(certs) {
+            warn!("CertAggregator: error storing certificates: {e:#}");
+        }
+    }
 }
 
 #[async_trait]
@@ -182,28 +212,15 @@ impl Run for Aggregator {
 
         loop {
             select! {
+                biased;
+
                 () = token.cancelled() => {
                     warn!("CertAggregator: exiting");
                     return Ok(());
                 },
 
                 _ = interval.tick() => {
-                    let pem_old = self.data.lock().await.clone().into_iter().flatten().flatten().collect::<Vec<_>>();
-                    let (pem, certs) = self.fetch().await;
-
-                    debug!("CertAggregator: {} certs fetched:", certs.len());
-                    for v in &certs {
-                        debug!("CertAggregator: {:?}", v.san);
-                    }
-
-                    if pem == pem_old {
-                        debug!("CertAggregator: certs haven't changed, not updating");
-                        continue
-                    }
-
-                    if let Err(e) = self.storage.store(certs) {
-                        warn!("CertAggregator: error storing certificates: {e:#}");
-                    }
+                    self.refresh().await;
                 }
             }
         }

@@ -12,7 +12,7 @@ use crate::{
     http, metrics,
     routing::{self},
     tasks::TaskManager,
-    tls::{self},
+    tls,
 };
 
 pub const SERVICE_NAME: &str = "ic_gateway";
@@ -53,7 +53,8 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
 
     // Prepare some general stuff
     let token = CancellationToken::new();
-    let registry = Registry::new();
+    let registry = Registry::new_custom(Some(SERVICE_NAME.into()), None)
+        .context("unable to create Prometheus registry")?;
     let dns_resolver = http::dns::Resolver::new((&cli.dns).into());
     let reqwest_client = http::client::new((&cli.http_client).into(), dns_resolver.clone())?;
     let http_client = Arc::new(http::ReqwestClient::new(reqwest_client.clone()));
@@ -68,14 +69,12 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     } else {
         None
     };
-    let vector = if cli.log.vector.log_vector_url.is_some() {
-        Some(Arc::new(metrics::Vector::new(
-            &cli.log.vector,
-            http_client.clone(),
-        )))
-    } else {
-        None
-    };
+    let vector = cli
+        .log
+        .vector
+        .log_vector_url
+        .as_ref()
+        .map(|_| Arc::new(metrics::Vector::new(&cli.log.vector, http_client.clone())));
 
     // List of cancellable tasks to execute & track
     let mut tasks = TaskManager::new();

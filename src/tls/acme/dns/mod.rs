@@ -13,6 +13,7 @@ use rustls::{
 };
 use std::{str::FromStr, sync::Arc, time::Duration};
 use strum_macros::{Display, EnumString};
+use tokio::select;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, warn};
 
@@ -160,7 +161,7 @@ impl Run for AcmeDns {
         let mut interval = tokio::time::interval(Duration::from_secs(600));
 
         loop {
-            tokio::select! {
+            select! {
                 biased;
 
                 () = token.cancelled() => {

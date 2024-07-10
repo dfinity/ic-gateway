@@ -76,10 +76,23 @@ impl Stats {
 }
 
 // Async read+write wrapper that counts bytes read/written
-#[derive(new)]
 pub struct AsyncCounter<T: AsyncRead + AsyncWrite + Send + Sync + Unpin> {
     inner: T,
     stats: Arc<Stats>,
+}
+
+impl<T: AsyncRead + AsyncWrite + Send + Sync + Unpin> AsyncCounter<T> {
+    pub fn new(inner: T) -> (Self, Arc<Stats>) {
+        let stats = Arc::new(Stats::new());
+
+        (
+            Self {
+                inner,
+                stats: stats.clone(),
+            },
+            stats,
+        )
+    }
 }
 
 impl<T: AsyncRead + AsyncWrite + Send + Sync + Unpin> AsyncRead for AsyncCounter<T> {

@@ -3,7 +3,10 @@ use std::time::Duration;
 use anyhow::{anyhow, Context, Error};
 use clickhouse::{inserter::Inserter, Client};
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::{
+    select,
+    sync::mpsc::{channel, Receiver, Sender},
+};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::{debug, error, warn};
 
@@ -20,7 +23,7 @@ pub struct Row {
     pub conn_id: uuid::Uuid,
     pub method: &'static str,
     pub http_version: &'static str,
-    pub request_type: &'static str,
+    pub request_type: String,
     pub status: u16,
     pub domain: String,
     pub host: String,
@@ -125,7 +128,7 @@ impl Actor {
 
         warn!("Clickhouse: started");
         loop {
-            tokio::select! {
+            select! {
                 biased;
 
                 () = token.cancelled() => {

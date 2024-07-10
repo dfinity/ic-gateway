@@ -5,15 +5,13 @@ use axum::{extract::Request, middleware::Next, response::Response};
 use bytes::Bytes;
 use http::header::{HeaderName, HeaderValue, STRICT_TRANSPORT_SECURITY};
 
-use super::X_IC_CANISTER_ID;
 use crate::routing::{ic::*, CanisterId};
 
 const HEADER_HSTS: HeaderValue = HeaderValue::from_static("max-age=31536000; includeSubDomains");
 
-const HEADERS_REMOVE: [HeaderName; 13] = [
+const HEADERS_REMOVE: [HeaderName; 12] = [
     HEADER_IC_CACHE_BYPASS_REASON,
     HEADER_IC_CACHE_STATUS,
-    HEADER_IC_CANISTER_ID,
     HEADER_IC_CANISTER_ID_CBOR,
     HEADER_IC_ERROR_CAUSE,
     HEADER_IC_METHOD_NAME,
@@ -38,7 +36,7 @@ pub async fn middleware(request: Request, next: Next) -> Response {
     // Insert canister id into response if it was resolved
     if let Some(v) = response.extensions().get::<CanisterId>().copied() {
         response.headers_mut().insert(
-            X_IC_CANISTER_ID,
+            HEADER_IC_CANISTER_ID,
             HeaderValue::from_maybe_shared(Bytes::from(v.0.to_string())).unwrap(),
         );
     }

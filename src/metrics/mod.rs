@@ -113,6 +113,7 @@ impl HttpMetrics {
             "error",
             "cache_status",
             "cache_bypass_reason",
+            "response_verification_version",
         ];
 
         Self {
@@ -233,7 +234,7 @@ pub async fn middleware(
     let duration = start.elapsed();
 
     let ctx = response.extensions_mut().remove::<Arc<RequestCtx>>();
-    let canister_id = response.extensions_mut().remove::<CanisterId>();
+    let canister_id = response.extensions_mut().get::<CanisterId>().copied();
     let error_cause = response.extensions_mut().remove::<ErrorCause>();
     let ic_status = response.extensions_mut().remove::<IcResponseStatus>();
     let country_code = response
@@ -260,12 +261,19 @@ pub async fn middleware(
         _ => "none",
     };
 
+    let response_verification_version = ic_status
+        .as_ref()
+        .and_then(|x| x.metadata.response_verification_version)
+        .map(|x| x.to_string())
+        .unwrap_or_else(|| "none".into());
+
     let cache_status_str: &'static str = cache_status.into();
     let request_type = response
         .extensions_mut()
         .remove::<MatchedPath>()
         .map_or(RequestType::Http, |x| infer_request_type(x.as_str()));
-    let request_type: &'static str = request_type.into();
+    // Strum IntoStaticStr doesn't respect to_string macro option, so fall back to allocation for now
+    let request_type = request_type.to_string();
 
     // By this time the channel should already have the data
     // since the response headers are already received -> request body was for sure read (or an error happened)
@@ -306,6 +314,7 @@ pub async fn middleware(
             &error_cause,
             cache_status_str,
             cache_bypass_reason_str,
+            &response_verification_version,
         ];
 
         // Update metrics
@@ -391,7 +400,7 @@ pub async fn middleware(
                 conn_id: conn_info.id,
                 method,
                 http_version,
-                request_type,
+                request_type: request_type.clone(),
                 status,
                 domain: domain.clone(),
                 host: host.into(),
@@ -504,7 +513,7 @@ pub async fn middleware(
                 "request_length": request_size,
                 "body_bytes_sent": response_size,
                 "bytes_sent": response_size,
-                "remote_addr": conn_info.remote_addr.to_string(),
+                "remote_addr": conn_info.remote_addr.ip().to_string(),
                 "request_time": duration_full.as_secs_f64(),
                 "request_time_headers": 0,
                 "cache_status": meta.cache_status,
