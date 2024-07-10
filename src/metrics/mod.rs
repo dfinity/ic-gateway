@@ -262,12 +262,9 @@ pub async fn middleware(
 
     let response_verification_version = ic_status
         .as_ref()
-        .map(|x| x.metadata.response_verification_version)
-        .flatten();
-    let response_verification_version_str = match response_verification_version {
-        Some(v) => v.to_string(),
-        _ => "none".to_string(),
-    };
+        .and_then(|x| x.metadata.response_verification_version)
+        .map(|x| x.to_string())
+        .unwrap_or_else(|| "none".into());
 
     let cache_status_str: &'static str = cache_status.into();
     let request_type = response
@@ -317,7 +314,7 @@ pub async fn middleware(
             &error_cause,
             cache_status_str,
             cache_bypass_reason_str,
-            &response_verification_version_str,
+            &response_verification_version,
         ];
 
         // Update metrics
