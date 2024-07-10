@@ -34,7 +34,7 @@ use crate::{
     },
     routing::{
         error_cause::ErrorCause,
-        ic::{BNResponseMetadata, IcResponseStatus},
+        ic::{BNResponseMetadata, IcResponseStatus, ResponseVerificationVersion},
         middleware::{cache::CacheStatus, geoip::CountryCode, request_id::RequestId},
         CanisterId, RequestCtx, RequestType, RequestTypeApi,
     },
@@ -112,6 +112,7 @@ impl HttpMetrics {
             "error",
             "cache_status",
             "cache_bypass_reason",
+            "response_verification_version",
         ];
 
         Self {
@@ -259,6 +260,12 @@ pub async fn middleware(
         _ => "none",
     };
 
+    let response_verification_version = response.extensions_mut().remove::<ResponseVerificationVersion>();
+    let response_verification_version_str = match response_verification_version {
+        Some(ResponseVerificationVersion(v)) => v.to_string(),
+        _ => "none".to_string(),
+    };
+
     let cache_status_str: &'static str = cache_status.into();
     let request_type = response
         .extensions_mut()
@@ -307,6 +314,7 @@ pub async fn middleware(
             &error_cause,
             cache_status_str,
             cache_bypass_reason_str,
+            &response_verification_version_str,
         ];
 
         // Update metrics
