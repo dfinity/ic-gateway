@@ -76,7 +76,7 @@ pub async fn handler(
 
             // Execute the request
             let mut req = state.client.request(args);
-            req.unsafe_set_allow_skip_verification(!ctx.verify);
+            req.unsafe_set_skip_verification(!ctx.verify);
             let resp = req.send().await;
 
             let bn_metadata =
