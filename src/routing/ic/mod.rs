@@ -80,15 +80,6 @@ impl From<&mut HeaderMap> for BNResponseMetadata {
     }
 }
 
-#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
-pub struct ResponseVerificationVersion(pub u16);
-
-impl From<ResponseVerificationVersion> for u16 {
-    fn from(value: ResponseVerificationVersion) -> Self {
-        value.0
-    }
-}
-
 #[derive(Clone)]
 pub struct IcResponseStatus {
     pub streaming: bool,

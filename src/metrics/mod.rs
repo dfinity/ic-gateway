@@ -34,7 +34,7 @@ use crate::{
     },
     routing::{
         error_cause::ErrorCause,
-        ic::{BNResponseMetadata, IcResponseStatus, ResponseVerificationVersion},
+        ic::{BNResponseMetadata, IcResponseStatus},
         middleware::{cache::CacheStatus, geoip::CountryCode, request_id::RequestId},
         CanisterId, RequestCtx, RequestType, RequestTypeApi,
     },
@@ -260,11 +260,12 @@ pub async fn middleware(
         _ => "none",
     };
 
-    let response_verification_version = response
-        .extensions_mut()
-        .remove::<ResponseVerificationVersion>();
+    let response_verification_version = ic_status
+        .as_ref()
+        .map(|x| x.metadata.response_verification_version)
+        .flatten();
     let response_verification_version_str = match response_verification_version {
-        Some(ResponseVerificationVersion(v)) => v.to_string(),
+        Some(v) => v.to_string(),
         _ => "none".to_string(),
     };
 
