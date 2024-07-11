@@ -6,7 +6,7 @@ pub mod ic;
 pub mod middleware;
 pub mod proxy;
 
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use anyhow::Error;
 use axum::{
@@ -245,13 +245,14 @@ pub fn setup_router(
     );
 
     // Caching
-    let cache = cli.cache.cache_size_bytes.map(|x| {
+    let cache = cli.cache.cache_size.map(|x| {
         Arc::new(
             Cache::new(
                 x,
-                cli.cache.cache_max_item_size_bytes,
-                Duration::from_secs(cli.cache.cache_ttl_seconds),
-                Duration::from_secs(cli.cache.proxy_lock_tti_seconds),
+                cli.cache.cache_max_item_size,
+                cli.cache.cache_ttl,
+                cli.cache.cache_xfetch_beta,
+                cli.cache.cache_lock_timeout,
                 registry,
             )
             .expect("unable to initialize cache"),
