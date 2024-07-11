@@ -24,7 +24,7 @@ use http::{method::Method, StatusCode};
 use http::{uri::PathAndQuery, Uri};
 use ic::route_provider::setup_route_provider;
 use little_loadshedder::{LoadShedLayer, LoadShedResponse};
-use middleware::cache;
+use middleware::cache::{self, KeyExtractorUriRange};
 use prometheus::Registry;
 use strum::{Display, IntoStaticStr};
 use tower::{limit::ConcurrencyLimitLayer, util::MapResponseLayer, ServiceBuilder, ServiceExt};
@@ -251,6 +251,7 @@ pub fn setup_router(
                 x,
                 cli.cache.cache_max_item_size,
                 cli.cache.cache_ttl,
+                KeyExtractorUriRange,
                 cli.cache.cache_xfetch_beta,
                 cli.cache.cache_lock_timeout,
                 registry,
