@@ -217,8 +217,8 @@ pub fn setup_router(
     let cors_post = cors::layer(&[Method::POST]);
     let cors_get = cors::layer(&[Method::HEAD, Method::GET]);
 
-    // IC API proxy router
-    let router_api = Router::new()
+    // IC API proxy routers
+    let router_api_v2 = Router::new()
         .route(
             "/canister/:principal/query",
             post(proxy::api_proxy).layer(cors_post.clone()),
@@ -236,6 +236,14 @@ pub fn setup_router(
             post(proxy::api_proxy).layer(cors_post.clone()),
         )
         .route("/status", get(proxy::api_proxy).layer(cors_get.clone()))
+        .fallback(|| async { (StatusCode::NOT_FOUND, "") })
+        .with_state(state_api.clone());
+
+    let router_api_v3 = Router::new()
+        .route(
+            "/canister/:principal/call",
+            post(proxy::api_proxy).layer(cors_post.clone()),
+        )
         .fallback(|| async { (StatusCode::NOT_FOUND, "") })
         .with_state(state_api.clone());
 
@@ -324,7 +332,8 @@ pub fn setup_router(
 
     // Top-level router
     let router = Router::new()
-        .nest("/api/v2", router_api)
+        .nest("/api/v2", router_api_v2)
+        .nest("/api/v3", router_api_v3)
         .fallback(
             |Extension(ctx): Extension<Arc<RequestCtx>>, request: Request| async move {
                 let path = request.uri().path();
