@@ -451,7 +451,7 @@ pub struct CacheConfig {
     /// `beta` parameter of an x-fetch algorithm which influences if earlier or later refreshing of the cache entry is performed.
     /// Values >1 favor earlier refreshes, <1 - later.
     /// Value of 0.0 would effectively disable the x-fetch algorithm.
-    #[clap(env, long, default_value = "1.0")]
+    #[clap(env, long, default_value = "3.0")]
     pub cache_xfetch_beta: f64,
 }
 

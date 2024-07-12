@@ -82,9 +82,9 @@ impl Entry {
     /// https://en.wikipedia.org/wiki/Cache_stampede#Probabilistic_early_expiration
     fn need_to_refresh(&self, now: Instant, beta: f64) -> bool {
         let rnd = rand::random::<f64>();
-        let xfetch = self.delta * beta * rnd.ln();
+        let xfetch = self.delta * beta * rnd.ln() * -1.0;
         let ttl_left = (self.expires - now).as_secs_f64();
-        xfetch <= ttl_left
+        xfetch > ttl_left
     }
 }
 
@@ -200,8 +200,7 @@ impl<K: KeyExtractor + 'static> Cache<K> {
         let val = self.store.get(key)?;
 
         // Run x-fetch if configured and simulate the cache miss if we need to refresh the entry
-        if self.opts.xfetch_beta > 0.0 && val.need_to_refresh(Instant::now(), self.opts.xfetch_beta)
-        {
+        if val.need_to_refresh(Instant::now(), self.opts.xfetch_beta) {
             return None;
         }
 
@@ -744,5 +743,50 @@ mod tests {
             cache.housekeep();
             cache.clear();
         }
+    }
+
+    #[test]
+    fn test_xfetch() {
+        let now = Instant::now();
+        let reqs = 10000;
+
+        let entry = Entry {
+            response: Response::builder().body(Bytes::new()).unwrap(),
+            delta: 0.5,
+            expires: now + Duration::from_secs(60),
+        };
+
+        // Check close to expiration
+        let now2 = now + Duration::from_secs(58);
+        let mut refresh = 0;
+        for _ in 0..reqs {
+            if entry.need_to_refresh(now2, 1.5) {
+                refresh += 1;
+            }
+        }
+
+        assert!(refresh > 550 && refresh < 800);
+
+        // Check mid-expiration with small beta
+        let now2 = now + Duration::from_secs(30);
+        let mut refresh = 0;
+        for _ in 0..reqs {
+            if entry.need_to_refresh(now2, 1.0) {
+                refresh += 1;
+            }
+        }
+
+        assert!(refresh == 0);
+
+        // Check mid-expiration with high beta
+        let now2 = now + Duration::from_secs(30);
+        let mut refresh = 0;
+        for _ in 0..reqs {
+            if entry.need_to_refresh(now2, 10.0) {
+                refresh += 1;
+            }
+        }
+
+        assert!(refresh > 10);
     }
 }
