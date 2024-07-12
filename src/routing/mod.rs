@@ -6,7 +6,7 @@ pub mod ic;
 pub mod middleware;
 pub mod proxy;
 
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use anyhow::Error;
 use axum::{
@@ -24,12 +24,13 @@ use http::{method::Method, StatusCode};
 use http::{uri::PathAndQuery, Uri};
 use ic::route_provider::setup_route_provider;
 use little_loadshedder::{LoadShedLayer, LoadShedResponse};
-use middleware::cache::{self, Cache};
+use middleware::cache::{self, KeyExtractorUriRange};
 use prometheus::Registry;
 use strum::{Display, IntoStaticStr};
 use tower::{limit::ConcurrencyLimitLayer, util::MapResponseLayer, ServiceBuilder, ServiceExt};
 
 use crate::{
+    cache::{Cache, Opts},
     cli::Cli,
     http::Client,
     metrics::{self, clickhouse::Clickhouse, Vector},
@@ -251,18 +252,22 @@ pub fn setup_router(
         get(proxy::api_proxy).layer(cors_get).with_state(state_api),
     );
 
-    // Caching
-    let cache = cli.cache.cache_size_bytes.map(|x| {
-        Arc::new(
-            Cache::new(
-                x,
-                cli.cache.cache_max_item_size_bytes,
-                Duration::from_secs(cli.cache.cache_ttl_seconds),
-            )
-            .expect("unable to initialize cache"),
-        )
+    // Caching middleware
+    let cache_middleware = option_layer(if let Some(v) = cli.cache.cache_size {
+        let opts = Opts {
+            cache_size: v,
+            max_item_size: cli.cache.cache_max_item_size,
+            ttl: cli.cache.cache_ttl,
+            lock_timeout: cli.cache.cache_lock_timeout,
+            xfetch_beta: cli.cache.cache_xfetch_beta,
+            methods: vec![Method::GET],
+        };
+
+        let state = Arc::new(Cache::new(opts, KeyExtractorUriRange, registry)?);
+        Some(from_fn_with_state(state, cache::middleware))
+    } else {
+        None
     });
-    let cache_middleware = option_layer(cache.map(|x| from_fn_with_state(x, cache::middleware)));
 
     // Layers for the main HTTP->IC route
     let http_layers = ServiceBuilder::new()
