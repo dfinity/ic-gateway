@@ -81,6 +81,11 @@ impl Entry {
     /// This is an implementation of x-fetch algorigthm, see:
     /// https://en.wikipedia.org/wiki/Cache_stampede#Probabilistic_early_expiration
     fn need_to_refresh(&self, now: Instant, beta: f64) -> bool {
+        // fast path
+        if beta == 0.0 {
+            return false;
+        }
+
         let rnd = rand::random::<f64>();
         let xfetch = self.delta * beta * rnd.ln() * -1.0;
         let ttl_left = (self.expires - now).as_secs_f64();
