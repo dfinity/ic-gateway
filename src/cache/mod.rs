@@ -196,11 +196,11 @@ impl<K: KeyExtractor + 'static> Cache<K> {
             .get_with(key.clone(), || Arc::new(Mutex::new(())))
     }
 
-    pub fn get(&self, key: &K::Key) -> Option<Response> {
+    pub fn get(&self, key: &K::Key, beta: f64) -> Option<Response> {
         let val = self.store.get(key)?;
 
         // Run x-fetch if configured and simulate the cache miss if we need to refresh the entry
-        if val.need_to_refresh(Instant::now(), self.opts.xfetch_beta) {
+        if val.need_to_refresh(Instant::now(), beta) {
             return None;
         }
 
@@ -259,7 +259,7 @@ impl<K: KeyExtractor + 'static> Cache<K> {
         // Use cached response if found
         let key = self.key_extractor.extract(&request)?;
 
-        if let Some(v) = self.get(&key) {
+        if let Some(v) = self.get(&key, self.opts.xfetch_beta) {
             return Ok((CacheStatus::Hit, v));
         }
 
@@ -289,7 +289,7 @@ impl<K: KeyExtractor + 'static> Cache<K> {
 
         // Check again the cache in case some other request filled it
         // while we were waiting for the lock
-        if let Some(v) = self.get(&key) {
+        if let Some(v) = self.get(&key, 0.0) {
             return Ok((CacheStatus::Hit, v));
         }
 
