@@ -30,7 +30,7 @@ use strum::{Display, IntoStaticStr};
 use tower::{limit::ConcurrencyLimitLayer, util::MapResponseLayer, ServiceBuilder, ServiceExt};
 
 use crate::{
-    cache::Cache,
+    cache::{Cache, Opts},
     cli::Cli,
     http::Client,
     metrics::{self, clickhouse::Clickhouse, Vector},
@@ -254,16 +254,16 @@ pub fn setup_router(
 
     // Caching middleware
     let cache_middleware = option_layer(if let Some(v) = cli.cache.cache_size {
-        let state = Arc::new(Cache::new(
-            v,
-            cli.cache.cache_max_item_size,
-            cli.cache.cache_ttl,
-            KeyExtractorUriRange,
-            cli.cache.cache_xfetch_beta,
-            cli.cache.cache_lock_timeout,
-            registry,
-        )?);
+        let opts = Opts {
+            cache_size: v,
+            max_item_size: cli.cache.cache_max_item_size,
+            ttl: cli.cache.cache_ttl,
+            lock_timeout: cli.cache.cache_lock_timeout,
+            xfetch_beta: cli.cache.cache_xfetch_beta,
+            methods: vec![Method::GET],
+        };
 
+        let state = Arc::new(Cache::new(opts, KeyExtractorUriRange, registry)?);
         Some(from_fn_with_state(state, cache::middleware))
     } else {
         None

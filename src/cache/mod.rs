@@ -136,16 +136,21 @@ impl Metrics {
     }
 }
 
+pub struct Opts {
+    pub cache_size: u64,
+    pub max_item_size: usize,
+    pub ttl: Duration,
+    pub lock_timeout: Duration,
+    pub xfetch_beta: f64,
+    pub methods: Vec<Method>,
+}
+
 pub struct Cache<K: KeyExtractor> {
     store: MokaCache<K::Key, Arc<Entry>, RandomState>,
     locks: MokaCache<K::Key, Arc<Mutex<()>>, RandomState>,
     key_extractor: K,
     metrics: Metrics,
-
-    max_item_size: usize,
-    ttl: Duration,
-    lock_timeout: Duration,
-    xfetch_beta: f64,
+    opts: Opts,
 }
 
 fn weigh_entry<K: KeyExtractor>(_k: &K::Key, v: &Arc<Entry>) -> u32 {
@@ -161,24 +166,16 @@ fn weigh_entry<K: KeyExtractor>(_k: &K::Key, v: &Arc<Entry>) -> u32 {
 }
 
 impl<K: KeyExtractor + 'static> Cache<K> {
-    pub fn new(
-        cache_size: u64,
-        max_item_size: usize,
-        ttl: Duration,
-        key_extractor: K,
-        xfetch_beta: f64,
-        lock_timeout: Duration,
-        registry: &Registry,
-    ) -> Result<Self, Error> {
-        if max_item_size as u64 >= cache_size {
+    pub fn new(opts: Opts, key_extractor: K, registry: &Registry) -> Result<Self, Error> {
+        if opts.max_item_size as u64 >= opts.cache_size {
             return Err(Error::Other(
                 "Cache item size should be less than whole cache size".into(),
             ));
         }
 
         Ok(Self {
-            store: MokaCacheBuilder::new(cache_size)
-                .time_to_live(ttl)
+            store: MokaCacheBuilder::new(opts.cache_size)
+                .time_to_live(opts.ttl)
                 .weigher(weigh_entry::<K>)
                 .build_with_hasher(RandomState::default()),
 
@@ -190,10 +187,7 @@ impl<K: KeyExtractor + 'static> Cache<K> {
             key_extractor,
             metrics: Metrics::new(registry),
 
-            max_item_size,
-            ttl,
-            lock_timeout,
-            xfetch_beta,
+            opts,
         })
     }
 
@@ -206,7 +200,8 @@ impl<K: KeyExtractor + 'static> Cache<K> {
         let val = self.store.get(key)?;
 
         // Run x-fetch if configured and simulate the cache miss if we need to refresh the entry
-        if self.xfetch_beta > 0.0 && val.need_to_refresh(Instant::now(), self.xfetch_beta) {
+        if self.opts.xfetch_beta > 0.0 && val.need_to_refresh(Instant::now(), self.opts.xfetch_beta)
+        {
             return None;
         }
 
@@ -215,7 +210,7 @@ impl<K: KeyExtractor + 'static> Cache<K> {
     }
 
     pub fn insert(&self, key: K::Key, delta: Duration, response: Response<Bytes>) {
-        let expires = Instant::now() + self.ttl;
+        let expires = Instant::now() + self.opts.ttl;
 
         self.store.insert(
             key,
@@ -254,8 +249,8 @@ impl<K: KeyExtractor + 'static> Cache<K> {
         request: Request,
         next: Next,
     ) -> Result<(CacheStatus, Response), Error> {
-        // Check if request should bypass cache lookup.
-        if request.method() != Method::GET {
+        // Check the method
+        if !self.opts.methods.contains(request.method()) {
             return Ok((
                 CacheStatus::Bypass(CacheBypassReason::MethodNotCacheable),
                 next.run(request).await,
@@ -284,7 +279,7 @@ impl<K: KeyExtractor + 'static> Cache<K> {
             }
 
             // We proceed with the request as is if takes too long to get the lock
-            _ = sleep(self.lock_timeout) => {}
+            _ = sleep(self.opts.lock_timeout) => {}
         }
 
         // Record prometheus metrics for the time spent waiting for the lock.
@@ -342,7 +337,7 @@ impl<K: KeyExtractor + 'static> Cache<K> {
         };
 
         // Do not cache items larger than configured
-        if body_size > self.max_item_size {
+        if body_size > self.opts.max_item_size {
             return Ok(ResponseType::Streamed(
                 response,
                 CacheBypassReason::BodyTooBig,
@@ -500,32 +495,31 @@ mod tests {
 
     #[test]
     fn test_cache_creation_errors() {
-        let cache = Cache::new(
-            1024,
-            1024,
-            Duration::from_secs(60),
-            KeyExtractorTest,
-            0.0,
-            PROXY_LOCK_TIMEOUT,
-            &Registry::default(),
-        );
+        let opts = Opts {
+            cache_size: 1024,
+            max_item_size: 1024,
+            lock_timeout: PROXY_LOCK_TIMEOUT,
+            xfetch_beta: 0.0,
+            ttl: Duration::from_secs(3600),
+            methods: vec![Method::GET],
+        };
+
+        let cache = Cache::new(opts, KeyExtractorTest, &Registry::default());
         assert!(cache.is_err());
     }
 
     #[tokio::test]
     async fn test_cache_bypass() {
-        let cache = Arc::new(
-            Cache::new(
-                MAX_CACHE_SIZE,
-                MAX_ITEM_SIZE,
-                Duration::from_secs(3600),
-                KeyExtractorTest,
-                0.0,
-                PROXY_LOCK_TIMEOUT,
-                &Registry::default(),
-            )
-            .unwrap(),
-        );
+        let opts = Opts {
+            cache_size: MAX_CACHE_SIZE,
+            max_item_size: MAX_ITEM_SIZE,
+            lock_timeout: PROXY_LOCK_TIMEOUT,
+            xfetch_beta: 0.0,
+            ttl: Duration::from_secs(3600),
+            methods: vec![Method::GET],
+        };
+
+        let cache = Arc::new(Cache::new(opts, KeyExtractorTest, &Registry::default()).unwrap());
 
         let mut app = Router::new()
             .route("/", post(handler_bypassing_cache))
@@ -589,20 +583,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_cache_hit() {
-        let cache_ttl = Duration::from_millis(500);
+        let ttl = Duration::from_millis(500);
 
-        let cache = Arc::new(
-            Cache::new(
-                MAX_CACHE_SIZE,
-                MAX_ITEM_SIZE,
-                cache_ttl,
-                KeyExtractorTest,
-                0.0,
-                PROXY_LOCK_TIMEOUT,
-                &Registry::default(),
-            )
-            .unwrap(),
-        );
+        let opts = Opts {
+            cache_size: MAX_CACHE_SIZE,
+            max_item_size: MAX_ITEM_SIZE,
+            lock_timeout: PROXY_LOCK_TIMEOUT,
+            xfetch_beta: 0.0,
+            ttl,
+            methods: vec![Method::GET],
+        };
+
+        let cache = Arc::new(Cache::new(opts, KeyExtractorTest, &Registry::default()).unwrap());
 
         let mut app = Router::new()
             .route("/:key", get(handler_cache_hit))
@@ -653,7 +645,7 @@ mod tests {
         assert_eq!(cache.len(), 2);
 
         // After ttl, request doesn't hit the cache anymore
-        sleep(cache_ttl + Duration::from_millis(100)).await;
+        sleep(ttl + Duration::from_millis(100)).await;
         let req = Request::get("/1").body(Body::from("")).unwrap();
         let result = app.call(req).await.unwrap();
         let cache_status = result.extensions().get::<CacheStatus>().cloned().unwrap();
@@ -705,19 +697,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_proxy_cache_lock() {
-        let cache_ttl = Duration::from_millis(500);
-        let cache = Arc::new(
-            Cache::new(
-                MAX_CACHE_SIZE,
-                MAX_ITEM_SIZE,
-                cache_ttl,
-                KeyExtractorTest,
-                0.0,
-                PROXY_LOCK_TIMEOUT,
-                &Registry::default(),
-            )
-            .unwrap(),
-        );
+        let opts = Opts {
+            cache_size: MAX_CACHE_SIZE,
+            max_item_size: MAX_ITEM_SIZE,
+            lock_timeout: PROXY_LOCK_TIMEOUT,
+            xfetch_beta: 0.0,
+            ttl: Duration::from_millis(500),
+            methods: vec![Method::GET],
+        };
+
+        let cache = Arc::new(Cache::new(opts, KeyExtractorTest, &Registry::default()).unwrap());
 
         let app = Router::new()
             .route("/:key", get(handler_proxy_cache_lock))
