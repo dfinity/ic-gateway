@@ -244,22 +244,22 @@ pub fn setup_router(
         get(proxy::api_proxy).layer(cors_get).with_state(state_api),
     );
 
-    // Caching
-    let cache = cli.cache.cache_size.map(|x| {
-        Arc::new(
-            Cache::new(
-                x,
-                cli.cache.cache_max_item_size,
-                cli.cache.cache_ttl,
-                KeyExtractorUriRange,
-                cli.cache.cache_xfetch_beta,
-                cli.cache.cache_lock_timeout,
-                registry,
-            )
-            .expect("unable to initialize cache"),
-        )
+    // Caching middleware
+    let cache_middleware = option_layer(if let Some(v) = cli.cache.cache_size {
+        let state = Arc::new(Cache::new(
+            v,
+            cli.cache.cache_max_item_size,
+            cli.cache.cache_ttl,
+            KeyExtractorUriRange,
+            cli.cache.cache_xfetch_beta,
+            cli.cache.cache_lock_timeout,
+            registry,
+        )?);
+
+        Some(from_fn_with_state(state, cache::middleware))
+    } else {
+        None
     });
-    let cache_middleware = option_layer(cache.map(|x| from_fn_with_state(x, cache::middleware)));
 
     // Layers for the main HTTP->IC route
     let http_layers = ServiceBuilder::new()

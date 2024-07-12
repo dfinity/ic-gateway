@@ -39,9 +39,7 @@ impl KeyExtractor for KeyExtractorUriRange {
             hash = hash.chain_update(v.as_bytes());
         }
 
-        // Sha1 is a 20 byte hash value.
-        let hash: [u8; 20] = hash.finalize().into();
-        Ok(hash)
+        Ok(hash.finalize().into())
     }
 }
 

@@ -431,18 +431,23 @@ pub struct Misc {
 #[derive(Args)]
 pub struct CacheConfig {
     /// Maximum size of in-memory cache in bytes. Specify a size to enable caching.
+    /// Currently the cache key is authority+path+query+range_header.
     #[clap(env, long, value_parser = parse_size)]
     pub cache_size: Option<u64>,
-    /// Maximum size of a single cached response item in bytes
+
+    /// Maximum size of a single cached response item in bytes. Should be less than cache_size.
     #[clap(env, long, default_value = "10MB", value_parser = parse_size)]
     pub cache_max_item_size: usize,
-    /// Time-to-live for cache entries in seconds
+
+    /// Time-to-live for the cache entries in seconds
     #[clap(env, long, default_value = "10s", value_parser = parse_duration)]
     pub cache_ttl: Duration,
-    /// For how long to wait for the request to populate cache if there are concurrent requests for the same resource.
+
+    /// For how long to wait for the request to populate the cache if there are concurrent requests for the same resource.
     /// After the timeout the request will continue as-is.
     #[clap(env, long, default_value = "5s", value_parser = parse_duration)]
     pub cache_lock_timeout: Duration,
+
     /// `beta` parameter of an x-fetch algorithm which influences if earlier or later refreshing of the cache entry is performed.
     /// Values >1 favor earlier refreshes, <1 - later.
     /// Value of 0.0 would effectively disable the x-fetch algorithm.

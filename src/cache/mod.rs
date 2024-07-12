@@ -16,7 +16,10 @@ use axum::{
 use bytes::Bytes;
 use http::{header::CONTENT_LENGTH, Method};
 use moka::sync::{Cache as MokaCache, CacheBuilder as MokaCacheBuilder};
-use prometheus::{register_histogram_with_registry, Histogram, Registry};
+use prometheus::{
+    register_counter_vec_with_registry, register_histogram_vec_with_registry, CounterVec,
+    HistogramVec, Registry,
+};
 use strum_macros::{Display, IntoStaticStr};
 use tokio::{select, sync::Mutex, time::sleep};
 
@@ -59,6 +62,11 @@ pub enum Error {
     Other(String),
 }
 
+enum ResponseType {
+    Fetched(Response<Bytes>),
+    Streamed(Response, CacheBypassReason),
+}
+
 #[derive(Clone)]
 pub struct Entry {
     response: Response<Bytes>,
@@ -80,9 +88,10 @@ impl Entry {
     }
 }
 
-pub trait KeyExtractor: Clone + Send + Sync + 'static {
+/// Trait to extract the caching key from the given HTTP request
+pub trait KeyExtractor: Clone + Send + Sync + Debug + 'static {
     /// The type of the key.
-    type Key: Send + Sync + Clone + Hash + Eq + Debug + 'static;
+    type Key: Clone + Send + Sync + Debug + Hash + Eq + 'static;
 
     /// Extraction method, will return [`Error`] response when the extraction failed
     fn extract<T>(&self, req: &Request<T>) -> Result<Self::Key, Error>;
@@ -90,15 +99,36 @@ pub trait KeyExtractor: Clone + Send + Sync + 'static {
 
 #[derive(Clone)]
 pub struct Metrics {
-    lock_await: Histogram,
+    lock_await: HistogramVec,
+    requests_count: CounterVec,
+    requests_duration: HistogramVec,
 }
 
 impl Metrics {
     pub fn new(registry: &Registry) -> Self {
+        let lbls = &["cache_status", "cache_bypass_reason"];
+
         Self {
-            lock_await: register_histogram_with_registry!(
+            lock_await: register_histogram_vec_with_registry!(
                 "cache_proxy_lock_await",
                 "Time spent waiting for the proxy cache lock",
+                &["lock_obtained"],
+                registry,
+            )
+            .unwrap(),
+
+            requests_count: register_counter_vec_with_registry!(
+                "cache_requests_count",
+                "Cache requests count",
+                lbls,
+                registry,
+            )
+            .unwrap(),
+
+            requests_duration: register_histogram_vec_with_registry!(
+                "cache_requests_duration",
+                "Time it took to execute the request",
+                lbls,
                 registry,
             )
             .unwrap(),
@@ -109,12 +139,13 @@ impl Metrics {
 pub struct Cache<K: KeyExtractor> {
     store: MokaCache<K::Key, Arc<Entry>, RandomState>,
     locks: MokaCache<K::Key, Arc<Mutex<()>>, RandomState>,
-    max_item_size: usize,
-    lock_timeout: Duration,
     key_extractor: K,
-    ttl: Duration,
-    xfetch_beta: f64,
     metrics: Metrics,
+
+    max_item_size: usize,
+    ttl: Duration,
+    lock_timeout: Duration,
+    xfetch_beta: f64,
 }
 
 fn weigh_entry<K: KeyExtractor>(_k: &K::Key, v: &Arc<Entry>) -> u32 {
@@ -146,19 +177,23 @@ impl<K: KeyExtractor + 'static> Cache<K> {
         }
 
         Ok(Self {
-            ttl,
-            max_item_size,
-            key_extractor,
-            xfetch_beta,
-            lock_timeout,
             store: MokaCacheBuilder::new(cache_size)
                 .time_to_live(ttl)
                 .weigher(weigh_entry::<K>)
                 .build_with_hasher(RandomState::default()),
+
+            // The params of the lock cache are somewhat arbitrary, maybe needs tuning
             locks: MokaCacheBuilder::new(32768)
                 .time_to_idle(Duration::from_secs(60))
                 .build_with_hasher(RandomState::default()),
+
+            key_extractor,
             metrics: Metrics::new(registry),
+
+            max_item_size,
+            ttl,
+            lock_timeout,
+            xfetch_beta,
         })
     }
 
@@ -193,17 +228,45 @@ impl<K: KeyExtractor + 'static> Cache<K> {
     }
 
     pub async fn process_request(&self, request: Request, next: Next) -> Result<Response, Error> {
+        let now = Instant::now();
+        let (cache_status, response) = self.process_inner(request, next).await?;
+
+        // Record metrics
+        let cache_bypass_reason_str: &'static str = match &cache_status {
+            CacheStatus::Bypass(v) => v.into(),
+            _ => "none",
+        };
+        let cache_status_str: &'static str = (&cache_status).into();
+
+        let labels = &[cache_status_str, cache_bypass_reason_str];
+
+        self.metrics.requests_count.with_label_values(labels).inc();
+        self.metrics
+            .requests_duration
+            .with_label_values(labels)
+            .observe(now.elapsed().as_secs_f64());
+
+        Ok(cache_status.with_response(response))
+    }
+
+    async fn process_inner(
+        &self,
+        request: Request,
+        next: Next,
+    ) -> Result<(CacheStatus, Response), Error> {
         // Check if request should bypass cache lookup.
         if request.method() != Method::GET {
-            return Ok(CacheStatus::Bypass(CacheBypassReason::MethodNotCacheable)
-                .with_response(next.run(request).await));
+            return Ok((
+                CacheStatus::Bypass(CacheBypassReason::MethodNotCacheable),
+                next.run(request).await,
+            ));
         }
 
         // Use cached response if found
         let key = self.key_extractor.extract(&request)?;
 
         if let Some(v) = self.get(&key) {
-            return Ok(CacheStatus::Hit.with_response(v));
+            return Ok((CacheStatus::Hit, v));
         }
 
         // Get synchronization lock to handle parallel requests.
@@ -220,38 +283,51 @@ impl<K: KeyExtractor + 'static> Cache<K> {
                 lock_obtained = true;
             }
 
-            // We proceed with the request as is if takes too long to get the lock.
+            // We proceed with the request as is if takes too long to get the lock
             _ = sleep(self.lock_timeout) => {}
         }
 
         // Record prometheus metrics for the time spent waiting for the lock.
         self.metrics
             .lock_await
+            .with_label_values(&[if lock_obtained { "yes" } else { "no" }])
             .observe(start.elapsed().as_secs_f64());
 
         // Check again the cache in case some other request filled it
         // while we were waiting for the lock
         if let Some(v) = self.get(&key) {
-            return Ok(CacheStatus::Hit.with_response(v));
+            return Ok((CacheStatus::Hit, v));
         }
 
-        // Otherwise execute the request
-        self.proxy_request(request, next, key).await
+        // Otherwise pass the request forward
+        let now = Instant::now();
+        Ok(match self.pass_request(request, next).await? {
+            // If the body was fetched - cache it
+            ResponseType::Fetched(v) => {
+                let delta = now.elapsed();
+                self.insert(key, delta, v.clone());
+
+                let (parts, body) = v.into_parts();
+                let response = Response::from_parts(parts, Body::from(body));
+                (CacheStatus::Miss, response)
+            }
+
+            // Otherwise just pass it up
+            ResponseType::Streamed(v, reason) => (CacheStatus::Bypass(reason), v),
+        })
     }
 
-    async fn proxy_request(
-        &self,
-        request: Request,
-        next: Next,
-        key: K::Key,
-    ) -> Result<Response, Error> {
-        let now = Instant::now();
+    // Passes the request down the line and conditionally fetches the response body
+    async fn pass_request(&self, request: Request, next: Next) -> Result<ResponseType, Error> {
         // Execute the response & get the headers
         let response = next.run(request).await;
 
         // Do not cache non-2xx responses
         if !response.status().is_success() {
-            return Ok(CacheStatus::Bypass(CacheBypassReason::HTTPError).with_response(response));
+            return Ok(ResponseType::Streamed(
+                response,
+                CacheBypassReason::HTTPError,
+            ));
         }
 
         // Extract content length from the response header if there's one
@@ -259,23 +335,23 @@ impl<K: KeyExtractor + 'static> Cache<K> {
 
         // Do not cache responses that have no known size (probably streaming etc)
         let Some(body_size) = content_length else {
-            return Ok(CacheStatus::Bypass(CacheBypassReason::SizeUnknown).with_response(response));
+            return Ok(ResponseType::Streamed(
+                response,
+                CacheBypassReason::SizeUnknown,
+            ));
         };
 
         // Do not cache items larger than configured
         if body_size > self.max_item_size {
-            return Ok(CacheStatus::Bypass(CacheBypassReason::BodyTooBig).with_response(response));
+            return Ok(ResponseType::Streamed(
+                response,
+                CacheBypassReason::BodyTooBig,
+            ));
         }
 
         // Read the response body into a buffer
         let response = fetch_body(response, body_size).await?;
-        let delta = now.elapsed();
-        self.insert(key, delta, response.clone());
-
-        let (parts, body) = response.into_parts();
-        let response = Response::from_parts(parts, Body::from(body));
-
-        Ok(CacheStatus::Miss.with_response(response))
+        Ok(ResponseType::Fetched(response))
     }
 
     #[cfg(test)]
