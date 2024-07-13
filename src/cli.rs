@@ -21,6 +21,10 @@ fn parse_size(s: &str) -> Result<u64, parse_size::Error> {
     parse_size::Config::new().with_binary().parse_size(s)
 }
 
+fn parse_size_usize(s: &str) -> Result<usize, parse_size::Error> {
+    parse_size(s).map(|x| x as usize)
+}
+
 /// Clap does not support prefixes due to macro limitations.
 /// So the names are a bit redundant (e.g. cli.http_client.http_client_...) to
 /// make it consistent with env vars naming etc.
@@ -436,7 +440,7 @@ pub struct CacheConfig {
     pub cache_size: Option<u64>,
 
     /// Maximum size of a single cached response item in bytes. Should be less than cache_size.
-    #[clap(env, long, default_value = "10MB", value_parser = parse_size)]
+    #[clap(env, long, default_value = "10MB", value_parser = parse_size_usize)]
     pub cache_max_item_size: usize,
 
     /// Time-to-live for the cache entries in seconds
