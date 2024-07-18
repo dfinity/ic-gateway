@@ -26,6 +26,14 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     ENV.set(cli.misc.env.clone()).unwrap();
     HOSTNAME.set(cli.misc.hostname.clone()).unwrap();
 
+    if cli.ic.unsafe_disable_replica_signed_queries {
+        warn!("Replica-signed queries are disabled");
+    }
+
+    if cli.ic.unsafe_disable_response_verification {
+        warn!("Response verification is disabled");
+    }
+
     // Make a list of all supported domains
     let mut domains = cli.domain.domain.clone();
     domains.extend_from_slice(&cli.domain.domain_system);
