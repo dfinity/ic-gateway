@@ -177,7 +177,7 @@ pub struct Ic {
     #[clap(env, long, default_value = "false")]
     pub unsafe_disable_response_verification: bool,
 
-    /// Disable replica signed queries in the agent.
+    /// Disable replica-signed queries in the agent.
     #[clap(env, long, default_value = "false")]
     pub unsafe_disable_replica_signed_queries: bool,
 }
