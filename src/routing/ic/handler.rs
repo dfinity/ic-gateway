@@ -77,7 +77,7 @@ pub async fn handler(
 
             // Execute the request
             let mut req = state.client.request(args);
-            // Skip verification if it's disabled globally or for this request.
+            // Skip verification if it's disabled globally or if it is a "raw" request.
             req.unsafe_set_skip_verification(!state.verify_response || !ctx.verify);
             let resp = req.send().await;
 
