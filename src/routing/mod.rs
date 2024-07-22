@@ -207,7 +207,10 @@ pub fn setup_router(
     let client = ic::setup(cli, http_client.clone(), route_provider.clone())?;
 
     // Prepare the states
-    let state_handler = Arc::new(handler::HandlerState::new(client));
+    let state_handler = Arc::new(handler::HandlerState::new(
+        client,
+        !cli.ic.unsafe_disable_response_verification,
+    ));
     let state_api = Arc::new(proxy::ApiProxyState::new(
         http_client.clone(),
         route_provider,

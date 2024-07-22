@@ -172,6 +172,14 @@ pub struct Ic {
     /// Path to an IC root key. Must be DER-encoded. If not specified - hardcoded will be used.
     #[clap(env, long)]
     pub ic_root_key: Option<PathBuf>,
+
+    /// Disable response verification for the IC requests.
+    #[clap(env, long, default_value = "false")]
+    pub unsafe_disable_response_verification: bool,
+
+    /// Disable replica-signed queries in the agent.
+    #[clap(env, long, default_value = "false")]
+    pub unsafe_disable_replica_signed_queries: bool,
 }
 
 #[derive(Args)]

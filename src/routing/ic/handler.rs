@@ -27,6 +27,7 @@ const MAX_REQUEST_BODY_SIZE: usize = 10 * 1_048_576;
 #[derive(derive_new::new)]
 pub struct HandlerState {
     client: HttpGatewayClient,
+    verify_response: bool,
 }
 
 // Main HTTP->IC request handler
@@ -76,7 +77,8 @@ pub async fn handler(
 
             // Execute the request
             let mut req = state.client.request(args);
-            req.unsafe_set_skip_verification(!ctx.verify);
+            // Skip verification if it's disabled globally or if it is a "raw" request.
+            req.unsafe_set_skip_verification(!state.verify_response || !ctx.verify);
             let resp = req.send().await;
 
             let bn_metadata =
