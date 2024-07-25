@@ -28,6 +28,7 @@ use middleware::cache::{self, KeyExtractorUriRange};
 use prometheus::Registry;
 use strum::{Display, IntoStaticStr};
 use tower::{limit::ConcurrencyLimitLayer, util::MapResponseLayer, ServiceBuilder, ServiceExt};
+use tracing::warn;
 
 use crate::{
     cache::{Cache, Opts},
@@ -159,6 +160,7 @@ pub fn setup_router(
                 denylist::middleware,
             ))
         } else {
+            warn!("Running without denylist: neither a seed nor a URL has been specified.");
             None
         };
 
@@ -170,6 +172,7 @@ pub fn setup_router(
             canister_match::middleware,
         ))
     } else {
+        warn!("Running without domain-canister matching.");
         None
     };
 
@@ -269,6 +272,7 @@ pub fn setup_router(
         let state = Arc::new(Cache::new(opts, KeyExtractorUriRange, registry)?);
         Some(from_fn_with_state(state, cache::middleware))
     } else {
+        warn!("Running without HTTP cache.");
         None
     });
 
@@ -320,6 +324,7 @@ pub fn setup_router(
 
         Some(router)
     } else {
+        warn!("Running without certificate issuer (custom domains).");
         None
     };
 
