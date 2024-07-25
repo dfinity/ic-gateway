@@ -220,7 +220,7 @@ pub fn setup_router(
     ));
 
     // Common CORS layers
-    let cors_post = cors::layer(&[Method::POST]);
+    let cors_post = cors::layer(&[Method::HEAD, Method::POST]);
     let cors_get = cors::layer(&[Method::HEAD, Method::GET]);
 
     // IC API proxy routers
@@ -286,17 +286,19 @@ pub fn setup_router(
         post(handler::handler)
             .get(handler::handler)
             .put(handler::handler)
+            .delete(handler::handler)
             .layer(cors::layer(&[
                 Method::HEAD,
                 Method::GET,
                 Method::POST,
-                Method::OPTIONS,
+                Method::PUT,
+                Method::DELETE,
             ]))
             .layer(http_layers)
             .with_state(state_handler),
     );
 
-    // Setup issuer proxy endpoint if we have them configured
+    // Setup certificate issuer proxy endpoint if we have them configured
     let router_issuer = if !cli.cert.cert_provider_issuer_url.is_empty() {
         // Init it early to avoid threading races
         lazy_static::initialize(&proxy::REGEX_REG_ID);
@@ -324,7 +326,7 @@ pub fn setup_router(
 
         Some(router)
     } else {
-        warn!("Running without certificate issuer (custom domains).");
+        warn!("Running without certificate issuer.");
         None
     };
 
