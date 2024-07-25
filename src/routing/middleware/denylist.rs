@@ -27,9 +27,10 @@ impl DenylistState {
         http_client: Arc<dyn Client>,
         registry: &Registry,
     ) -> Result<Self, Error> {
+        let denylist_url = cli.policy.policy_denylist_url.clone();
         let denylist = Arc::new(
             Denylist::init(
-                cli.policy.policy_denylist_url.clone(),
+                denylist_url.clone(),
                 cli.policy.policy_denylist_allowlist.clone(),
                 cli.policy.policy_denylist_seed.clone(),
                 http_client,
@@ -39,7 +40,10 @@ impl DenylistState {
             .context("unable to init denylist")?,
         );
 
-        tasks.add("denylist_updater", denylist.clone());
+        // Only run if a URL was given
+        if denylist_url.is_some() {
+            tasks.add("denylist_updater", denylist.clone());
+        }
         Ok(Self(denylist))
     }
 }
