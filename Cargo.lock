@@ -1890,10 +1890,14 @@ dependencies = [
 name = "discower_bowndary"
 version = "0.1.0"
 <<<<<<< HEAD
+<<<<<<< HEAD
 source = "git+https://github.com/dfinity/ic.git#dd2fe60925dd40ed9522710cb1aaefebc4483590"
 =======
 source = "git+https://github.com/dfinity/ic.git#d04d4bbd5f5f496cbff284be15635dc502d85c62"
 >>>>>>> 6cf8876 (bump dependencies)
+=======
+source = "git+https://github.com/dfinity/ic.git#4fd343cae72271198daeffcf18f40077f8f4f989"
+>>>>>>> 91fa0b6 (bump response verification)
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -3191,7 +3195,11 @@ dependencies = [
 [[package]]
 name = "ic-http-gateway"
 version = "0.0.0"
+<<<<<<< HEAD
 source = "git+https://github.com/dfinity/http-gateway#a1f63eb17b0a89f7fadcab67b3a0afe1720ef9b3"
+=======
+source = "git+https://github.com/dfinity/http-gateway#d257005d970759552c7f6f0795ac96d408f7e0c5"
+>>>>>>> 91fa0b6 (bump response verification)
 dependencies = [
  "bytes",
  "candid",
