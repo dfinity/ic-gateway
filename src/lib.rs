@@ -2,8 +2,6 @@
 //#![warn(clippy::pedantic)]
 #![warn(clippy::nursery)]
 
-pub use crate::cli::Cli;
-
 mod cache;
 mod cli;
 mod core;
@@ -15,6 +13,7 @@ mod routing;
 mod tasks;
 mod tls;
 
+pub use cli::Cli;
 pub use core::main;
 pub use log::setup_logging;
 pub use routing::domain::{DomainLookup, DomainResolver, ResolvesDomain};
