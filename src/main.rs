@@ -1,34 +1,15 @@
-#![deny(clippy::all)]
-//#![warn(clippy::pedantic)]
-#![warn(clippy::nursery)]
-#![allow(clippy::too_many_lines)]
-// Needed for certain macros
-#![recursion_limit = "256"]
-
 use anyhow::{Context, Error};
 use clap::Parser;
+use ic_gateway::{main as core_main, setup_logging, Cli};
 use tikv_jemallocator::Jemalloc;
 use tracing::warn;
-
-use crate::cli::Cli;
-
-mod cache;
-mod cli;
-mod core;
-mod http;
-mod log;
-mod metrics;
-mod policy;
-mod routing;
-mod tasks;
-mod tls;
 
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
 fn main() -> Result<(), Error> {
     let cli = Cli::parse();
-    log::setup_logging(&cli.log).context("unable to setup logging")?;
+    setup_logging(&cli.log).context("unable to setup logging")?;
     warn!("Env: {}, Hostname: {}", cli.misc.env, cli.misc.hostname);
 
     let threads = if let Some(v) = cli.misc.threads {
@@ -43,5 +24,5 @@ fn main() -> Result<(), Error> {
         .enable_all()
         .worker_threads(threads)
         .build()?
-        .block_on(core::main(&cli))
+        .block_on(core_main(&cli))
 }

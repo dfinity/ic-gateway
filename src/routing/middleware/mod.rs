@@ -114,7 +114,7 @@ mod test {
         map.insert(fqdn!("foo.zaz"), 5);
         map.insert(fqdn!("foo.bah"), 6);
         map.insert(fqdn!("foo.hah"), 7);
-        assert!(map.get(&auth.unwrap()).is_some());
+        assert!(map.contains_key(&auth.unwrap()));
 
         // Badly formatted
         let mut req = axum::extract::Request::builder()

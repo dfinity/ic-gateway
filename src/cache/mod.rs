@@ -494,7 +494,7 @@ mod tests {
         cache
             .process_request(request, next)
             .await
-            .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR.into_response())
+            .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
     }
 
     #[test]
@@ -683,9 +683,9 @@ mod tests {
         let mut count_hits = 0;
         for idx in 0..req_count {
             let status = dispatch_get_request(&mut app, format!("/{idx}")).await;
-            if let Some(CacheStatus::Miss) = status {
+            if status == Some(CacheStatus::Miss) {
                 count_misses += 1;
-            } else if let Some(CacheStatus::Hit) = status {
+            } else if status == Some(CacheStatus::Hit) {
                 count_hits += 1;
             }
         }

@@ -135,7 +135,7 @@ mod test {
 
         let key1 = "a".repeat(2500).as_bytes().to_vec();
         let key2 = "b".repeat(2500).as_bytes().to_vec();
-        let key3 = "b".as_bytes().to_vec();
+        let key3 = b"b".to_vec();
 
         // Check that two entries fit
         c.put(key1.clone(), key1.clone());
