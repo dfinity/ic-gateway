@@ -12,7 +12,7 @@ use ic_agent::{
         Transport,
     },
     export::Principal,
-    AgentError, RequestId,
+    AgentError,
 };
 use ic_transport_types::RejectResponse;
 use reqwest::{
@@ -203,13 +203,12 @@ impl Transport for ReqwestTransport {
         &self,
         effective_canister_id: Principal,
         envelope: Vec<u8>,
-        _request_id: RequestId,
-    ) -> AgentFuture<()> {
+    ) -> AgentFuture<ic_agent::TransportCallResponse> {
         Box::pin(async move {
             let endpoint = format!("canister/{}/call", effective_canister_id.to_text());
             self.execute(Method::POST, &endpoint, Some(envelope))
                 .await?;
-            Ok(())
+            Ok(ic_agent::TransportCallResponse::Accepted)
         })
     }
 
