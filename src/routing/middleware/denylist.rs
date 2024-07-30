@@ -10,7 +10,6 @@ use prometheus::Registry;
 use reqwest::Url;
 
 use crate::{
-    cli::Cli,
     http::Client,
     policy::denylist::Denylist,
     routing::{middleware::geoip::CountryCode, CanisterId, ErrorCause},

@@ -14,7 +14,7 @@ use ic_agent::{
     export::Principal,
     AgentError,
 };
-use ic_transport_types::RejectResponse;
+use ic_transport_types::{RejectResponse, TransportCallResponse};
 use reqwest::{
     header::{HeaderMap, HeaderValue, CONTENT_TYPE},
     Body, Method, Request, StatusCode,
@@ -53,6 +53,7 @@ pub struct ReqwestTransport {
     route_provider: Arc<dyn RouteProvider>,
     client: Arc<dyn HttpClient>,
     max_response_body_size: Option<usize>,
+    use_call_v3_endpoint: bool,
 }
 
 impl ReqwestTransport {
@@ -65,6 +66,7 @@ impl ReqwestTransport {
             route_provider,
             client,
             max_response_body_size: Some(MAX_RESPONSE_SIZE),
+            use_call_v3_endpoint: false,
         }
     }
 
@@ -116,7 +118,7 @@ impl ReqwestTransport {
         method: Method,
         endpoint: &str,
         body: Option<Vec<u8>>,
-    ) -> Result<Vec<u8>, AgentError> {
+    ) -> Result<(StatusCode, Vec<u8>), AgentError> {
         let url = self.route_provider.route()?.join(endpoint)?;
         let mut http_request = Request::new(method, url);
         http_request
@@ -193,7 +195,7 @@ impl ReqwestTransport {
                 content: body,
             }))
         } else {
-            Ok(body)
+            Ok((status, body))
         }
     }
 }
@@ -205,10 +207,35 @@ impl Transport for ReqwestTransport {
         envelope: Vec<u8>,
     ) -> AgentFuture<ic_agent::TransportCallResponse> {
         Box::pin(async move {
-            let endpoint = format!("canister/{}/call", effective_canister_id.to_text());
-            self.execute(Method::POST, &endpoint, Some(envelope))
+            let api_version = if self.use_call_v3_endpoint {
+                "v3"
+            } else {
+                "v2"
+            };
+
+            let endpoint = format!(
+                "api/{}/canister/{}/call",
+                api_version,
+                effective_canister_id.to_text()
+            );
+
+            let (status_code, response_body) = self
+                .execute(Method::POST, &endpoint, Some(envelope))
                 .await?;
-            Ok(ic_agent::TransportCallResponse::Accepted)
+
+            if status_code == StatusCode::ACCEPTED {
+                return Ok(TransportCallResponse::Accepted);
+            }
+
+            // status_code == OK (200)
+            if self.use_call_v3_endpoint {
+                serde_cbor::from_slice(&response_body).map_err(AgentError::InvalidCborData)
+            } else {
+                let reject_response = serde_cbor::from_slice::<RejectResponse>(&response_body)
+                    .map_err(AgentError::InvalidCborData)?;
+
+                Err(AgentError::UncertifiedReject(reject_response))
+            }
         })
     }
 
@@ -218,27 +245,37 @@ impl Transport for ReqwestTransport {
         envelope: Vec<u8>,
     ) -> AgentFuture<Vec<u8>> {
         Box::pin(async move {
-            let endpoint = format!("canister/{effective_canister_id}/read_state");
-            self.execute(Method::POST, &endpoint, Some(envelope)).await
+            let endpoint = format!(
+                "api/v2/canister/{}/read_state",
+                effective_canister_id.to_text()
+            );
+            self.execute(Method::POST, &endpoint, Some(envelope))
+                .await
+                .map(|r| r.1)
         })
     }
 
     fn read_subnet_state(&self, subnet_id: Principal, envelope: Vec<u8>) -> AgentFuture<Vec<u8>> {
         Box::pin(async move {
-            let endpoint = format!("subnet/{subnet_id}/read_state");
-            self.execute(Method::POST, &endpoint, Some(envelope)).await
+            let endpoint = format!("api/v2/subnet/{}/read_state", subnet_id.to_text());
+            self.execute(Method::POST, &endpoint, Some(envelope))
+                .await
+                .map(|r| r.1)
         })
     }
 
     fn query(&self, effective_canister_id: Principal, envelope: Vec<u8>) -> AgentFuture<Vec<u8>> {
         Box::pin(async move {
-            let endpoint = format!("canister/{effective_canister_id}/query");
-            self.execute(Method::POST, &endpoint, Some(envelope)).await
+            let endpoint = format!("api/v2/canister/{}/query", effective_canister_id.to_text());
+            self.execute(Method::POST, &endpoint, Some(envelope))
+                .await
+                .map(|r| r.1)
         })
     }
 
     fn status(&self) -> AgentFuture<Vec<u8>> {
-        Box::pin(async move { self.execute(Method::GET, "status", None).await })
+        let endpoint = "api/v2/status";
+        Box::pin(async move { self.execute(Method::GET, endpoint, None).await.map(|r| r.1) })
     }
 }
 
