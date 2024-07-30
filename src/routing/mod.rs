@@ -4,13 +4,15 @@ pub mod ic;
 pub mod middleware;
 pub mod proxy;
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
-use anyhow::Error;
+use anyhow::{Context, Error};
 use axum::{
+    body::{Body, Bytes},
     extract::{Host, OriginalUri, Request},
+    handler::Handler,
     middleware::{from_fn, from_fn_with_state, FromFnLayer},
-    response::{IntoResponse, Redirect},
+    response::{IntoResponse, Redirect, Response},
     routing::{get, post},
     Extension, Router,
 };
@@ -30,6 +32,7 @@ use ic_bn_lib::{
 use little_loadshedder::{LoadShedLayer, LoadShedResponse};
 use middleware::cache;
 use prometheus::Registry;
+use sev::firmware::guest::Firmware;
 use strum::{Display, IntoStaticStr};
 use tower::{limit::ConcurrencyLimitLayer, util::MapResponseLayer, ServiceBuilder, ServiceExt};
 use tracing::warn;
@@ -355,10 +358,20 @@ pub async fn setup_router(
         .layer(load_shedder_mw)
         .layer(from_fn_with_state(domain_resolver, validate::middleware));
 
+    // SEV-SNP (Firmware and handler)
+    let fw = Firmware::open().context("unable to open firmware")?;
+    let fw = Arc::new(Mutex::new(fw));
+
+    let report_handler = report_handler.layer(Extension({
+        let v: Arc<Mutex<Firmware>> = fw;
+        v
+    }));
+
     // Top-level router
     let router = Router::new()
         .nest("/api/v2", router_api_v2)
         .nest("/api/v3", router_api_v3)
+        .route("/report", post(report_handler))
         .fallback(
             |Extension(ctx): Extension<Arc<RequestCtx>>, request: Request| async move {
                 let path = request.uri().path();
@@ -394,4 +407,57 @@ pub async fn setup_router(
 
     // The layer that's added last is executed first
     Ok(router)
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ApiError {
+    #[error("status {0}: {1}")]
+    Custom(StatusCode, String),
+
+    #[error(transparent)]
+    Unspecified(#[from] anyhow::Error),
+}
+
+impl IntoResponse for ApiError {
+    fn into_response(self) -> Response {
+        (match self {
+            Self::Custom(c, b) => (c, b),
+            Self::Unspecified(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
+        })
+        .into_response()
+    }
+}
+
+async fn report_handler(
+    Extension(fw): Extension<Arc<Mutex<Firmware>>>,
+    body: Bytes,
+) -> Result<impl IntoResponse, ApiError> {
+    if body.len() != 64 {
+        return Err(ApiError::Custom(
+            StatusCode::BAD_REQUEST,
+            "payload must be exactly 64 bytes".to_string(),
+        ));
+    }
+
+    let data: [u8; 64] = body
+        .as_ref()
+        .try_into()
+        .context("failed to read request body")?;
+
+    let r = fw
+        .lock()
+        .unwrap()
+        .get_report(
+            None,       // message_version
+            Some(data), // data
+            Some(1),    // vmpl
+        )
+        .context("failed to get report")?;
+
+    let bs = bincode::serialize(&r).context("failed to serialize attestation report")?;
+
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .body(Body::from(bs))
+        .unwrap())
 }
