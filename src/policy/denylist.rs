@@ -158,11 +158,6 @@ impl Denylist {
 #[async_trait]
 impl Run for Denylist {
     async fn run(&self, token: CancellationToken) -> Result<(), Error> {
-        // Do not run if no URL was given
-        if self.url.is_none() {
-            return Ok(());
-        }
-
         warn!(
             "Denylist updater started with {}s interval",
             self.update_interval.as_secs()

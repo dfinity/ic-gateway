@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::{Context, Error};
 use axum::{
@@ -7,6 +7,7 @@ use axum::{
     response::Response,
 };
 use prometheus::Registry;
+use reqwest::Url;
 
 use crate::{
     cli::Cli,
@@ -22,24 +23,30 @@ pub struct DenylistState(Arc<Denylist>);
 #[allow(clippy::type_complexity)]
 impl DenylistState {
     pub fn new(
-        cli: &Cli,
+        denylist_url: Option<Url>,
+        denylist_seed: Option<PathBuf>,
+        allowlist: Option<PathBuf>,
+        poll_interval: Duration,
         tasks: &mut TaskManager,
         http_client: Arc<dyn Client>,
         registry: &Registry,
     ) -> Result<Self, Error> {
         let denylist = Arc::new(
             Denylist::init(
-                cli.policy.policy_denylist_url.clone(),
-                cli.policy.policy_denylist_allowlist.clone(),
-                cli.policy.policy_denylist_seed.clone(),
+                denylist_url.clone(),
+                allowlist,
+                denylist_seed,
                 http_client,
-                cli.policy.policy_denylist_poll_interval,
+                poll_interval,
                 registry,
             )
             .context("unable to init denylist")?,
         );
 
-        tasks.add("denylist_updater", denylist.clone());
+        // Only run if a URL was given
+        if denylist_url.is_some() {
+            tasks.add("denylist_updater", denylist.clone());
+        }
         Ok(Self(denylist))
     }
 }

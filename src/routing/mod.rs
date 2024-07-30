@@ -28,6 +28,7 @@ use middleware::cache::{self, KeyExtractorUriRange};
 use prometheus::Registry;
 use strum::{Display, IntoStaticStr};
 use tower::{limit::ConcurrencyLimitLayer, util::MapResponseLayer, ServiceBuilder, ServiceExt};
+use tracing::warn;
 
 use crate::{
     cache::{Cache, Opts},
@@ -155,10 +156,19 @@ pub fn setup_router(
     let denylist_mw =
         if cli.policy.policy_denylist_seed.is_some() || cli.policy.policy_denylist_url.is_some() {
             Some(from_fn_with_state(
-                denylist::DenylistState::new(cli, tasks, http_client.clone(), registry)?,
+                denylist::DenylistState::new(
+                    cli.policy.policy_denylist_url.clone(),
+                    cli.policy.policy_denylist_seed.clone(),
+                    cli.policy.policy_denylist_allowlist.clone(),
+                    cli.policy.policy_denylist_poll_interval,
+                    tasks,
+                    http_client.clone(),
+                    registry,
+                )?,
                 denylist::middleware,
             ))
         } else {
+            warn!("Running without denylist: neither a seed nor a URL has been specified.");
             None
         };
 
@@ -170,6 +180,7 @@ pub fn setup_router(
             canister_match::middleware,
         ))
     } else {
+        warn!("Running without domain-canister matching.");
         None
     };
 
@@ -217,7 +228,7 @@ pub fn setup_router(
     ));
 
     // Common CORS layers
-    let cors_post = cors::layer(&[Method::POST]);
+    let cors_post = cors::layer(&[Method::HEAD, Method::POST]);
     let cors_get = cors::layer(&[Method::HEAD, Method::GET]);
 
     // IC API proxy routers
@@ -269,6 +280,7 @@ pub fn setup_router(
         let state = Arc::new(Cache::new(opts, KeyExtractorUriRange, registry)?);
         Some(from_fn_with_state(state, cache::middleware))
     } else {
+        warn!("Running without HTTP cache.");
         None
     });
 
@@ -282,17 +294,19 @@ pub fn setup_router(
         post(handler::handler)
             .get(handler::handler)
             .put(handler::handler)
+            .delete(handler::handler)
             .layer(cors::layer(&[
                 Method::HEAD,
                 Method::GET,
                 Method::POST,
-                Method::OPTIONS,
+                Method::PUT,
+                Method::DELETE,
             ]))
             .layer(http_layers)
             .with_state(state_handler),
     );
 
-    // Setup issuer proxy endpoint if we have them configured
+    // Setup certificate issuer proxy endpoint if we have them configured
     let router_issuer = if !cli.cert.cert_provider_issuer_url.is_empty() {
         // Init it early to avoid threading races
         lazy_static::initialize(&proxy::REGEX_REG_ID);
@@ -320,6 +334,7 @@ pub fn setup_router(
 
         Some(router)
     } else {
+        warn!("Running without certificate issuer.");
         None
     };
 
