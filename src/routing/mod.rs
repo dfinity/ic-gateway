@@ -156,7 +156,15 @@ pub fn setup_router(
     let denylist_mw =
         if cli.policy.policy_denylist_seed.is_some() || cli.policy.policy_denylist_url.is_some() {
             Some(from_fn_with_state(
-                denylist::DenylistState::new(cli, tasks, http_client.clone(), registry)?,
+                denylist::DenylistState::new(
+                    cli.policy.policy_denylist_url.clone(),
+                    cli.policy.policy_denylist_seed.clone(),
+                    cli.policy.policy_denylist_allowlist.clone(),
+                    cli.policy.policy_denylist_poll_interval,
+                    tasks,
+                    http_client.clone(),
+                    registry,
+                )?,
                 denylist::middleware,
             ))
         } else {
