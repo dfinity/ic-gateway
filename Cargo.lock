@@ -3302,7 +3302,7 @@ dependencies = [
 [[package]]
 name = "ic-http-gateway"
 version = "0.0.0"
-source = "git+https://github.com/dfinity/http-gateway#a1f63eb17b0a89f7fadcab67b3a0afe1720ef9b3"
+source = "git+https://github.com/dfinity/http-gateway?rev=a1f63eb17b0a89f7fadcab67b3a0afe1720ef9b3#a1f63eb17b0a89f7fadcab67b3a0afe1720ef9b3"
 dependencies = [
  "bytes 1.6.1",
  "candid",
