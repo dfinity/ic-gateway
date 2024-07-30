@@ -101,7 +101,7 @@ strum_macros = "0.26"
 sync_wrapper = "1.0"
 thiserror = "1.0"
 time = { version = "0.3", features = ["macros", "serde"] }
-tokio = { version = "1.38", features = ["full"] }
+tokio = { version = "1.39", features = ["full"] }
 tokio-util = { version = "0.7", features = ["full"] }
 tokio-rustls = "0.26"
 tower = "0.4"
@@ -120,7 +120,7 @@ url = "2.5"
 uuid = { version = "1.8", features = ["v7"] }
 # vector-lib depends on openssl and we don't want that.
 # thus use the fork where openssl dependency is removed
-vector-lib = { git = "https://github.com/blind-oracle/vector.git" }
+vector-lib = { git = "https://github.com/mraszyk/vector.git", rev = "703243ee7d9895106f59b2dc470ecb6dca8a4457" }
 webpki-roots = "0.26"
 x509-parser = "0.16"
 zeroize = { version = "1.8", features = ["derive"] }
