@@ -136,4 +136,4 @@ lto = "fat"
 panic = "abort"
 
 [patch.crates-io]
-ic-agent = { package = "ic-agent", git = "https://github.com/dfinity/agent-rs", branch = "dynamic_route", features = ["reqwest"], default-features = false}
+ic-agent = { package = "ic-agent", git = "https://github.com/dfinity/agent-rs", branch = "dynamic_route", features = ["reqwest"]}
