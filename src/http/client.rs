@@ -5,6 +5,8 @@ use http::header::HeaderValue;
 use mockall::automock;
 use reqwest::dns::Resolve;
 
+use ic_agent::agent::http_transport::reqwest_transport::reqwest::Client as AgentClient;
+
 #[automock]
 #[async_trait]
 pub trait Client: Send + Sync + fmt::Debug {
@@ -24,8 +26,8 @@ pub struct Options {
 pub fn new(
     opts: Options,
     dns_resolver: impl Resolve + 'static,
-) -> Result<reqwest::Client, anyhow::Error> {
-    let client = reqwest::Client::builder()
+) -> Result<AgentClient, anyhow::Error> {
+    let client = AgentClient::builder()
         .use_preconfigured_tls(opts.tls_config)
         .dns_resolver(Arc::new(dns_resolver))
         .connect_timeout(opts.timeout_connect)

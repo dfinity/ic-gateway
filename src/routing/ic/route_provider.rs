@@ -15,6 +15,7 @@ use url::Url;
 pub async fn setup_route_provider(
     urls: &[Url],
     ic_use_discovery: bool,
+    reqwest_client: AgentClient,
 ) -> anyhow::Result<Arc<dyn RouteProvider>> {
     let urls_str = urls.iter().map(Url::as_str).collect::<Vec<_>>();
 
@@ -32,11 +33,11 @@ pub async fn setup_route_provider(
         }
 
         let route_provider = {
-            let client = AgentClient::builder().build().unwrap();
             let snapshot = LatencyRoutingSnapshot::new();
-            let route_provider = DynamicRouteProviderBuilder::new(snapshot, api_seed_nodes, client)
-                .build()
-                .await;
+            let route_provider =
+                DynamicRouteProviderBuilder::new(snapshot, api_seed_nodes, reqwest_client)
+                    .build()
+                    .await;
             Arc::new(route_provider)
         };
 

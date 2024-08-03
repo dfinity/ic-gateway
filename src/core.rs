@@ -111,6 +111,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         custom_domain_providers,
         &mut tasks,
         http_client.clone(),
+        reqwest_client,
         &registry,
         clickhouse.clone(),
         vector.clone(),
