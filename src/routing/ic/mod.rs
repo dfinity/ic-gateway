@@ -2,7 +2,6 @@
 #![allow(clippy::borrow_interior_mutable_const)]
 
 pub mod handler;
-pub mod health_check;
 pub mod route_provider;
 pub mod transport;
 

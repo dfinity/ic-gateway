@@ -2,27 +2,23 @@
 
 use std::{cell::RefCell, pin::Pin, sync::Arc, time::Duration};
 
-use discower_bowndary::transport::{TransportProvider, TransportProviderError};
+use crate::http::Client as HttpClient;
 use futures::Future;
 use futures_util::StreamExt;
+use ic_agent::agent::RejectResponse;
+use ic_agent::TransportCallResponse;
 use ic_agent::{
     agent::{
-        agent_error::HttpErrorPayload,
-        http_transport::route_provider::{RoundRobinRouteProvider, RouteProvider},
-        Transport,
+        agent_error::HttpErrorPayload, http_transport::route_provider::RouteProvider, Transport,
     },
     export::Principal,
     AgentError,
 };
-use ic_transport_types::{RejectResponse, TransportCallResponse};
 use reqwest::{
     header::{HeaderMap, HeaderValue, CONTENT_TYPE},
     Body, Method, Request, StatusCode,
 };
 use tokio::task_local;
-use url::Url;
-
-use crate::http::Client as HttpClient;
 
 type AgentFuture<'a, V> = Pin<Box<dyn Future<Output = Result<V, AgentError>> + Send + 'a>>;
 
@@ -276,33 +272,5 @@ impl Transport for ReqwestTransport {
     fn status(&self) -> AgentFuture<Vec<u8>> {
         let endpoint = "api/v2/status";
         Box::pin(async move { self.execute(Method::GET, endpoint, None).await.map(|r| r.1) })
-    }
-}
-
-#[derive(Debug)]
-pub struct ReqwestTransportProvider {
-    http_client: Arc<dyn HttpClient>,
-}
-
-impl ReqwestTransportProvider {
-    pub fn new(http_client: Arc<dyn HttpClient>) -> Self {
-        Self { http_client }
-    }
-}
-
-impl TransportProvider for ReqwestTransportProvider {
-    fn get_transport(&self, url: Url) -> Result<Arc<dyn Transport>, TransportProviderError> {
-        // Here we need to fetch API nodes via a single static url, thus use RoundRobinRouteProvider with just one url.
-        let route_provider = Arc::new(
-            RoundRobinRouteProvider::new(vec![url.as_str()])
-                .map_err(|err| TransportProviderError::UnableToGetTransport(err.to_string()))?,
-        );
-
-        let transport = Arc::new(ReqwestTransport::create_with_client_route(
-            route_provider,
-            self.http_client.clone(),
-        ));
-
-        Ok(transport)
     }
 }

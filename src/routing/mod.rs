@@ -113,7 +113,7 @@ pub async fn redirect_to_https(
     )
 }
 
-pub fn setup_router(
+pub async fn setup_router(
     cli: &Cli,
     custom_domain_providers: Vec<Arc<dyn ProvidesCustomDomains>>,
     tasks: &mut TaskManager,
@@ -213,8 +213,7 @@ pub fn setup_router(
     }));
 
     // Prepare the HTTP->IC library
-    let route_provider =
-        setup_route_provider(&cli.ic.ic_url, &http_client, tasks, cli.ic.ic_use_discovery)?;
+    let route_provider = setup_route_provider(&cli.ic.ic_url, cli.ic.ic_use_discovery).await?;
     let client = ic::setup(cli, http_client.clone(), route_provider.clone())?;
 
     // Prepare the states

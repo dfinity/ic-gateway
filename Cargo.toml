@@ -57,9 +57,9 @@ itertools = "0.12"
 humantime = "2.1"
 hyper = "1.3"
 hyper-util = "0.1"
-ic-agent = { version = "0.37", features = ["reqwest"] }
+ic-agent = { version = "0.37.1", features = ["reqwest"] }
 ic-http-gateway = { git = "https://github.com/dfinity/http-gateway" }
-ic-transport-types = "0.37"
+# ic-transport-types = "0.37.1"
 instant-acme = "0.4"
 tikv-jemallocator = "0.5"
 tikv-jemalloc-ctl = "0.5"
@@ -136,3 +136,6 @@ strip = "symbols"
 codegen-units = 1
 lto = "fat"
 panic = "abort"
+
+[patch.crates-io]
+ic-agent = { package = "ic-agent", git = "https://github.com/dfinity/agent-rs", branch = "dynamic_route", features = ["reqwest"], default-features = false}
