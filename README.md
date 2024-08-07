@@ -46,6 +46,7 @@ To run a minimal ic-gateway locally, use the following command:
 
 ```
 cargo run -- \
+    --log-stdout \
     --http-server-listen-tls '127.0.0.1:443' \
     --ic-url https://icp-api.io \
     --domain gateway.icp \
@@ -53,6 +54,25 @@ cargo run -- \
 ```
 
 This starts `ic-gateway` on port 443 on localhost (`--http-server-listen-tls`), uses `https://icp-api.io` as the upstream (`--ic-url`), serves the domain `gateway.icp` (`--domain`), and expects the certificate `gateway.icp.pem` and private key `gateway.icp.key` in the `certs` directory (`--cert-provider-dir`).
+
+Once it is running, you can test it from the command-line using the following `curl` commands:
+
+```
+# fetch the NNS dapp
+curl -sLv \
+    --resolve qoctq-giaaa-aaaaa-aaaea-cai.gateway.icp:443:127.0.0.1 \
+    https://qoctq-giaaa-aaaaa-aaaea-cai.gateway.icp
+
+# fetch the main Internet Computer site
+curl -sLv \
+    --resolve oa7fk-maaaa-aaaam-abgka-cai.gateway.icp:443:127.0.0.1 \
+    https://oa7fk-maaaa-aaaam-abgka-cai.gateway.icp
+
+# fetch the Internet Identity dapp
+curl -sLv \
+    --resolve rdmx6-jaaaa-aaaaa-aaadq-cai.gateway.icp:443:127.0.0.1 \
+    https://rdmx6-jaaaa-aaaaa-aaadq-cai.gateway.icp
+```
 
 ### Options
 
