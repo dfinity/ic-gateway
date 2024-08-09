@@ -5,7 +5,7 @@ use bytes::Bytes;
 use http::header::HeaderValue;
 use uuid::Uuid;
 
-use super::X_REQUEST_ID;
+use crate::http::headers::X_REQUEST_ID;
 
 #[derive(Clone, Copy)]
 pub struct RequestId(pub Uuid);

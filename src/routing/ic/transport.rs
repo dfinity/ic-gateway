@@ -22,11 +22,10 @@ use reqwest::{
 use tokio::task_local;
 use url::Url;
 
-use crate::http::Client as HttpClient;
+use crate::http::{headers::CONTENT_TYPE_CBOR, Client as HttpClient};
 
 type AgentFuture<'a, V> = Pin<Box<dyn Future<Output = Result<V, AgentError>> + Send + 'a>>;
 
-const CONTENT_TYPE_CBOR: HeaderValue = HeaderValue::from_static("application/cbor");
 const MAX_RESPONSE_SIZE: usize = 2 * 1_048_576;
 
 pub struct PassHeaders {

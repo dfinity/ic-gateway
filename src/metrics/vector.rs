@@ -20,10 +20,7 @@ use tracing::warn;
 use url::Url;
 use vector_lib::{codecs::encoding::NativeSerializer, config::LogNamespace, event::Event};
 
-use crate::{cli, http};
-
-#[allow(clippy::declare_interior_mutable_const)]
-const CONTENT_TYPE_OCTET_STREAM: HeaderValue = HeaderValue::from_static("application/octet-stream");
+use crate::{cli, http, http::headers::CONTENT_TYPE_OCTET_STREAM};
 
 /// Encodes Vector events into a native format with length delimiting
 #[derive(Clone)]
