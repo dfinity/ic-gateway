@@ -11,12 +11,16 @@ use axum::{
 };
 use candid::Principal;
 use derive_new::new;
+use http::header::{CONTENT_TYPE, X_CONTENT_TYPE_OPTIONS, X_FRAME_OPTIONS};
 use ic_agent::agent::http_transport::route_provider::RouteProvider;
 use regex::Regex;
 use url::Url;
 
 use super::{body, error_cause::ErrorCause, ic::BNResponseMetadata};
-use crate::http::Client;
+use crate::http::{
+    headers::{CONTENT_TYPE_CBOR, X_CONTENT_TYPE_OPTIONS_NO_SNIFF, X_FRAME_OPTIONS_DENY},
+    Client,
+};
 
 lazy_static::lazy_static! {
     pub static ref REGEX_REG_ID: Regex = Regex::new(r"^[a-zA-Z0-9]+$").unwrap();
@@ -56,7 +60,7 @@ pub struct ApiProxyState {
     route_provider: Arc<dyn RouteProvider>,
 }
 
-// Proxies /api/v2/... endpoints to the IC
+// Proxies /api/v2/... and /api/v3/... endpoints to the IC
 pub async fn api_proxy(
     State(state): State<Arc<ApiProxyState>>,
     OriginalUri(original_uri): OriginalUri,
@@ -84,6 +88,20 @@ pub async fn api_proxy(
     let mut response = proxy(url, request, &state.http_client)
         .await
         .map_err(ErrorCause::from)?;
+
+    // Set the correct content-type for all replies if it's not an error
+    // The replica and the API boundary nodes should set these headers. This is just for redundancy.
+    if response.status().is_success() {
+        response
+            .headers_mut()
+            .insert(CONTENT_TYPE, CONTENT_TYPE_CBOR);
+        response
+            .headers_mut()
+            .insert(X_CONTENT_TYPE_OPTIONS, X_CONTENT_TYPE_OPTIONS_NO_SNIFF);
+        response
+            .headers_mut()
+            .insert(X_FRAME_OPTIONS, X_FRAME_OPTIONS_DENY);
+    }
 
     let bn_metadata = BNResponseMetadata::from(response.headers_mut());
     response.extensions_mut().insert(bn_metadata);

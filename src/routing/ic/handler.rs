@@ -10,14 +10,17 @@ use http::HeaderValue;
 use http_body_util::{BodyExt, LengthLimitError, Limited};
 use ic_http_gateway::{CanisterRequest, HttpGatewayClient, HttpGatewayRequestArgs};
 
-use crate::routing::{
-    error_cause::ErrorCause,
-    ic::{
-        transport::{PassHeaders, PASS_HEADERS},
-        IcResponseStatus,
+use crate::{
+    http::headers::X_REQUEST_ID,
+    routing::{
+        error_cause::ErrorCause,
+        ic::{
+            transport::{PassHeaders, PASS_HEADERS},
+            IcResponseStatus,
+        },
+        middleware::request_id::RequestId,
+        CanisterId, RequestCtx,
     },
-    middleware::{self, request_id::RequestId},
-    CanisterId, RequestCtx,
 };
 
 use super::BNResponseMetadata;
@@ -70,9 +73,7 @@ pub async fn handler(
                 let hdr =
                     HeaderValue::from_maybe_shared(Bytes::from(request_id.to_string())).unwrap();
 
-                x.borrow_mut()
-                    .headers_out
-                    .insert(middleware::X_REQUEST_ID, hdr)
+                x.borrow_mut().headers_out.insert(X_REQUEST_ID, hdr)
             });
 
             // Execute the request
