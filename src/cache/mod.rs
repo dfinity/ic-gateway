@@ -30,6 +30,7 @@ pub enum CacheBypassReason {
     SizeUnknown,
     BodyTooBig,
     HTTPError,
+    UnableToExtractKey,
 }
 
 #[derive(Debug, Clone, Display, PartialEq, Eq, Default, IntoStaticStr)]
@@ -262,7 +263,12 @@ impl<K: KeyExtractor + 'static> Cache<K> {
         }
 
         // Use cached response if found
-        let key = self.key_extractor.extract(&request)?;
+        let Ok(key) = self.key_extractor.extract(&request) else {
+            return Ok((
+                CacheStatus::Bypass(CacheBypassReason::UnableToExtractKey),
+                next.run(request).await,
+            ));
+        };
 
         if let Some(v) = self.get(&key, self.opts.xfetch_beta) {
             return Ok((CacheStatus::Hit, v));

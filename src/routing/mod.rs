@@ -228,7 +228,7 @@ pub fn setup_router(
     ));
 
     // Common CORS layers
-    let cors_post = cors::layer(&[Method::HEAD, Method::POST]);
+    let cors_post = cors::layer(&[Method::POST]);
     let cors_get = cors::layer(&[Method::HEAD, Method::GET]);
 
     // IC API proxy routers

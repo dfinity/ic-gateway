@@ -1,20 +1,29 @@
 # ic-gateway
 
-`ic-gateway` is the core service of the HTTP gateway that allows direct HTTP access to the canisters hosted on [the Internet Computer](https://internetcomputer.org).
+`ic-gateway` is the core service of the HTTP gateway that allows direct HTTP access to the canisters hosted on the [Internet Computer](https://internetcomputer.org).
 
 ## Description
 
-`ic-gateway` enables direct HTTP access to canisters hosted on the Internet Computer, allowing you to host full dapps -- both frontend and backend -- entirely on-chain. It translates incoming HTTP requests into IC API calls and maps the canisters' responses back into HTTP responses.
+`ic-gateway` enables direct HTTP access to canisters hosted on the Internet Computer, allowing you to host full dapps - both frontend and backend - entirely on-chain. It translates incoming HTTP requests into IC API calls and maps the canisters' responses back into HTTP responses.
 
 `ic-gateway` also provides essential features for running a production HTTP gateway, including:
 
-- **TLS Termination:** Automatically obtains and renews certificates using an ACME client.
-- **Caching Layer:** Improves user-perceived performance of hosted dapps.
-- **Denylist:** Allows compliance with local legal frameworks (e.g., by restricting access to illegal content).
+- **TLS Termination**: Automatically obtains and renews certificates using an ACME client and transparent OCSP stapling.
+- **Caching Layer**: Improves user-perceived performance of hosted dapps.
+- **Denylist**: Allows compliance with local legal frameworks (e.g., by restricting access to illegal content).
+- **Load Shedding**: Drops the incoming requests if the moving average latency grows over defined threshold.
 
 ## Installation
 
 To install and set up `ic-gateway`, follow these steps:
+
+### Simple
+
+- Grab the latest package from the [releases](https://github.com/dfinity/ic-gateway/releases) page and install it
+- Edit `/etc/default/ic-gateway` file to configure the service using environment variables. See `Usage` section below.
+- Start the service with `systemctl start ic-gateway`
+
+### Advanced
 
 - **Clone the repository**
 
@@ -27,7 +36,13 @@ To install and set up `ic-gateway`, follow these steps:
 
   Follow the [official Rust installation guide](https://www.rust-lang.org/tools/install).
 
-- **Provide a certificate**
+- **Build**
+  
+  Execute `cargo build --release` in the `ic-gateway` folder and you'll get a binary in `target/release` subfolder.
+
+- **Generate the certificate**
+
+  If you want to run the service locally you'll need a certificate.
 
   Store the certificate and private key in a directory with the names `<domain>.pem` and `<domain>.key`, respectively. For example, to serve the domain `gateway.icp`, the files should be named `gateway.icp.pem` and `gateway.icp.key`.
 
@@ -37,23 +52,31 @@ To install and set up `ic-gateway`, follow these steps:
 
 ### Requirements
 
-- Rust
-- A domain name and a corresponding certificate
+- Domain name that points to the IP address where `ic-gateway` will be running. It's denoted as `gateway.icp` in the examples below.
+- Port 443 open in the firewall
 
 ### Minimal Example
 
-To run a minimal ic-gateway locally, use the following command:
+To run a minimal ic-gateway instance, use the following configuration in `/etc/default/ic-gateway`:
 
 ```
-cargo run -- \
-    --log-stdout \
-    --http-server-listen-tls '127.0.0.1:443' \
-    --ic-url https://icp-api.io \
-    --domain gateway.icp \
-    --cert-provider-dir ./certs
+LOG_STDOUT="true"
+HTTP_SERVER_LISTEN_TLS="[::]:443"
+IC_URL="https://icp-api.io"
+DOMAIN="gateway.icp"
+ACME_CHALLENGE="alpn"
+ACME_CACHE_PATH="/var/lib/ic-gateway/acme"
 ```
 
-This starts `ic-gateway` on port 443 on localhost (`--http-server-listen-tls`), uses `https://icp-api.io` as the upstream (`--ic-url`), serves the domain `gateway.icp` (`--domain`), and expects the certificate `gateway.icp.pem` and private key `gateway.icp.key` in the `certs` directory (`--cert-provider-dir`).
+Create a folder to store ACME certificates & account info:
+```
+# mkdir -p /var/lib/ic-gateway/acme
+```
+
+Start the service:
+```
+# systemctl start ic-gateway
+```
 
 Once it is running, you can test it from the command-line using the following `curl` commands:
 
@@ -76,7 +99,9 @@ curl -sLv \
 
 ### Options
 
-`ic-gateway` offers various options that can be configured via command-line arguments or environment variables. For a full list, see [`cli.rs`](src/cli.rs). Key settings include:
+`ic-gateway` offers various options that can be configured via command-line arguments or environment variables. For a full list, run `ic-gateway --help`.
+
+Key settings include:
 
 #### HTTP Server
 
