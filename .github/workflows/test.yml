@@ -2,9 +2,9 @@ name: Test
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 env:
   CARGO_TERM_COLOR: never
@@ -16,12 +16,12 @@ jobs:
       image: ghcr.io/catthehacker/ubuntu:rust-22.04
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84
 
-    - name: Install protoc
-      run: sudo apt-get update && sudo apt-get -y install protobuf-compiler
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get -y install protobuf-compiler
 
-    - name: Run tests
-      run: cargo test
+      - name: Run tests
+        run: cargo test
