@@ -20,7 +20,9 @@ impl fmt::Display for RequestId {
 pub async fn middleware(mut request: Request, next: Next) -> Response {
     let request_id = RequestId(Uuid::now_v7());
     let hdr = request_id.0.to_string();
-    let hdr = HeaderValue::from_maybe_shared(Bytes::from(hdr)).unwrap();
+    let hdr = HeaderValue::from_maybe_shared(Bytes::from(hdr)).unwrap_or(HeaderValue::from_static(
+        "00000000-0000-0000-0000-000000000000",
+    ));
 
     request.extensions_mut().insert(request_id);
     request.headers_mut().insert(X_REQUEST_ID, hdr.clone());
