@@ -23,7 +23,6 @@ use fqdn::FQDN;
 use http::{method::Method, StatusCode};
 use http::{uri::PathAndQuery, Uri};
 use ic::route_provider::setup_route_provider;
-use ic_agent::agent::http_transport::reqwest_transport::reqwest::Client as AgentClient;
 use little_loadshedder::{LoadShedLayer, LoadShedResponse};
 use middleware::cache::{self, KeyExtractorUriRange};
 use prometheus::Registry;
@@ -119,7 +118,7 @@ pub async fn setup_router(
     custom_domain_providers: Vec<Arc<dyn ProvidesCustomDomains>>,
     tasks: &mut TaskManager,
     http_client: Arc<dyn Client>,
-    reqwest_client: AgentClient,
+    reqwest_client: reqwest::Client,
     registry: &Registry,
     clickhouse: Option<Arc<Clickhouse>>,
     vector: Option<Arc<Vector>>,

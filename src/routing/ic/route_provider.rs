@@ -6,7 +6,6 @@ use ic_agent::agent::http_transport::{
         dynamic_route_provider::DynamicRouteProviderBuilder, node::Node,
         snapshot::latency_based_routing::LatencyRoutingSnapshot,
     },
-    reqwest_transport::reqwest::Client as AgentClient,
     route_provider::{RoundRobinRouteProvider, RouteProvider},
 };
 use tracing::info;
@@ -15,7 +14,7 @@ use url::Url;
 pub async fn setup_route_provider(
     urls: &[Url],
     ic_use_discovery: bool,
-    reqwest_client: AgentClient,
+    reqwest_client: reqwest::Client,
 ) -> anyhow::Result<Arc<dyn RouteProvider>> {
     let urls_str = urls.iter().map(Url::as_str).collect::<Vec<_>>();
 
