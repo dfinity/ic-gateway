@@ -21,7 +21,7 @@ clap = { version = "4.5", features = ["derive", "string", "env"] }
 clap_derive = "4.5"
 # TODO lz4 feature requires C++ compiler to build due to cityhash, fails with MUSL.
 # Fork uses a pure Rust cityhash crate
-clickhouse = { git = "https://github.com/blind-oracle/clickhouse.rs.git", default-features = false, features = [
+clickhouse = { git = "https://github.com/dfinity/clickhouse-rs.git", default-features = false, features = [
     "lz4",
     "inserter",
     "tls",
@@ -120,7 +120,7 @@ url = "2.5"
 uuid = { version = "1.8", features = ["v7"] }
 # vector-lib depends on openssl and we don't want that.
 # thus use the fork where openssl dependency is removed
-vector-lib = { git = "https://github.com/blind-oracle/vector.git" }
+vector-lib = { git = "https://github.com/dfinity/vector.git" }
 webpki-roots = "0.26"
 x509-parser = "0.16"
 zeroize = { version = "1.8", features = ["derive"] }
