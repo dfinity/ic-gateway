@@ -15,23 +15,17 @@ use http_body_util::Either;
 use ic_agent::agent::http_transport::route_provider::RouteProvider;
 use ic_http_gateway::{HttpGatewayClient, HttpGatewayResponse, HttpGatewayResponseMetadata};
 
-use crate::{http::Client as HttpClient, Cli};
-
-pub const HEADER_IC_CACHE_STATUS: HeaderName = HeaderName::from_static("x-ic-cache-status");
-pub const HEADER_IC_CACHE_BYPASS_REASON: HeaderName =
-    HeaderName::from_static("x-ic-cache-bypass-reason");
-pub const HEADER_IC_SUBNET_ID: HeaderName = HeaderName::from_static("x-ic-subnet-id");
-pub const HEADER_IC_NODE_ID: HeaderName = HeaderName::from_static("x-ic-node-id");
-pub const HEADER_IC_SUBNET_TYPE: HeaderName = HeaderName::from_static("x-ic-subnet-type");
-pub const HEADER_IC_CANISTER_ID_CBOR: HeaderName = HeaderName::from_static("x-ic-canister-id-cbor");
-pub const HEADER_IC_METHOD_NAME: HeaderName = HeaderName::from_static("x-ic-method-name");
-pub const HEADER_IC_SENDER: HeaderName = HeaderName::from_static("x-ic-sender");
-pub const HEADER_IC_RETRIES: HeaderName = HeaderName::from_static("x-ic-retries");
-pub const HEADER_IC_ERROR_CAUSE: HeaderName = HeaderName::from_static("x-ic-error-cause");
-pub const HEADER_IC_REQUEST_TYPE: HeaderName = HeaderName::from_static("x-ic-request-type");
-pub const HEADER_IC_CANISTER_ID: HeaderName = HeaderName::from_static("x-ic-canister-id");
-pub const HEADER_IC_COUNTRY_CODE: http::HeaderName =
-    http::HeaderName::from_static("x-ic-country-code");
+use crate::{
+    http::{
+        headers::{
+            HEADER_IC_CACHE_BYPASS_REASON, HEADER_IC_CACHE_STATUS, HEADER_IC_CANISTER_ID_CBOR,
+            HEADER_IC_ERROR_CAUSE, HEADER_IC_METHOD_NAME, HEADER_IC_NODE_ID, HEADER_IC_RETRIES,
+            HEADER_IC_SENDER, HEADER_IC_SUBNET_ID, HEADER_IC_SUBNET_TYPE,
+        },
+        Client as HttpClient,
+    },
+    Cli,
+};
 
 /// Metadata about the request by a Boundary Node (ic-boundary)
 #[derive(Clone)]

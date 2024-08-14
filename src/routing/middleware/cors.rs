@@ -11,8 +11,7 @@ use http::{
 };
 use tower_http::cors::{Any, CorsLayer};
 
-use super::{X_REQUESTED_WITH, X_REQUEST_ID};
-use crate::routing::ic::HEADER_IC_CANISTER_ID;
+use crate::http::headers::{HEADER_IC_CANISTER_ID, X_REQUESTED_WITH, X_REQUEST_ID};
 
 const MINUTE: Duration = Duration::from_secs(60);
 

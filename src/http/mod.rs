@@ -1,5 +1,6 @@
 pub mod client;
 pub mod dns;
+pub mod headers;
 pub mod server;
 
 use std::{

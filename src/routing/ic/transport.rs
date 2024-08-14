@@ -2,17 +2,15 @@
 
 use std::{cell::RefCell, pin::Pin, sync::Arc, time::Duration};
 
-use crate::http::Client as HttpClient;
 use futures::Future;
 use futures_util::StreamExt;
-use ic_agent::agent::RejectResponse;
-use ic_agent::TransportCallResponse;
 use ic_agent::{
     agent::{
-        agent_error::HttpErrorPayload, http_transport::route_provider::RouteProvider, Transport,
+        agent_error::HttpErrorPayload, http_transport::route_provider::RouteProvider,
+        RejectResponse, Transport,
     },
     export::Principal,
-    AgentError,
+    AgentError, TransportCallResponse,
 };
 use reqwest::{
     header::{HeaderMap, HeaderValue, CONTENT_TYPE},
@@ -20,9 +18,10 @@ use reqwest::{
 };
 use tokio::task_local;
 
+use crate::http::{headers::CONTENT_TYPE_CBOR, Client as HttpClient};
+
 type AgentFuture<'a, V> = Pin<Box<dyn Future<Output = Result<V, AgentError>> + Send + 'a>>;
 
-const CONTENT_TYPE_CBOR: HeaderValue = HeaderValue::from_static("application/cbor");
 const MAX_RESPONSE_SIZE: usize = 2 * 1_048_576;
 
 pub struct PassHeaders {
