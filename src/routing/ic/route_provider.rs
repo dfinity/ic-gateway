@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
 use anyhow::anyhow;
+use candid::Principal;
+use ic_agent::agent::http_transport::reqwest_transport::reqwest::Client as AgentClient;
 use ic_agent::agent::http_transport::{
     dynamic_routing::{
         dynamic_route_provider::DynamicRouteProviderBuilder, node::Node,
@@ -10,6 +12,11 @@ use ic_agent::agent::http_transport::{
 };
 use tracing::info;
 use url::Url;
+
+use crate::routing::ic::{
+    health_check::{HealthChecker, CHECK_TIMEOUT},
+    nodes_fetcher::{NodesFetcher, MAINNET_ROOT_SUBNET_ID},
+};
 
 pub async fn setup_route_provider(
     urls: &[Url],
@@ -33,8 +40,17 @@ pub async fn setup_route_provider(
 
         let route_provider = {
             let snapshot = LatencyRoutingSnapshot::new();
+            // This temporary client is only needed for the instantiation. It is later overridden by the checker/fetcher accepting the reqwest_client.
+            let tmp_client = AgentClient::builder()
+                .build()
+                .expect("failed to build the client");
+            let checker = HealthChecker::new(reqwest_client.clone(), CHECK_TIMEOUT);
+            let subnet_id = Principal::from_text(MAINNET_ROOT_SUBNET_ID).unwrap();
+            let fetcher = NodesFetcher::new(reqwest_client, subnet_id, None);
             let route_provider =
-                DynamicRouteProviderBuilder::new(snapshot, api_seed_nodes, reqwest_client)
+                DynamicRouteProviderBuilder::new(snapshot, api_seed_nodes, tmp_client)
+                    .with_checker(Arc::new(checker))
+                    .with_fetcher(Arc::new(fetcher))
                     .build()
                     .await;
             Arc::new(route_provider)
