@@ -27,11 +27,6 @@ type AgentFuture<'a, V> = Pin<Box<dyn Future<Output = Result<V, AgentError>> + S
 
 const MAX_RESPONSE_SIZE: usize = 2 * 1_048_576;
 
-// Maximum number of retries for both http- and network-related errors.
-const MAX_TOTAL_RETRIES: usize = 5;
-const MAX_HTTP_RETRIES: usize = 5;
-const MAX_NETWORK_RETRIES: usize = 5;
-
 pub struct PassHeaders {
     pub headers_in: HeaderMap<HeaderValue>,
     pub headers_out: HeaderMap<HeaderValue>,
@@ -57,6 +52,7 @@ pub struct ReqwestTransport {
     client: Arc<dyn HttpClient>,
     max_response_body_size: Option<usize>,
     use_call_v3_endpoint: bool,
+    max_request_retries: u32,
 }
 
 impl ReqwestTransport {
@@ -64,12 +60,14 @@ impl ReqwestTransport {
     pub fn create_with_client_route(
         route_provider: Arc<dyn RouteProvider>,
         client: Arc<dyn HttpClient>,
+        max_request_retries: u32,
     ) -> Self {
         Self {
             route_provider,
             client,
             max_response_body_size: Some(MAX_RESPONSE_SIZE),
             use_call_v3_endpoint: false,
+            max_request_retries,
         }
     }
 
@@ -144,9 +142,7 @@ impl ReqwestTransport {
         };
 
         let mut delay = Duration::from_millis(100);
-        let mut total_retries = MAX_TOTAL_RETRIES;
-        let mut network_retries = MAX_NETWORK_RETRIES;
-        let mut http_retries = MAX_HTTP_RETRIES;
+        let mut retries = self.max_request_retries;
 
         let request_result = loop {
             let result = {
@@ -162,12 +158,14 @@ impl ReqwestTransport {
                                 .downcast_ref::<hyper_util::client::legacy::Error>()
                                 .is_some_and(|e| e.is_connect())
                             {
-                                if network_retries <= 0 || total_retries <= 0 {
-                                    let msg = format!("max request retries reached: http_retries={http_retries}, network_retries={network_retries}");
-                                    return Err(AgentError::TransportError(msg.into()));
+                                if retries <= 0 {
+                                    return Err(AgentError::TransportError(
+                                        "retries exhausted".into(),
+                                    ));
                                 }
-                                network_retries -= 1;
-                                total_retries -= 1;
+                                retries -= 1;
+                                // Sleep before retrying. Delay time is not changed, as is the case for http retry.
+                                tokio::time::sleep(delay).await;
                                 continue;
                             }
                             // All other errors are not retried.
@@ -181,13 +179,11 @@ impl ReqwestTransport {
                 break result;
             }
 
-            if http_retries <= 0 || total_retries <= 0 {
-                let msg = format!("max request retries reached: http_retries={http_retries}, network_retries={network_retries}");
-                return Err(AgentError::TransportError(msg.into()));
+            if retries <= 0 {
+                return Err(AgentError::TransportError("retries exhausted".into()));
             }
 
-            http_retries -= 1;
-            total_retries -= 1;
+            retries -= 1;
 
             tokio::time::sleep(delay).await;
             delay *= 2;
@@ -340,6 +336,7 @@ impl TransportProvider for ReqwestTransportProvider {
         let transport = Arc::new(ReqwestTransport::create_with_client_route(
             route_provider,
             self.http_client.clone(),
+            5, // TODO: this TransportProvider aling with hard-coded value is to be removed.
         ));
 
         Ok(transport)

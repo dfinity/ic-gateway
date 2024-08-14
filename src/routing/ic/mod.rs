@@ -94,8 +94,11 @@ pub fn setup(
     http_client: Arc<dyn HttpClient>,
     route_provider: Arc<dyn RouteProvider>,
 ) -> Result<HttpGatewayClient, Error> {
-    let transport =
-        transport::ReqwestTransport::create_with_client_route(route_provider, http_client);
+    let transport = transport::ReqwestTransport::create_with_client_route(
+        route_provider,
+        http_client,
+        cli.ic.max_request_retries,
+    );
     let agent = ic_agent::Agent::builder()
         .with_transport(transport)
         .with_verify_query_signatures(!cli.ic.unsafe_disable_replica_signed_queries)

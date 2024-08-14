@@ -173,6 +173,10 @@ pub struct Ic {
     #[clap(env, long)]
     pub ic_root_key: Option<PathBuf>,
 
+    /// Maximum mumber of request retries in the transport layer for both network- and http-related failures.
+    #[clap(env, long, default_value = "5")]
+    pub max_request_retries: u32,
+
     /// Disable response verification for the IC requests.
     #[clap(env, long, default_value = "false")]
     pub unsafe_disable_response_verification: bool,
