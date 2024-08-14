@@ -155,10 +155,12 @@ impl ReqwestTransport {
                         Ok(response) => break response,
                         Err(agent_error) => match agent_error {
                             AgentError::TransportError(ref err) => {
-                                if err
+                                let is_connet_err = err
                                     .downcast_ref::<reqwest::Error>()
-                                    .is_some_and(|e| e.is_connect())
-                                {
+                                    .is_some_and(|e| e.is_connect());
+
+                                // Retry only connection-related errors.
+                                if is_connet_err {
                                     if retries <= 0 {
                                         return Err(AgentError::TransportError(
                                             "retries exhausted".into(),
@@ -169,8 +171,10 @@ impl ReqwestTransport {
                                     tokio::time::sleep(delay).await;
                                     continue;
                                 }
+                                // All other transport errors are not retried.
                                 return Err(agent_error);
                             }
+                            // All non-transport errors are not retried.
                             _ => return Err(agent_error),
                         },
                     }
