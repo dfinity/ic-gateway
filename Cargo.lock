@@ -1015,9 +1015,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.1.11"
+version = "1.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5fb8dd288a69fc53a1996d7ecfbf4a20d59065bff137ce7e56bbd620de191189"
+checksum = "68064e60dbf1f17005c2fde4d07c16d8baa506fd7ffed8ccab702d93617975c7"
 dependencies = [
  "jobserver",
  "libc",
@@ -1327,9 +1327,9 @@ dependencies = [
 
 [[package]]
 name = "cmake"
-version = "0.1.50"
+version = "0.1.51"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a31c789563b815f77f4250caee12365734369f942439b7defd71e18a48197130"
+checksum = "fb1e43aa7fd152b1f968787f7dbcdeb306d1867ff373c69955211876c053f91a"
 dependencies = [
  "cc",
 ]
@@ -1885,27 +1885,6 @@ dependencies = [
  "libc",
  "redox_users",
  "winapi",
-]
-
-[[package]]
-name = "discower_bowndary"
-version = "0.1.0"
-source = "git+https://github.com/dfinity/ic.git#31725790451ac1aebbfffe45809628b5e409691e"
-dependencies = [
- "anyhow",
- "arc-swap",
- "async-trait",
- "http 1.1.0",
- "ic-agent",
- "rand",
- "ring 0.17.8",
- "simple_moving_average",
- "thiserror",
- "tokio",
- "tokio-util",
- "tracing",
- "tracing-subscriber",
- "url",
 ]
 
 [[package]]
@@ -2746,17 +2725,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "http-body-to-bytes"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "17a08236c6f51c2ee95d840f45acf8fa9e339390e00b4ef640857b2f2a534d70"
-dependencies = [
- "bytes",
- "http-body 1.0.1",
- "http-body-util",
-]
-
-[[package]]
 name = "http-body-util"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2964,10 +2932,11 @@ dependencies = [
 [[package]]
 name = "ic-agent"
 version = "0.37.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3fd3fdf5e5c4f4a9fe5ca612f0febd22dcb161d2f2b75b0142326732be5e4978"
+source = "git+https://github.com/dfinity/agent-rs?branch=dynamic_route#30107322c97e842cb1a51b05e9162f9ef8118f96"
 dependencies = [
+ "arc-swap",
  "async-lock",
+ "async-trait",
  "backoff",
  "cached 0.52.0",
  "candid",
@@ -2976,11 +2945,6 @@ dependencies = [
  "hex",
  "http 1.1.0",
  "http-body 1.0.1",
- "http-body-to-bytes",
- "http-body-util",
- "hyper 1.4.1",
- "hyper-rustls 0.27.2",
- "hyper-util",
  "ic-certification 2.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "ic-transport-types",
  "ic-verify-bls-signature",
@@ -3001,10 +2965,13 @@ dependencies = [
  "serde_repr",
  "sha2 0.10.8",
  "simple_asn1",
+ "simple_moving_average",
  "thiserror",
  "time",
  "tokio",
- "tower",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber 0.2.25",
  "url",
 ]
 
@@ -3082,7 +3049,6 @@ dependencies = [
  "criterion",
  "ctrlc",
  "derive-new",
- "discower_bowndary",
  "fqdn",
  "futures",
  "futures-rustls",
@@ -3101,7 +3067,6 @@ dependencies = [
  "hyper-util",
  "ic-agent",
  "ic-http-gateway",
- "ic-transport-types",
  "instant-acme",
  "itertools 0.12.1",
  "lazy_static",
@@ -3146,7 +3111,7 @@ dependencies = [
  "tracing",
  "tracing-core",
  "tracing-serde",
- "tracing-subscriber",
+ "tracing-subscriber 0.3.18",
  "url",
  "uuid",
  "vector-lib",
@@ -3222,8 +3187,7 @@ dependencies = [
 [[package]]
 name = "ic-transport-types"
 version = "0.37.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "875dc4704780383112e8e8b5063a1b98de114321d0c7d3e7f635dcf360a57fba"
+source = "git+https://github.com/dfinity/agent-rs?branch=dynamic_route#30107322c97e842cb1a51b05e9162f9ef8118f96"
 dependencies = [
  "candid",
  "hex",
@@ -3436,11 +3400,11 @@ dependencies = [
 
 [[package]]
 name = "is-terminal"
-version = "0.4.12"
+version = "0.4.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f23ff5ef2b80d608d61efee834934d862cd92461afc0560dedf493e4c033738b"
+checksum = "261f68e344040fbd0edea105bef17c66edf46f984ddb1115b775ce31be948f4b"
 dependencies = [
- "hermit-abi 0.3.9",
+ "hermit-abi 0.4.0",
  "libc",
  "windows-sys 0.52.0",
 ]
@@ -3784,6 +3748,15 @@ checksum = "ffbee8634e0d45d258acb448e7eaab3fce7a0a467395d4d9f228e3c1f01fb2e4"
 
 [[package]]
 name = "matchers"
+version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f099785f7595cc4b4553a174ce30dd7589ef93391ff414dbb67f62392b9e0ce1"
+dependencies = [
+ "regex-automata 0.1.10",
+]
+
+[[package]]
+name = "matchers"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8263075bb86c5a1b1427b5ae862e8889656f126e9f77c484496e8b47cf5c5558"
@@ -3869,7 +3842,7 @@ dependencies = [
  "once_cell",
  "tracing",
  "tracing-core",
- "tracing-subscriber",
+ "tracing-subscriber 0.3.18",
 ]
 
 [[package]]
@@ -5939,9 +5912,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.124"
+version = "1.0.125"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "66ad62847a56b3dba58cc891acd13884b9c61138d330c0d7b6181713d4fce38d"
+checksum = "83c8e735a073ccf5be70aa8066aa984eaf2fa000db6c8d0100ae605b366d31ed"
 dependencies = [
  "itoa",
  "memchr",
@@ -6967,6 +6940,17 @@ dependencies = [
 
 [[package]]
 name = "tracing-log"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f751112709b4e791d8ce53e32c4ed2d353565a795ce84da2285393f41557bdf2"
+dependencies = [
+ "log",
+ "once_cell",
+ "tracing-core",
+]
+
+[[package]]
+name = "tracing-log"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ee855f1f400bd0e5c02d150ae5de3840039a3f54b025156404e34c23c03f47c3"
@@ -6988,11 +6972,33 @@ dependencies = [
 
 [[package]]
 name = "tracing-subscriber"
+version = "0.2.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0e0d2eaa99c3c2e41547cfa109e910a68ea03823cccad4a0525dcbc9b01e8c71"
+dependencies = [
+ "ansi_term",
+ "chrono",
+ "lazy_static",
+ "matchers 0.0.1",
+ "regex",
+ "serde",
+ "serde_json",
+ "sharded-slab",
+ "smallvec",
+ "thread_local",
+ "tracing",
+ "tracing-core",
+ "tracing-log 0.1.4",
+ "tracing-serde",
+]
+
+[[package]]
+name = "tracing-subscriber"
 version = "0.3.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ad0f048c97dbd9faa9b7df56362b8ebcaa52adb06b498c050d2f4e32f90a7a8b"
 dependencies = [
- "matchers",
+ "matchers 0.1.0",
  "nu-ansi-term",
  "once_cell",
  "regex",
@@ -7003,7 +7009,7 @@ dependencies = [
  "thread_local",
  "tracing",
  "tracing-core",
- "tracing-log",
+ "tracing-log 0.2.0",
  "tracing-serde",
 ]
 
@@ -7407,7 +7413,7 @@ dependencies = [
  "tonic",
  "tracing",
  "tracing-core",
- "tracing-subscriber",
+ "tracing-subscriber 0.3.18",
  "typetag",
  "url",
  "vector-buffers",

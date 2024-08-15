@@ -4,8 +4,6 @@ use crate::http;
 use anyhow::Error;
 use async_trait::async_trait;
 use derive_new::new;
-use discower_bowndary::{route_provider::HealthCheckRouteProvider, snapshot::Snapshot};
-use std::fmt::Debug;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::{error, warn};
 
@@ -62,21 +60,6 @@ impl Run for http::Server {
 #[async_trait]
 impl Run for ocsp_stapler::Stapler {
     async fn run(&self, token: CancellationToken) -> Result<(), Error> {
-        token.cancelled().await;
-        self.stop().await;
-        Ok(())
-    }
-}
-
-#[async_trait]
-impl<S> Run for HealthCheckRouteProvider<S>
-where
-    S: Send + Sync + Debug + Clone + Snapshot + 'static,
-{
-    async fn run(&self, token: CancellationToken) -> Result<(), Error> {
-        // This run() should finish immediately and thus will not cause blocking.
-        self.run().await;
-        // Here we wait for the token to be cancelled.
         token.cancelled().await;
         self.stop().await;
         Ok(())

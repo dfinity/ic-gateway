@@ -3,6 +3,7 @@
 
 pub mod handler;
 pub mod health_check;
+pub mod nodes_fetcher;
 pub mod route_provider;
 pub mod transport;
 

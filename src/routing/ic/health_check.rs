@@ -1,30 +1,28 @@
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
-
 use async_trait::async_trait;
-use discower_bowndary::{
-    check::{HealthCheck, HealthCheckError, HealthCheckResult},
+use http::{Method, StatusCode};
+use ic_agent::agent::http_transport::dynamic_routing::{
+    dynamic_route_provider::DynamicRouteProviderError,
+    health_check::{HealthCheck, HealthCheckStatus},
     node::Node,
 };
-use http::{Method, StatusCode};
-use reqwest::Request;
-use tracing::{error, warn};
+use reqwest::{Client, Request};
+use std::time::{Duration, Instant};
+use tracing::error;
 use url::Url;
 
-use crate::http::Client;
+pub const CHECK_TIMEOUT: Duration = Duration::from_secs(1);
+const HEALTH_CHECKER: &str = "HealthChecker";
 
-const SERVICE_NAME: &str = "HealthChecker";
-
+/// A struct implementing the `HealthCheck` for the nodes.
 #[derive(Debug)]
 pub struct HealthChecker {
-    http_client: Arc<dyn Client>,
+    http_client: Client,
     timeout: Duration,
 }
 
 impl HealthChecker {
-    pub fn new(http_client: Arc<dyn Client>, timeout: Duration) -> Self {
+    /// Creates a new `HealthChecker` instance.
+    pub fn new(http_client: Client, timeout: Duration) -> Self {
         Self {
             http_client,
             timeout,
@@ -32,35 +30,32 @@ impl HealthChecker {
     }
 }
 
-// NOTE: We can't use the implementation provided in the Discovery Library. It needs an http_client of concrete type.
 #[async_trait]
 impl HealthCheck for HealthChecker {
-    async fn check(&self, node: &Node) -> Result<HealthCheckResult, HealthCheckError> {
-        let url = Url::parse(&format!("https://{}/health", node.domain))?;
+    async fn check(&self, node: &Node) -> Result<HealthCheckStatus, DynamicRouteProviderError> {
+        // API boundary node exposes /health endpoint and should respond with 204 (No Content) if it's healthy.
+        let url = Url::parse(&format!("https://{}/health", node.domain())).unwrap();
 
         let mut request = Request::new(Method::GET, url.clone());
         *request.timeout_mut() = Some(self.timeout);
 
         let start = Instant::now();
-        let response = self.http_client.execute(request).await;
-        let elapsed = start.elapsed();
+        let response = self.http_client.execute(request).await.map_err(|err| {
+            DynamicRouteProviderError::HealthCheckError(format!(
+                "Failed to execute GET request to {url}: {err}"
+            ))
+        })?;
+        let latency = start.elapsed();
 
-        // Set latency to Some() only for successful health check.
-        let latency = match response {
-            Ok(res) if res.status() == StatusCode::NO_CONTENT => Some(elapsed),
-            Ok(res) => {
-                error!(
-                    "{SERVICE_NAME}: check() for url={url} received unexpected http status {}",
-                    res.status()
-                );
-                None
-            }
-            Err(err) => {
-                warn!("{SERVICE_NAME}: check() failed for url={url}: {err:?}");
-                None
-            }
-        };
+        if response.status() != StatusCode::NO_CONTENT {
+            let err_msg = format!(
+                "{HEALTH_CHECKER}: Unexpected http status code {} for url={url} received",
+                response.status()
+            );
+            error!(err_msg);
+            return Err(DynamicRouteProviderError::HealthCheckError(err_msg));
+        }
 
-        Ok(HealthCheckResult { latency })
+        Ok(HealthCheckStatus::new(Some(latency)))
     }
 }
