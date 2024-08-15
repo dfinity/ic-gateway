@@ -97,11 +97,11 @@ pub fn setup(
     let transport = transport::ReqwestTransport::create_with_client_route(
         route_provider,
         http_client,
-        cli.ic.max_request_retries,
+        cli.ic.ic_max_request_retries,
     );
     let agent = ic_agent::Agent::builder()
         .with_transport(transport)
-        .with_verify_query_signatures(!cli.ic.unsafe_disable_replica_signed_queries)
+        .with_verify_query_signatures(!cli.ic.ic_unsafe_disable_replica_signed_queries)
         .build()?;
 
     if let Some(v) = &cli.ic.ic_root_key {
