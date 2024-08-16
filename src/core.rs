@@ -26,11 +26,11 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     ENV.set(cli.misc.env.clone()).unwrap();
     HOSTNAME.set(cli.misc.hostname.clone()).unwrap();
 
-    if cli.ic.unsafe_disable_replica_signed_queries {
+    if cli.ic.ic_unsafe_disable_replica_signed_queries {
         warn!("Replica-signed queries are disabled");
     }
 
-    if cli.ic.unsafe_disable_response_verification {
+    if cli.ic.ic_unsafe_disable_response_verification {
         warn!("Response verification is disabled");
     }
 
