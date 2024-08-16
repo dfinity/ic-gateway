@@ -397,6 +397,10 @@ pub struct Vector {
     /// If the buffer is full then new events will be dropped.
     #[clap(env, long, default_value = "131072")]
     pub log_vector_buffer: usize,
+
+    /// Vector HTTP request timeout for a batch flush
+    #[clap(env, long, default_value = "30s", value_parser = parse_duration)]
+    pub log_vector_timeout: Duration,
 }
 
 #[derive(Args)]

@@ -9,7 +9,7 @@ use reqwest::{
 use tokio::{
     select,
     sync::mpsc::{channel, Receiver, Sender},
-    time::interval,
+    time::{interval, sleep},
 };
 use tokio_util::{
     codec::{Encoder, LengthDelimitedCodec},
@@ -56,6 +56,7 @@ impl EventEncoder {
         Ok(())
     }
 
+    /// Encodes the provided batch into wire format leaving the provided Vec empty
     fn encode_batch(&mut self, batch: &mut Vec<Event>) -> Result<Bytes, Error> {
         let mut body = BytesMut::new();
         for event in batch.drain(..) {
@@ -91,6 +92,7 @@ impl Vector {
             rx,
             token: token.child_token(),
             encoder: EventEncoder::new(),
+            timeout: cli.log_vector_timeout,
         };
 
         let tracker = TaskTracker::new();
@@ -120,6 +122,7 @@ struct VectorActor {
     batch: Vec<Event>,
 
     client: Arc<dyn http::Client>,
+    timeout: Duration,
     url: Url,
     auth: Option<HeaderValue>,
 
@@ -153,6 +156,7 @@ impl VectorActor {
         }
 
         *request.body_mut() = Some(body.into());
+        *request.timeout_mut() = Some(self.timeout);
 
         let response = self
             .client
@@ -174,46 +178,36 @@ impl VectorActor {
 
         // Encode the batch
         let mut encoder = self.encoder.clone();
-        let body = encoder
-            .encode_batch(&mut self.batch)
-            .context("unable to encode batch")?;
+        let Ok(body) = encoder.encode_batch(&mut self.batch) else {
+            self.batch.clear();
+            return Err(anyhow!("unable to encode batch, flushing it"));
+        };
 
-        // Retry until we succeed or token is cancelled
-        // TODO make configurable
-        let mut interval = interval(Duration::from_secs(1));
-        let mut retries = 3;
-        let drain = self.token.is_cancelled();
+        // Retry
+        // TODO make configurable?
+        let mut interval = Duration::from_millis(200);
+        let mut retries = 5;
 
-        loop {
-            select! {
-                biased;
-
-                // If we're draining then the token is already cancelled, so exclude this branch
-                () = self.token.cancelled(), if !drain => {
-                    warn!("Vector: exiting, aborting batch sending");
-                    return Ok(());
-                }
-
-                _ = interval.tick() => {
-                    // Bytes is cheap to clone
-                    if let Err(e) = self.send(body.clone()).await {
-                        warn!("Vector: unable to flush batch: {e:#}");
-
-                        // Limit the number of retries when draining
-                        if drain {
-                            retries -= 1;
-                            if retries == 0 {
-                                return Err(e);
-                            }
-                        }
-
-                        continue;
-                    }
-
-                    return Ok(());
-                }
+        while retries > 0 {
+            if let Err(e) = self.send(body.clone()).await {
+                warn!("Vector: unable to flush batch: {e:#}");
+            } else {
+                return Ok(());
             }
+
+            select! {
+                _ = self.token.cancelled() => {
+                    return Ok(());
+                },
+                _ = sleep(interval) => {}
+            }
+
+            // Back off a bit
+            retries -= 1;
+            interval *= 2;
         }
+
+        Err(anyhow!("unable to flush batch: retries exhausted"))
     }
 
     async fn run(mut self, flush_interval: Duration) {
@@ -226,6 +220,7 @@ impl VectorActor {
 
                 () = self.token.cancelled() => {
                     warn!("Vector: stopping, draining");
+
                     // Close the channel
                     self.rx.close();
 
