@@ -173,7 +173,7 @@ pub struct Ic {
     #[clap(env, long)]
     pub ic_root_key: Option<PathBuf>,
 
-    /// Maximum mumber of request retries in the transport layer for both network- and http-related failures.
+    /// Maximum number of request retries for connection failures.
     #[clap(env, long, default_value = "5")]
     pub ic_max_request_retries: u32,
 
