@@ -22,7 +22,7 @@ pub struct HealthChecker {
 
 impl HealthChecker {
     /// Creates a new `HealthChecker` instance.
-    pub fn new(http_client: Client, timeout: Duration) -> Self {
+    pub const fn new(http_client: Client, timeout: Duration) -> Self {
         Self {
             http_client,
             timeout,

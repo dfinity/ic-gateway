@@ -2,6 +2,7 @@
 
 use std::{cell::RefCell, pin::Pin, sync::Arc, time::Duration};
 
+use bytes::Bytes;
 use futures::Future;
 use futures_util::StreamExt;
 use ic_agent::{
@@ -91,7 +92,7 @@ impl ReqwestTransport {
             return Err(AgentError::ResponseSizeExceededLimit());
         }
 
-        let mut body: Vec<u8> = response
+        let mut body = response
             .content_length()
             .map_or_else(Vec::new, |n| Vec::with_capacity(n as usize));
 
@@ -119,23 +120,32 @@ impl ReqwestTransport {
         endpoint: &str,
         body: Option<Vec<u8>>,
     ) -> Result<(StatusCode, Vec<u8>), AgentError> {
+        // Convert body to Bytes to make it cheaply cloneable between retries.
+        // Underlying Reqwest body is anyway Bytes and can be then used as-is.
+        let body = body.map(Bytes::from);
+
         let create_request_with_generated_url = || -> Result<Request, AgentError> {
             let url = self.route_provider.route()?.join(endpoint)?;
+            let hostname = url.authority().to_string();
+
             let mut http_request = Request::new(method.clone(), url);
             http_request
                 .headers_mut()
                 .insert(CONTENT_TYPE, CONTENT_TYPE_CBOR);
 
             // Add HTTP headers if requested
-            let _ = PASS_HEADERS.try_with(|x| {
-                let mut pass = x.borrow_mut();
-                for (k, v) in &pass.headers_out {
+            let _ = CONTEXT.try_with(|x| {
+                let mut ctx = x.borrow_mut();
+                ctx.hostname = Some(hostname);
+
+                for (k, v) in &ctx.headers_out {
                     http_request.headers_mut().append(k, v.clone());
                 }
-                pass.headers_out.clear();
+
+                ctx.headers_out.clear();
             });
 
-            *http_request.body_mut() = body.as_ref().cloned().map(Body::from);
+            *http_request.body_mut() = body.clone().map(Body::from);
 
             Ok(http_request)
         };
@@ -160,19 +170,23 @@ impl ReqwestTransport {
 
                                 // Retry only connection-related errors.
                                 if is_connect_err {
-                                    if retries <= 0 {
+                                    if retries == 0 {
                                         return Err(AgentError::TransportError(
                                             "retries exhausted".into(),
                                         ));
                                     }
+
                                     retries -= 1;
                                     // Sleep before retrying. Delay time is not changed, as is the case for http retry.
                                     tokio::time::sleep(delay).await;
+
                                     continue;
                                 }
+
                                 // All other transport errors are not retried.
                                 return Err(agent_error);
                             }
+
                             // All non-transport errors are not retried.
                             _ => return Err(agent_error),
                         },
@@ -184,13 +198,13 @@ impl ReqwestTransport {
                 break result;
             }
 
-            if retries <= 0 {
+            if retries == 0 {
                 return Err(AgentError::TransportError("retries exhausted".into()));
             }
 
-            retries -= 1;
-
             tokio::time::sleep(delay).await;
+
+            retries -= 1;
             delay *= 2;
         };
 

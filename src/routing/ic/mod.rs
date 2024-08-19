@@ -106,9 +106,10 @@ pub fn setup(
         http_client,
         cli.ic.ic_max_request_retries,
     );
+
     let agent = ic_agent::Agent::builder()
         .with_transport(transport)
-        .with_verify_query_signatures(!cli.ic.ic_unsafe_disable_replica_signed_queries)
+        .with_verify_query_signatures(cli.ic.ic_enable_replica_signed_queries)
         .build()?;
 
     if let Some(v) = &cli.ic.ic_root_key {

@@ -113,6 +113,7 @@ pub async fn redirect_to_https(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn setup_router(
     cli: &Cli,
     custom_domain_providers: Vec<Arc<dyn ProvidesCustomDomains>>,

@@ -178,12 +178,13 @@ pub struct Ic {
     pub ic_max_request_retries: u32,
 
     /// Disable response verification for the IC requests.
-    #[clap(env, long, default_value = "false")]
+    #[clap(env, long)]
     pub ic_unsafe_disable_response_verification: bool,
 
-    /// Disable replica-signed queries in the agent.
-    #[clap(env, long, default_value = "false")]
-    pub ic_unsafe_disable_replica_signed_queries: bool,
+    /// Enable replica-signed queries in the agent.
+    /// Since the responses' certificates are anyway validated - it makes the signed queries redundant.
+    #[clap(env, long)]
+    pub ic_enable_replica_signed_queries: bool,
 }
 
 #[derive(Args)]
