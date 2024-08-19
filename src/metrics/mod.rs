@@ -446,48 +446,6 @@ pub async fn middleware(
         if let Some(v) = &state.vector {
             // TODO use proper names when the DB is updated
 
-            // let val = json!({
-            //     "env": ENV.get().unwrap().as_str(),
-            //     "hostname": HOSTNAME.get().unwrap().as_str(),
-            //     "date": timestamp.unix_timestamp(),
-            //     "request_id": request_id.to_string(),
-            //     "conn_id": conn_info.id.to_string(),
-            //     "method": method,
-            //     "http_version": http_version,
-            //     "request_type": request_type,
-            //     "geo_country_code": country_code,
-            //     "status": status,
-            //     "domain": domain,
-            //     "host": host,
-            //     "path": path,
-            //     "canister_id": canister_id,
-            //     "ic_streaming": ic_streaming,
-            //     "ic_upgrade": ic_upgrade,
-            //     "ic_node_id": meta.node_id,
-            //     "ic_subnet_id": meta.subnet_id,
-            //     "ic_subnet_type": meta.subnet_type,
-            //     "ic_method_name": meta.method_name,
-            //     "ic_sender": meta.sender,
-            //     "ic_canister_id_cbor": meta.canister_id_cbor,
-            //     "ic_error_cause": meta.error_cause,
-            //     "ic_retries": meta.retries,
-            //     "ic_cache_status": meta.cache_status,
-            //     "ic_cache_bypass_reason": meta.cache_bypass_reason,
-            //     "error_cause": error_cause,
-            //     "tls_version": tls_version,
-            //     "tls_cipher": tls_cipher,
-            //     "remote_addr": conn_info.remote_addr.to_string(),
-            //     "req_rcvd": request_size,
-            //     "req_sent": response_size,
-            //     "conn_rcvd": conn_rcvd,
-            //     "conn_sent": conn_sent,
-            //     "duration": duration.as_secs_f64(),
-            //     "duration_full": duration_full.as_secs_f64(),
-            //     "duration_conn": conn_info.accepted_at.elapsed().as_secs_f64(),
-            //     "cache_status": cache_status_str,
-            //     "cache_bypass_reason": cache_bypass_reason_str,
-            // });
-
             // Nginx-compatible log entry
             let val = json!({
                 "env": ENV.get().unwrap().as_str(),
