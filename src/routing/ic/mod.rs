@@ -27,7 +27,13 @@ use crate::{
     Cli,
 };
 
-/// Metadata about the request by a Boundary Node (ic-boundary)
+/// Metadata about the request to a Boundary Node (ic-boundary)
+#[derive(Clone, Default)]
+pub struct BNRequestMetadata {
+    pub backend: Option<String>,
+}
+
+/// Metadata about the response from a Boundary Node (ic-boundary)
 #[derive(Clone)]
 pub struct BNResponseMetadata {
     pub node_id: String,
@@ -100,9 +106,10 @@ pub fn setup(
         http_client,
         cli.ic.ic_max_request_retries,
     );
+
     let agent = ic_agent::Agent::builder()
         .with_transport(transport)
-        .with_verify_query_signatures(!cli.ic.ic_unsafe_disable_replica_signed_queries)
+        .with_verify_query_signatures(cli.ic.ic_enable_replica_signed_queries)
         .build()?;
 
     if let Some(v) = &cli.ic.ic_root_key {

@@ -173,17 +173,18 @@ pub struct Ic {
     #[clap(env, long)]
     pub ic_root_key: Option<PathBuf>,
 
-    /// Maximum mumber of request retries in the transport layer for both network- and http-related failures.
+    /// Maximum number of request retries for connection failures.
     #[clap(env, long, default_value = "5")]
     pub ic_max_request_retries: u32,
 
     /// Disable response verification for the IC requests.
-    #[clap(env, long, default_value = "false")]
+    #[clap(env, long)]
     pub ic_unsafe_disable_response_verification: bool,
 
-    /// Disable replica-signed queries in the agent.
-    #[clap(env, long, default_value = "false")]
-    pub ic_unsafe_disable_replica_signed_queries: bool,
+    /// Enable replica-signed queries in the agent.
+    /// Since the responses' certificates are anyway validated - it makes the signed queries redundant.
+    #[clap(env, long)]
+    pub ic_enable_replica_signed_queries: bool,
 }
 
 #[derive(Args)]
@@ -401,6 +402,10 @@ pub struct Vector {
     /// If the buffer is full then new events will be dropped.
     #[clap(env, long, default_value = "131072")]
     pub log_vector_buffer: usize,
+
+    /// Vector HTTP request timeout for a batch flush
+    #[clap(env, long, default_value = "30s", value_parser = parse_duration)]
+    pub log_vector_timeout: Duration,
 }
 
 #[derive(Args)]

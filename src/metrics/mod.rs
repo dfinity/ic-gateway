@@ -35,7 +35,7 @@ use crate::{
     },
     routing::{
         error_cause::ErrorCause,
-        ic::{BNResponseMetadata, IcResponseStatus},
+        ic::{BNRequestMetadata, BNResponseMetadata, IcResponseStatus},
         middleware::{geoip::CountryCode, request_id::RequestId},
         CanisterId, RequestCtx, RequestType, RequestTypeApi,
     },
@@ -244,8 +244,14 @@ pub async fn middleware(
         .unwrap_or_default();
     let status = response.status().as_u16();
 
+    // IC request metadata
+    let req_meta = response
+        .extensions_mut()
+        .remove::<BNRequestMetadata>()
+        .unwrap_or_default();
+
     // IC response metadata
-    let meta = response
+    let resp_meta = response
         .extensions_mut()
         .remove::<BNResponseMetadata>()
         .unwrap_or_default();
@@ -288,7 +294,8 @@ pub async fn middleware(
         let response_size = rx.await.unwrap_or(Ok(0)).unwrap_or(0);
 
         let duration_full = start.elapsed();
-        let meta = meta.clone();
+        let req_meta = req_meta.clone();
+        let resp_meta = resp_meta.clone();
 
         let (tls_version, tls_cipher, tls_handshake) =
             tls_info.as_ref().map_or(("", "", Duration::ZERO), |x| {
@@ -365,16 +372,16 @@ pub async fn middleware(
                 canister_id,
                 ic_streaming,
                 ic_upgrade,
-                ic_node_id = meta.node_id,
-                ic_subnet_id = meta.subnet_id,
-                ic_subnet_type = meta.subnet_type,
-                ic_method_name = meta.method_name,
-                ic_sender = meta.sender,
-                ic_canister_id_cbor = meta.canister_id_cbor,
-                ic_error_cause = meta.error_cause,
-                ic_retries = meta.retries,
-                ic_cache_status = meta.cache_status,
-                ic_cache_bypass_reason = meta.cache_bypass_reason,
+                ic_node_id = resp_meta.node_id,
+                ic_subnet_id = resp_meta.subnet_id,
+                ic_subnet_type = resp_meta.subnet_type,
+                ic_method_name = resp_meta.method_name,
+                ic_sender = resp_meta.sender,
+                ic_canister_id_cbor = resp_meta.canister_id_cbor,
+                ic_error_cause = resp_meta.error_cause,
+                ic_retries = resp_meta.retries,
+                ic_cache_status = resp_meta.cache_status,
+                ic_cache_bypass_reason = resp_meta.cache_bypass_reason,
                 error = error_cause,
                 req_size = request_size,
                 resp_size = response_size,
@@ -386,11 +393,12 @@ pub async fn middleware(
                 conn_reqs = conn_req_count,
                 cache_status = cache_status_str,
                 cache_bypass_reason = cache_bypass_reason_str,
+                backend = req_meta.backend,
             );
         }
 
         if let Some(v) = &state.clickhouse {
-            let meta = meta.clone();
+            let resp_meta = resp_meta.clone();
 
             let row = Row {
                 env: ENV.get().unwrap().as_str(),
@@ -408,16 +416,16 @@ pub async fn middleware(
                 canister_id: canister_id.clone(),
                 ic_streaming,
                 ic_upgrade,
-                ic_node_id: meta.node_id,
-                ic_subnet_id: meta.subnet_id,
-                ic_subnet_type: meta.subnet_type,
-                ic_method_name: meta.method_name,
-                ic_sender: meta.sender,
-                ic_canister_id_cbor: meta.canister_id_cbor,
-                ic_error_cause: meta.error_cause,
-                ic_retries: meta.retries.parse().unwrap_or(0),
-                ic_cache_status: meta.cache_status,
-                ic_cache_bypass_reason: meta.cache_bypass_reason,
+                ic_node_id: resp_meta.node_id,
+                ic_subnet_id: resp_meta.subnet_id,
+                ic_subnet_type: resp_meta.subnet_type,
+                ic_method_name: resp_meta.method_name,
+                ic_sender: resp_meta.sender,
+                ic_canister_id_cbor: resp_meta.canister_id_cbor,
+                ic_error_cause: resp_meta.error_cause,
+                ic_retries: resp_meta.retries.parse().unwrap_or(0),
+                ic_cache_status: resp_meta.cache_status,
+                ic_cache_bypass_reason: resp_meta.cache_bypass_reason,
                 error_cause: error_cause.clone(),
                 tls_version: tls_version.into(),
                 tls_cipher: tls_cipher.into(),
@@ -438,48 +446,6 @@ pub async fn middleware(
         if let Some(v) = &state.vector {
             // TODO use proper names when the DB is updated
 
-            // let val = json!({
-            //     "env": ENV.get().unwrap().as_str(),
-            //     "hostname": HOSTNAME.get().unwrap().as_str(),
-            //     "date": timestamp.unix_timestamp(),
-            //     "request_id": request_id.to_string(),
-            //     "conn_id": conn_info.id.to_string(),
-            //     "method": method,
-            //     "http_version": http_version,
-            //     "request_type": request_type,
-            //     "geo_country_code": country_code,
-            //     "status": status,
-            //     "domain": domain,
-            //     "host": host,
-            //     "path": path,
-            //     "canister_id": canister_id,
-            //     "ic_streaming": ic_streaming,
-            //     "ic_upgrade": ic_upgrade,
-            //     "ic_node_id": meta.node_id,
-            //     "ic_subnet_id": meta.subnet_id,
-            //     "ic_subnet_type": meta.subnet_type,
-            //     "ic_method_name": meta.method_name,
-            //     "ic_sender": meta.sender,
-            //     "ic_canister_id_cbor": meta.canister_id_cbor,
-            //     "ic_error_cause": meta.error_cause,
-            //     "ic_retries": meta.retries,
-            //     "ic_cache_status": meta.cache_status,
-            //     "ic_cache_bypass_reason": meta.cache_bypass_reason,
-            //     "error_cause": error_cause,
-            //     "tls_version": tls_version,
-            //     "tls_cipher": tls_cipher,
-            //     "remote_addr": conn_info.remote_addr.to_string(),
-            //     "req_rcvd": request_size,
-            //     "req_sent": response_size,
-            //     "conn_rcvd": conn_rcvd,
-            //     "conn_sent": conn_sent,
-            //     "duration": duration.as_secs_f64(),
-            //     "duration_full": duration_full.as_secs_f64(),
-            //     "duration_conn": conn_info.accepted_at.elapsed().as_secs_f64(),
-            //     "cache_status": cache_status_str,
-            //     "cache_bypass_reason": cache_bypass_reason_str,
-            // });
-
             // Nginx-compatible log entry
             let val = json!({
                 "env": ENV.get().unwrap().as_str(),
@@ -498,15 +464,15 @@ pub async fn middleware(
                 "geo_country_code": country_code,
                 "request_uri": uri.path_and_query().map(|x| x.as_str()).unwrap_or_default(),
                 "query_string": uri.query().unwrap_or_default(),
-                "ic_node_id": meta.node_id,
-                "ic_subnet_id": meta.subnet_id,
-                "ic_method_name": meta.method_name,
+                "ic_node_id": resp_meta.node_id,
+                "ic_subnet_id": resp_meta.subnet_id,
+                "ic_method_name": resp_meta.method_name,
                 "ic_request_type": request_type,
-                "ic_sender": meta.sender,
+                "ic_sender": resp_meta.sender,
                 "ic_canister_id": canister_id,
-                "ic_canister_id_cbor": meta.canister_id_cbor,
-                "ic_error_cause": meta.error_cause,
-                "retries": meta.retries,
+                "ic_canister_id_cbor": resp_meta.canister_id_cbor,
+                "ic_error_cause": resp_meta.error_cause,
+                "retries": resp_meta.retries,
                 "error_cause": error_cause,
                 "ssl_protocol": tls_version,
                 "ssl_cipher": tls_cipher,
@@ -516,10 +482,10 @@ pub async fn middleware(
                 "remote_addr": conn_info.remote_addr.ip().to_string(),
                 "request_time": duration_full.as_secs_f64(),
                 "request_time_headers": 0,
-                "cache_status": meta.cache_status,
+                "cache_status": resp_meta.cache_status,
                 "cache_status_nginx": cache_status_str,
-                "cache_bypass_reason": meta.cache_bypass_reason,
-                "upstream": "127.0.0.1",
+                "cache_bypass_reason": resp_meta.cache_bypass_reason,
+                "upstream": req_meta.backend.unwrap_or_default(),
             });
 
             v.send(val);

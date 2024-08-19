@@ -27,7 +27,7 @@ pub struct NodesFetcher {
 
 impl NodesFetcher {
     /// Creates a new `NodesFetcher` instance.
-    pub fn new(http_client: Client, subnet_id: Principal, root_key: Option<Vec<u8>>) -> Self {
+    pub const fn new(http_client: Client, subnet_id: Principal, root_key: Option<Vec<u8>>) -> Self {
         Self {
             http_client,
             subnet_id,
