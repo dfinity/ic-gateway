@@ -51,6 +51,7 @@ pub struct ReqwestTransport {
     client: Arc<dyn HttpClient>,
     max_response_body_size: Option<usize>,
     use_call_v3_endpoint: bool,
+    max_request_retries: u32,
 }
 
 impl ReqwestTransport {
@@ -58,12 +59,14 @@ impl ReqwestTransport {
     pub fn create_with_client_route(
         route_provider: Arc<dyn RouteProvider>,
         client: Arc<dyn HttpClient>,
+        max_request_retries: u32,
     ) -> Self {
         Self {
             route_provider,
             client,
             max_response_body_size: Some(MAX_RESPONSE_SIZE),
             use_call_v3_endpoint: false,
+            max_request_retries,
         }
     }
 
@@ -116,47 +119,76 @@ impl ReqwestTransport {
         endpoint: &str,
         body: Option<Vec<u8>>,
     ) -> Result<(StatusCode, Vec<u8>), AgentError> {
-        let url = self.route_provider.route()?.join(endpoint)?;
-        let hostname = url.authority().to_string();
+        let create_request_with_generated_url = || -> Result<Request, AgentError> {
+            let url = self.route_provider.route()?.join(endpoint)?;
+            let mut http_request = Request::new(method.clone(), url);
+            http_request
+                .headers_mut()
+                .insert(CONTENT_TYPE, CONTENT_TYPE_CBOR);
 
-        let mut http_request = Request::new(method, url);
-        http_request
-            .headers_mut()
-            .insert(CONTENT_TYPE, CONTENT_TYPE_CBOR);
+            // Add HTTP headers if requested
+            let _ = PASS_HEADERS.try_with(|x| {
+                let mut pass = x.borrow_mut();
+                for (k, v) in &pass.headers_out {
+                    http_request.headers_mut().append(k, v.clone());
+                }
+                pass.headers_out.clear();
+            });
 
-        // Add hostname & HTTP headers
-        let _ = CONTEXT.try_with(|x| {
-            let mut ctx = x.borrow_mut();
+            *http_request.body_mut() = body.as_ref().cloned().map(Body::from);
 
-            // Certain agent calls map to several underlying HTTP calls,
-            // e.g. read_state + query.
-            // Set hostname only from the initial call.
-            if ctx.hostname.is_none() {
-                ctx.hostname = Some(hostname);
-            }
-
-            for (k, v) in &ctx.headers_out {
-                http_request.headers_mut().append(k, v.clone());
-            }
-
-            ctx.headers_out.clear();
-        });
-
-        *http_request.body_mut() = body.map(Body::from);
+            Ok(http_request)
+        };
 
         let mut delay = Duration::from_millis(100);
-        let mut retries = 5;
+        let mut retries = self.max_request_retries;
 
         let request_result = loop {
-            let result = self.request(http_request.try_clone().unwrap()).await?;
+            let result = {
+                // RouteProvider generates urls dynamically. Some urls can be unhealthy.
+                // TCP related errors (host unreachable, connection refused, connection timed out, connection reset) can be safely retried with a newly generated url.
+                loop {
+                    let http_request = create_request_with_generated_url()?;
+
+                    match self.request(http_request).await {
+                        Ok(response) => break response,
+                        Err(agent_error) => match agent_error {
+                            AgentError::TransportError(ref err) => {
+                                let is_connect_err = err
+                                    .downcast_ref::<reqwest::Error>()
+                                    .is_some_and(|e| e.is_connect());
+
+                                // Retry only connection-related errors.
+                                if is_connect_err {
+                                    if retries <= 0 {
+                                        return Err(AgentError::TransportError(
+                                            "retries exhausted".into(),
+                                        ));
+                                    }
+                                    retries -= 1;
+                                    // Sleep before retrying. Delay time is not changed, as is the case for http retry.
+                                    tokio::time::sleep(delay).await;
+                                    continue;
+                                }
+                                // All other transport errors are not retried.
+                                return Err(agent_error);
+                            }
+                            // All non-transport errors are not retried.
+                            _ => return Err(agent_error),
+                        },
+                    }
+                }
+            };
+
             if result.0 != StatusCode::TOO_MANY_REQUESTS {
                 break result;
             }
 
-            retries -= 1;
-            if retries == 0 {
+            if retries <= 0 {
                 return Err(AgentError::TransportError("retries exhausted".into()));
             }
+
+            retries -= 1;
 
             tokio::time::sleep(delay).await;
             delay *= 2;
