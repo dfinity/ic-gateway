@@ -180,7 +180,7 @@ impl VectorActor {
         let mut encoder = self.encoder.clone();
         let Ok(body) = encoder.encode_batch(&mut self.batch) else {
             self.batch.clear();
-            return Err(anyhow!("unable to encode batch, flushing it"));
+            return Err(anyhow!("unable to encode batch, dropping it"));
         };
 
         // Retry
@@ -189,6 +189,7 @@ impl VectorActor {
         let mut retries = 5;
 
         while retries > 0 {
+            // Bytes is cheap to clone
             if let Err(e) = self.send(body.clone()).await {
                 warn!("Vector: unable to flush batch: {e:#}");
             } else {

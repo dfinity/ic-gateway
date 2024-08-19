@@ -27,7 +27,13 @@ use crate::{
     Cli,
 };
 
-/// Metadata about the request by a Boundary Node (ic-boundary)
+/// Metadata about the request to a Boundary Node (ic-boundary)
+#[derive(Clone, Default)]
+pub struct BNRequestMetadata {
+    pub backend: Option<String>,
+}
+
+/// Metadata about the response from a Boundary Node (ic-boundary)
 #[derive(Clone)]
 pub struct BNResponseMetadata {
     pub node_id: String,

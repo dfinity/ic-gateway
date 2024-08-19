@@ -15,7 +15,7 @@ use crate::{
     routing::{
         error_cause::ErrorCause,
         ic::{
-            transport::{PassHeaders, PASS_HEADERS},
+            transport::{Context, CONTEXT},
             IcResponseStatus,
         },
         middleware::request_id::RequestId,
@@ -23,7 +23,7 @@ use crate::{
     },
 };
 
-use super::BNResponseMetadata;
+use super::{BNRequestMetadata, BNResponseMetadata};
 
 const MAX_REQUEST_BODY_SIZE: usize = 10 * 1_048_576;
 
@@ -66,10 +66,10 @@ pub async fn handler(
         canister_id,
     };
 
-    // Pass headers in/out the IC request
-    let (resp, bn_metadata) = PASS_HEADERS
-        .scope(PassHeaders::new(), async {
-            PASS_HEADERS.with(|x| {
+    // Store request context info
+    let (resp, bn_req_meta, bn_resp_meta) = CONTEXT
+        .scope(Context::new(), async {
+            CONTEXT.with(|x| {
                 let hdr =
                     HeaderValue::from_maybe_shared(Bytes::from(request_id.to_string())).unwrap();
 
@@ -82,10 +82,18 @@ pub async fn handler(
             req.unsafe_set_skip_verification(!state.verify_response || !ctx.verify);
             let resp = req.send().await;
 
-            let bn_metadata =
-                PASS_HEADERS.with(|x| BNResponseMetadata::from(&mut x.borrow_mut().headers_in));
+            let (bn_req_meta, bn_resp_meta) = CONTEXT.with(|x| {
+                let mut x = x.borrow_mut();
 
-            (resp, bn_metadata)
+                (
+                    BNRequestMetadata {
+                        backend: x.hostname.clone(),
+                    },
+                    BNResponseMetadata::from(&mut x.headers_in),
+                )
+            });
+
+            (resp, bn_req_meta, bn_resp_meta)
         })
         .await;
 
@@ -94,7 +102,8 @@ pub async fn handler(
     // Convert it into Axum response
     let mut response = resp.canister_response.into_response();
     response.extensions_mut().insert(ic_status);
-    response.extensions_mut().insert(bn_metadata);
+    response.extensions_mut().insert(bn_req_meta);
+    response.extensions_mut().insert(bn_resp_meta);
 
     Ok(response)
 }

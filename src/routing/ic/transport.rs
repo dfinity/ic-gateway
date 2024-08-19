@@ -24,14 +24,16 @@ type AgentFuture<'a, V> = Pin<Box<dyn Future<Output = Result<V, AgentError>> + S
 
 const MAX_RESPONSE_SIZE: usize = 2 * 1_048_576;
 
-pub struct PassHeaders {
+pub struct Context {
+    pub hostname: Option<String>,
     pub headers_in: HeaderMap<HeaderValue>,
     pub headers_out: HeaderMap<HeaderValue>,
 }
 
-impl PassHeaders {
+impl Context {
     pub fn new() -> RefCell<Self> {
         RefCell::new(Self {
+            hostname: None,
             headers_in: HeaderMap::new(),
             headers_out: HeaderMap::new(),
         })
@@ -39,7 +41,7 @@ impl PassHeaders {
 }
 
 task_local! {
-    pub static PASS_HEADERS: RefCell<PassHeaders>;
+    pub static CONTEXT: RefCell<Context>;
 }
 
 /// A [`Transport`] using [`HttpClient`] to make HTTP calls to the Internet Computer.
@@ -115,18 +117,29 @@ impl ReqwestTransport {
         body: Option<Vec<u8>>,
     ) -> Result<(StatusCode, Vec<u8>), AgentError> {
         let url = self.route_provider.route()?.join(endpoint)?;
+        let hostname = url.authority().to_string();
+
         let mut http_request = Request::new(method, url);
         http_request
             .headers_mut()
             .insert(CONTENT_TYPE, CONTENT_TYPE_CBOR);
 
-        // Add HTTP headers if requested
-        let _ = PASS_HEADERS.try_with(|x| {
-            let mut pass = x.borrow_mut();
-            for (k, v) in &pass.headers_out {
+        // Add hostname & HTTP headers
+        let _ = CONTEXT.try_with(|x| {
+            let mut ctx = x.borrow_mut();
+
+            // Certain agent calls map to several underlying HTTP calls,
+            // e.g. read_state + query.
+            // Set hostname only from the initial call.
+            if ctx.hostname.is_none() {
+                ctx.hostname = Some(hostname);
+            }
+
+            for (k, v) in &ctx.headers_out {
                 http_request.headers_mut().append(k, v.clone());
             }
-            pass.headers_out.clear();
+
+            ctx.headers_out.clear();
         });
 
         *http_request.body_mut() = body.map(Body::from);
@@ -158,12 +171,12 @@ impl ReqwestTransport {
         // the agent can do several outgoing requests (e.g. read_state to get keys and then query)
         // and we need only one set of response headers.
         if !endpoint.ends_with("/read_state") {
-            let _ = PASS_HEADERS.try_with(|x| {
-                let mut pass = x.borrow_mut();
-                pass.headers_in.clear();
+            let _ = CONTEXT.try_with(|x| {
+                let mut ctx = x.borrow_mut();
+                ctx.headers_in.clear();
 
                 for (k, v) in &headers {
-                    pass.headers_in.insert(k, v.clone());
+                    ctx.headers_in.insert(k, v.clone());
                 }
             });
         }
