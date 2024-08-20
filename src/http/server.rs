@@ -53,13 +53,13 @@ pub struct Metrics {
 
 impl Metrics {
     pub fn new(registry: &Registry) -> Self {
-        const LABELS: &[&str] = &["addr", "tls", "family"];
+        const LABELS: &[&str] = &["addr", "tls", "family", "forced_close"];
 
         Self {
             conns_open: register_int_gauge_vec_with_registry!(
                 format!("conn_open"),
                 format!("Number of currently open connections"),
-                LABELS,
+                &LABELS[0..3],
                 registry
             )
             .unwrap(),
@@ -224,7 +224,7 @@ impl Conn {
 
         // Prepare metric labels
         let addr = self.addr.to_string();
-        let labels = &[
+        let labels = &mut [
             addr.as_str(), // Listening addr
             if self.tls_acceptor.is_some() {
                 "yes"
@@ -236,9 +236,13 @@ impl Conn {
             } else {
                 "v6"
             }, // IP Family
+            "no",
         ];
 
-        self.metrics.conns_open.with_label_values(labels).inc();
+        self.metrics
+            .conns_open
+            .with_label_values(&labels[0..3])
+            .inc();
 
         // Disable Nagle's algo
         stream
@@ -263,8 +267,14 @@ impl Conn {
         let (sent, rcvd) = (stats.sent(), stats.rcvd());
         let dur = accepted_at.elapsed().as_secs_f64();
         let reqs = conn_info.req_count.load(Ordering::SeqCst);
+        if self.token_close.is_cancelled() {
+            labels[3] = "yes";
+        }
 
-        self.metrics.conns_open.with_label_values(labels).dec();
+        self.metrics
+            .conns_open
+            .with_label_values(&labels[0..3])
+            .dec();
         self.metrics.requests.with_label_values(labels).inc_by(reqs);
         self.metrics
             .bytes_rcvd
@@ -284,8 +294,8 @@ impl Conn {
             .observe(reqs as f64);
 
         debug!(
-            "{}: connection closed (rcvd: {}, sent: {}, reqs: {}, duration: {})",
-            self, rcvd, sent, reqs, dur,
+            "{self}: connection closed (rcvd: {rcvd}, sent: {sent}, reqs: {reqs}, duration: {dur}, forced close: {})",
+            self.token_close.is_cancelled(),
         );
 
         result
