@@ -112,6 +112,7 @@ impl Metrics {
 #[derive(Clone, Copy)]
 pub struct Options {
     pub backlog: u32,
+    pub http1_header_read_timeout: Duration,
     pub http2_max_streams: u32,
     pub http2_keepalive_interval: Duration,
     pub http2_keepalive_timeout: Duration,
@@ -399,6 +400,8 @@ impl Server {
         let mut builder = Builder::new(TokioExecutor::new());
         builder
             .http1()
+            .timer(TokioTimer::new())
+            .header_read_timeout(Some(self.options.http1_header_read_timeout))
             .keep_alive(true)
             .http2()
             .adaptive_window(true)

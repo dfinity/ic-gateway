@@ -129,6 +129,15 @@ pub struct HttpServer {
     #[clap(env, long, default_value = "2048")]
     pub http_server_backlog: u32,
 
+    /// For how long to wait for the client to send headers
+    /// Currently applies only to HTTP1 connections.
+    #[clap(env, long, default_value = "15s", value_parser = parse_duration)]
+    pub http_server_http1_header_read_timeout: Duration,
+
+    /// For how long to wait for the client to send request body.
+    #[clap(env, long, default_value = "60s", value_parser = parse_duration)]
+    pub http_server_body_read_timeout: Duration,
+
     /// Maximum number of HTTP2 streams that the client is allowed to create in a single connection
     #[clap(env, long, default_value = "128")]
     pub http_server_http2_max_streams: u32,
@@ -492,6 +501,7 @@ impl From<&HttpServer> for crate::http::server::Options {
     fn from(c: &HttpServer) -> Self {
         Self {
             backlog: c.http_server_backlog,
+            http1_header_read_timeout: c.http_server_http1_header_read_timeout,
             http2_keepalive_interval: c.http_server_http2_keepalive_interval,
             http2_keepalive_timeout: c.http_server_http2_keepalive_timeout,
             http2_max_streams: c.http_server_http2_max_streams,

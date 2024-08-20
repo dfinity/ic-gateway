@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use axum::{
     extract::{Request, State},
@@ -9,6 +9,7 @@ use bytes::Bytes;
 use http::HeaderValue;
 use http_body_util::{BodyExt, LengthLimitError, Limited};
 use ic_http_gateway::{CanisterRequest, HttpGatewayClient, HttpGatewayRequestArgs};
+use tokio::time::timeout;
 
 use crate::{
     http::headers::X_REQUEST_ID,
@@ -31,6 +32,7 @@ const MAX_REQUEST_BODY_SIZE: usize = 10 * 1_048_576;
 pub struct HandlerState {
     client: HttpGatewayClient,
     verify_response: bool,
+    body_read_timeout: Duration,
 }
 
 // Main HTTP->IC request handler
@@ -48,18 +50,21 @@ pub async fn handler(
     let (parts, body) = request.into_parts();
 
     // Collect the request body up to the limit
-    let body = Limited::new(body, MAX_REQUEST_BODY_SIZE)
-        .collect()
-        .await
-        .map_err(|e| {
-            // TODO improve the inferring somehow
-            e.downcast_ref::<LengthLimitError>().map_or_else(
-                || ErrorCause::UnableToReadBody(e.to_string()),
-                |_| ErrorCause::RequestTooLarge,
-            )
-        })?
-        .to_bytes()
-        .to_vec();
+    let body = timeout(
+        state.body_read_timeout,
+        Limited::new(body, MAX_REQUEST_BODY_SIZE).collect(),
+    )
+    .await
+    .map_err(|_| ErrorCause::UnableToReadBody("timed out".into()))?
+    .map_err(|e| {
+        // TODO improve the inferring somehow
+        e.downcast_ref::<LengthLimitError>().map_or_else(
+            || ErrorCause::UnableToReadBody(e.to_string()),
+            |_| ErrorCause::RequestTooLarge,
+        )
+    })?
+    .to_bytes()
+    .to_vec();
 
     let args = HttpGatewayRequestArgs {
         canister_request: CanisterRequest::from_parts(parts, body),

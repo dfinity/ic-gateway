@@ -30,7 +30,7 @@ impl TaskManager {
         self.tasks.push(Task(name.into(), task));
     }
 
-    pub fn start(&mut self, token: &CancellationToken) {
+    pub fn start(&self, token: &CancellationToken) {
         warn!("TaskManager: starting {} tasks", self.tasks.len());
 
         for task in self.tasks.clone() {
