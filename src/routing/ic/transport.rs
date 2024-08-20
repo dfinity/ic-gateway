@@ -142,7 +142,7 @@ impl ReqwestTransport {
 
         let mut urls_iter = self
             .route_provider
-            .n_ordered_routes(self.max_request_retries as usize)?
+            .n_ordered_routes(1 + self.max_request_retries as usize)?
             .into_iter();
 
         let mut create_request_with_generated_url = || -> Result<Request, AgentError> {
