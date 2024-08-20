@@ -140,18 +140,20 @@ impl ReqwestTransport {
 
         *http_request.body_mut() = body.clone().map(Body::from);
 
+        // NOTE: it could happen that fewer urls (than 1 + max_request_retries) are available.
         let mut urls_iter = self
             .route_provider
             .n_ordered_routes(1 + self.max_request_retries as usize)?
             .into_iter();
 
+        let urls_count = urls_iter.len();
+
         let mut create_request_with_generated_url = || -> Result<Request, AgentError> {
-            // Once urls provided by n_ordered_routes() are exhausted, we generate new urls one by one.
-            let url = if let Some(url) = urls_iter.next() {
-                url.join(endpoint)?
-            } else {
-                self.route_provider.route()?.join(endpoint)?
-            };
+            let url = urls_iter.next().ok_or_else(|| {
+                AgentError::RouteProviderError(format!(
+                    "Exhausted all {urls_count} healthy routing urls for retries"
+                ))
+            })?;
 
             // Update/set the hostname
             let _ = CONTEXT.try_with(|x| {
@@ -367,6 +369,21 @@ mod tests {
         http_failure_statuses: Vec<StatusCode>,
     }
 
+    fn setup_route_provider() -> Arc<RoundRobinRouteProvider> {
+        Arc::new(
+            RoundRobinRouteProvider::new(vec![
+                "https://api1.com",
+                "https://api2.com",
+                "https://api3.com",
+                "https://api4.com",
+                "https://api5.com",
+                "https://api6.com",
+                "https://api7.com",
+            ])
+            .unwrap(),
+        )
+    }
+
     #[async_trait]
     impl HttpClient for MockClient {
         async fn execute(
@@ -398,9 +415,6 @@ mod tests {
     #[tokio::test]
     async fn test_execute_with_no_retries_and_no_failures_succeeds() {
         // Arrange
-        let route_provider =
-            Arc::new(RoundRobinRouteProvider::new(vec!["https://ic0.app"]).unwrap());
-
         let client = Arc::new(MockClient {
             http_failure_statuses: vec![],
             http_failures_count: AtomicUsize::new(0),
@@ -408,7 +422,7 @@ mod tests {
         });
 
         let transport = ReqwestTransport {
-            route_provider,
+            route_provider: setup_route_provider(),
             max_request_retries: 0,
             max_response_body_size: None,
             client,
@@ -426,9 +440,6 @@ mod tests {
     #[tokio::test]
     async fn test_execute_with_retries_and_network_failures_succeeds() {
         // Arrange
-        let route_provider =
-            Arc::new(RoundRobinRouteProvider::new(vec!["https://ic0.app"]).unwrap());
-
         let client = Arc::new(MockClient {
             http_failure_statuses: vec![],
             http_failures_count: AtomicUsize::new(0),
@@ -436,7 +447,7 @@ mod tests {
         });
 
         let transport = ReqwestTransport {
-            route_provider,
+            route_provider: setup_route_provider(),
             max_request_retries: 2,
             max_response_body_size: None,
             client,
@@ -454,9 +465,6 @@ mod tests {
     #[tokio::test]
     async fn test_execute_with_insufficient_retries_and_network_failures_fails() {
         // Arrange
-        let route_provider =
-            Arc::new(RoundRobinRouteProvider::new(vec!["https://ic0.app"]).unwrap());
-
         let client = Arc::new(MockClient {
             http_failure_statuses: vec![],
             http_failures_count: AtomicUsize::new(0),
@@ -464,7 +472,7 @@ mod tests {
         });
 
         let transport = ReqwestTransport {
-            route_provider,
+            route_provider: setup_route_provider(),
             max_request_retries: 1,
             max_response_body_size: None,
             client,
@@ -484,9 +492,6 @@ mod tests {
     #[tokio::test]
     async fn test_execute_with_retries_and_http_failures_succeeds() {
         // Arrange
-        let route_provider =
-            Arc::new(RoundRobinRouteProvider::new(vec!["https://ic0.app"]).unwrap());
-
         // TOO_MANY_REQUESTS should be retried, thus success
         let client = Arc::new(MockClient {
             http_failure_statuses: vec![StatusCode::TOO_MANY_REQUESTS],
@@ -495,7 +500,7 @@ mod tests {
         });
 
         let transport = ReqwestTransport {
-            route_provider,
+            route_provider: setup_route_provider(),
             max_request_retries: 1,
             max_response_body_size: None,
             client,
@@ -513,9 +518,6 @@ mod tests {
     #[tokio::test]
     async fn test_execute_with_retries_and_http_failures_fails() {
         // Arrange
-        let route_provider =
-            Arc::new(RoundRobinRouteProvider::new(vec!["https://ic0.app"]).unwrap());
-
         // BAD_REQUEST is not retried, thus failure
         let client = Arc::new(MockClient {
             http_failure_statuses: vec![StatusCode::BAD_REQUEST],
@@ -524,7 +526,7 @@ mod tests {
         });
 
         let transport = ReqwestTransport {
-            route_provider,
+            route_provider: setup_route_provider(),
             max_request_retries: 2,
             max_response_body_size: None,
             client,
@@ -544,9 +546,6 @@ mod tests {
     #[tokio::test]
     async fn test_execute_with_insufficient_retries_and_http_failures_fails() {
         // Arrange
-        let route_provider =
-            Arc::new(RoundRobinRouteProvider::new(vec!["https://ic0.app"]).unwrap());
-
         // TOO_MANY_REQUESTS should be retried, but 2 retries is not enough, thus error.
         let client = Arc::new(MockClient {
             http_failure_statuses: vec![
@@ -559,7 +558,7 @@ mod tests {
         });
 
         let transport = ReqwestTransport {
-            route_provider,
+            route_provider: setup_route_provider(),
             max_request_retries: 2,
             max_response_body_size: None,
             client,
@@ -579,9 +578,6 @@ mod tests {
     #[tokio::test]
     async fn test_execute_with_insufficient_retries_and_network_and_http_failures_fails() {
         // Arrange
-        let route_provider =
-            Arc::new(RoundRobinRouteProvider::new(vec!["https://ic0.app"]).unwrap());
-
         // TOO_MANY_REQUESTS/network should be retried, but 5 times is not enough, thus error.
         let client = Arc::new(MockClient {
             http_failure_statuses: vec![
@@ -594,7 +590,7 @@ mod tests {
         });
 
         let transport = ReqwestTransport {
-            route_provider,
+            route_provider: setup_route_provider(),
             max_request_retries: 5,
             max_response_body_size: None,
             client,
@@ -614,9 +610,6 @@ mod tests {
     #[tokio::test]
     async fn test_execute_with_retries_and_network_and_http_failures_succeeds() {
         // Arrange
-        let route_provider =
-            Arc::new(RoundRobinRouteProvider::new(vec!["https://ic0.app"]).unwrap());
-
         // TOO_MANY_REQUESTS/network errors should be retried enough times, thus success.
         let client = Arc::new(MockClient {
             http_failure_statuses: vec![
@@ -629,7 +622,7 @@ mod tests {
         });
 
         let transport = ReqwestTransport {
-            route_provider,
+            route_provider: setup_route_provider(),
             max_request_retries: 6,
             max_response_body_size: None,
             client,
