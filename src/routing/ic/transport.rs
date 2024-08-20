@@ -149,11 +149,14 @@ impl ReqwestTransport {
         let urls_count = urls_iter.len();
 
         let mut create_request_with_generated_url = || -> Result<Request, AgentError> {
-            let url = urls_iter.next().ok_or_else(|| {
-                AgentError::RouteProviderError(format!(
-                    "Exhausted all {urls_count} healthy routing urls for retries"
-                ))
-            })?;
+            let url = urls_iter
+                .next()
+                .ok_or_else(|| {
+                    AgentError::RouteProviderError(format!(
+                        "Exhausted all {urls_count} healthy routing urls for retries"
+                    ))
+                })?
+                .join(endpoint)?;
 
             // Update/set the hostname
             let _ = CONTEXT.try_with(|x| {
