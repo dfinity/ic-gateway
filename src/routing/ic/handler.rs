@@ -12,7 +12,7 @@ use ic_http_gateway::{CanisterRequest, HttpGatewayClient, HttpGatewayRequestArgs
 use tokio::time::timeout;
 
 use crate::{
-    http::headers::X_REQUEST_ID,
+    http::{headers::X_REQUEST_ID, ConnInfo},
     routing::{
         error_cause::ErrorCause,
         ic::{
@@ -39,6 +39,7 @@ pub struct HandlerState {
 pub async fn handler(
     State(state): State<Arc<HandlerState>>,
     canister_id: Option<Extension<CanisterId>>,
+    Extension(conn_info): Extension<Arc<ConnInfo>>,
     Extension(request_id): Extension<RequestId>,
     Extension(ctx): Extension<Arc<RequestCtx>>,
     request: Request,
@@ -54,17 +55,24 @@ pub async fn handler(
         state.body_read_timeout,
         Limited::new(body, MAX_REQUEST_BODY_SIZE).collect(),
     )
-    .await
-    .map_err(|_| ErrorCause::UnableToReadBody("timed out".into()))?
-    .map_err(|e| {
-        // TODO improve the inferring somehow
-        e.downcast_ref::<LengthLimitError>().map_or_else(
-            || ErrorCause::UnableToReadBody(e.to_string()),
-            |_| ErrorCause::RequestTooLarge,
-        )
-    })?
-    .to_bytes()
-    .to_vec();
+    .await;
+
+    // Close the connection if the body timed out
+    let Ok(body) = body else {
+        conn_info.close();
+        return Err(ErrorCause::UnableToReadBody("timed out".into()));
+    };
+
+    let body = body
+        .map_err(|e| {
+            // TODO improve the inferring somehow
+            e.downcast_ref::<LengthLimitError>().map_or_else(
+                || ErrorCause::UnableToReadBody(e.to_string()),
+                |_| ErrorCause::RequestTooLarge,
+            )
+        })?
+        .to_bytes()
+        .to_vec();
 
     let args = HttpGatewayRequestArgs {
         canister_request: CanisterRequest::from_parts(parts, body),

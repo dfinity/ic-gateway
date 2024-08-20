@@ -157,11 +157,16 @@ pub struct ConnInfo {
     pub remote_addr: SocketAddr,
     pub traffic: Arc<Stats>,
     pub req_count: AtomicU64,
+    close: CancellationToken,
 }
 
 impl ConnInfo {
     pub fn req_count(&self) -> u64 {
         self.req_count.load(Ordering::SeqCst)
+    }
+
+    pub fn close(&self) {
+        self.close.cancel();
     }
 }
 
@@ -171,6 +176,7 @@ struct Conn {
     router: Router,
     builder: Builder<TokioExecutor>,
     token: CancellationToken,
+    token_close: CancellationToken,
     options: Options,
     metrics: Metrics,
     tls_acceptor: Option<TlsAcceptor>,
@@ -248,6 +254,7 @@ impl Conn {
             remote_addr: self.remote_addr,
             traffic: stats.clone(),
             req_count: AtomicU64::new(0),
+            close: self.token_close.clone(),
         });
 
         let result = self.handle_inner(stream, conn_info.clone()).await;
@@ -320,6 +327,7 @@ impl Conn {
         // Convert router to Hyper service
         let service = hyper::service::service_fn(move |mut request: Request<Incoming>| {
             conn_info.req_count.fetch_add(1, Ordering::SeqCst);
+
             // Inject connection information
             request.extensions_mut().insert(conn_info.clone());
             if let Some(v) = &tls_info {
@@ -337,6 +345,11 @@ impl Conn {
 
         select! {
             biased; // Poll top-down
+
+            // Immediately close the connection if was requested
+            () = self.token_close.cancelled() => {
+                return Ok(());
+            }
 
             () = self.token.cancelled() => {
                 // Start graceful shutdown of the connection
@@ -460,6 +473,7 @@ impl Server {
                         router: self.router.clone(),
                         builder: builder.clone(),
                         token: token.child_token(),
+                        token_close: CancellationToken::new(),
                         options: self.options,
                         metrics: self.metrics.clone(), // All metrics have Arc inside
                         tls_acceptor: self.tls_acceptor.clone(),
