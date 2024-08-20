@@ -157,7 +157,7 @@ pub struct ConnInfo {
     pub remote_addr: SocketAddr,
     pub traffic: Arc<Stats>,
     pub req_count: AtomicU64,
-    close: CancellationToken,
+    pub close: CancellationToken,
 }
 
 impl ConnInfo {
