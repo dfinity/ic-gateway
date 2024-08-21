@@ -140,8 +140,23 @@ impl ReqwestTransport {
 
         *http_request.body_mut() = body.clone().map(Body::from);
 
-        let create_request_with_generated_url = || -> Result<Request, AgentError> {
-            let url = self.route_provider.route()?.join(endpoint)?;
+        // NOTE: it could happen that fewer urls (than 1 + max_request_retries) are available.
+        let mut urls_iter = self
+            .route_provider
+            .n_ordered_routes(1 + self.max_request_retries as usize)?
+            .into_iter();
+
+        let urls_count = urls_iter.len();
+
+        let mut create_request_with_generated_url = || -> Result<Request, AgentError> {
+            let url = urls_iter
+                .next()
+                .ok_or_else(|| {
+                    AgentError::RouteProviderError(format!(
+                        "Exhausted all {urls_count} healthy routing urls for retries"
+                    ))
+                })?
+                .join(endpoint)?;
 
             // Update/set the hostname
             let _ = CONTEXT.try_with(|x| {
@@ -337,5 +352,291 @@ impl Transport for ReqwestTransport {
     fn status(&self) -> AgentFuture<Vec<u8>> {
         let endpoint = "api/v2/status";
         Box::pin(async move { self.execute(Method::GET, endpoint, None).await.map(|r| r.1) })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use super::*;
+    use crate::http::Client as HttpClient;
+    use async_trait::async_trait;
+    use hyper::{Response, StatusCode};
+    use ic_agent::agent::http_transport::route_provider::RoundRobinRouteProvider;
+
+    #[derive(Debug)]
+    struct MockClient {
+        http_failures_count: AtomicUsize,
+        network_failures_count: AtomicUsize,
+        http_failure_statuses: Vec<StatusCode>,
+    }
+
+    fn setup_route_provider() -> Arc<RoundRobinRouteProvider> {
+        Arc::new(
+            RoundRobinRouteProvider::new(vec![
+                "https://api1.com",
+                "https://api2.com",
+                "https://api3.com",
+                "https://api4.com",
+                "https://api5.com",
+                "https://api6.com",
+                "https://api7.com",
+            ])
+            .unwrap(),
+        )
+    }
+
+    #[async_trait]
+    impl HttpClient for MockClient {
+        async fn execute(
+            &self,
+            _req: reqwest::Request,
+        ) -> Result<reqwest::Response, reqwest::Error> {
+            // throw network errors
+            if self.network_failures_count.load(Ordering::Relaxed) > 0 {
+                self.network_failures_count.fetch_sub(1, Ordering::Relaxed);
+                let err = reqwest::get("http://0.0.0.0:1").await.unwrap_err();
+                return Err(err);
+            }
+
+            // throw http errors
+            if self.http_failures_count.load(Ordering::Relaxed) > 0 {
+                let response = Response::new("executed erroneously");
+                let (mut parts, body) = response.into_parts();
+                let idx = self.http_failures_count.fetch_sub(1, Ordering::Relaxed);
+                parts.status = self.http_failure_statuses[idx - 1];
+                return Ok(Response::from_parts(parts, body).into());
+            }
+
+            let response = Response::new("executed successfully");
+
+            Ok(response.into())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_execute_with_no_retries_and_no_failures_succeeds() {
+        // Arrange
+        let client = Arc::new(MockClient {
+            http_failure_statuses: vec![],
+            http_failures_count: AtomicUsize::new(0),
+            network_failures_count: AtomicUsize::new(0),
+        });
+
+        let transport = ReqwestTransport {
+            route_provider: setup_route_provider(),
+            max_request_retries: 0,
+            max_response_body_size: None,
+            client,
+            use_call_v3_endpoint: false,
+        };
+
+        // Act
+        let (status, body) = transport.execute(Method::GET, "/test", None).await.unwrap();
+
+        //Assert
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, b"executed successfully");
+    }
+
+    #[tokio::test]
+    async fn test_execute_with_retries_and_network_failures_succeeds() {
+        // Arrange
+        let client = Arc::new(MockClient {
+            http_failure_statuses: vec![],
+            http_failures_count: AtomicUsize::new(0),
+            network_failures_count: AtomicUsize::new(2),
+        });
+
+        let transport = ReqwestTransport {
+            route_provider: setup_route_provider(),
+            max_request_retries: 2,
+            max_response_body_size: None,
+            client,
+            use_call_v3_endpoint: false,
+        };
+
+        // Act
+        let (status, body) = transport.execute(Method::GET, "/test", None).await.unwrap();
+
+        //Assert
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, b"executed successfully");
+    }
+
+    #[tokio::test]
+    async fn test_execute_with_insufficient_retries_and_network_failures_fails() {
+        // Arrange
+        let client = Arc::new(MockClient {
+            http_failure_statuses: vec![],
+            http_failures_count: AtomicUsize::new(0),
+            network_failures_count: AtomicUsize::new(2),
+        });
+
+        let transport = ReqwestTransport {
+            route_provider: setup_route_provider(),
+            max_request_retries: 1,
+            max_response_body_size: None,
+            client,
+            use_call_v3_endpoint: false,
+        };
+
+        // Act
+        let agent_error = transport
+            .execute(Method::GET, "/test", None)
+            .await
+            .unwrap_err();
+
+        //Assert
+        assert!(agent_error.to_string().contains("retries exhausted"));
+    }
+
+    #[tokio::test]
+    async fn test_execute_with_retries_and_http_failures_succeeds() {
+        // Arrange
+        // TOO_MANY_REQUESTS should be retried, thus success
+        let client = Arc::new(MockClient {
+            http_failure_statuses: vec![StatusCode::TOO_MANY_REQUESTS],
+            http_failures_count: AtomicUsize::new(1),
+            network_failures_count: AtomicUsize::new(0),
+        });
+
+        let transport = ReqwestTransport {
+            route_provider: setup_route_provider(),
+            max_request_retries: 1,
+            max_response_body_size: None,
+            client,
+            use_call_v3_endpoint: false,
+        };
+
+        // Act
+        let (status, body) = transport.execute(Method::GET, "/test", None).await.unwrap();
+
+        //Assert
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, b"executed successfully");
+    }
+
+    #[tokio::test]
+    async fn test_execute_with_retries_and_http_failures_fails() {
+        // Arrange
+        // BAD_REQUEST is not retried, thus failure
+        let client = Arc::new(MockClient {
+            http_failure_statuses: vec![StatusCode::BAD_REQUEST],
+            http_failures_count: AtomicUsize::new(1),
+            network_failures_count: AtomicUsize::new(0),
+        });
+
+        let transport = ReqwestTransport {
+            route_provider: setup_route_provider(),
+            max_request_retries: 2,
+            max_response_body_size: None,
+            client,
+            use_call_v3_endpoint: false,
+        };
+
+        // Act
+        let agent_error = transport
+            .execute(Method::GET, "/test", None)
+            .await
+            .unwrap_err();
+
+        //Assert
+        assert!(agent_error.to_string().contains("400 Bad Request"));
+    }
+
+    #[tokio::test]
+    async fn test_execute_with_insufficient_retries_and_http_failures_fails() {
+        // Arrange
+        // TOO_MANY_REQUESTS should be retried, but 2 retries is not enough, thus error.
+        let client = Arc::new(MockClient {
+            http_failure_statuses: vec![
+                StatusCode::TOO_MANY_REQUESTS,
+                StatusCode::TOO_MANY_REQUESTS,
+                StatusCode::TOO_MANY_REQUESTS,
+            ],
+            http_failures_count: AtomicUsize::new(3),
+            network_failures_count: AtomicUsize::new(0),
+        });
+
+        let transport = ReqwestTransport {
+            route_provider: setup_route_provider(),
+            max_request_retries: 2,
+            max_response_body_size: None,
+            client,
+            use_call_v3_endpoint: false,
+        };
+
+        // Act
+        let agent_error = transport
+            .execute(Method::GET, "/test", None)
+            .await
+            .unwrap_err();
+
+        //Assert
+        assert!(agent_error.to_string().contains("retries exhausted"));
+    }
+
+    #[tokio::test]
+    async fn test_execute_with_insufficient_retries_and_network_and_http_failures_fails() {
+        // Arrange
+        // TOO_MANY_REQUESTS/network should be retried, but 5 times is not enough, thus error.
+        let client = Arc::new(MockClient {
+            http_failure_statuses: vec![
+                StatusCode::TOO_MANY_REQUESTS,
+                StatusCode::TOO_MANY_REQUESTS,
+                StatusCode::TOO_MANY_REQUESTS,
+            ],
+            http_failures_count: AtomicUsize::new(3),
+            network_failures_count: AtomicUsize::new(3),
+        });
+
+        let transport = ReqwestTransport {
+            route_provider: setup_route_provider(),
+            max_request_retries: 5,
+            max_response_body_size: None,
+            client,
+            use_call_v3_endpoint: false,
+        };
+
+        // Act
+        let agent_error = transport
+            .execute(Method::GET, "/test", None)
+            .await
+            .unwrap_err();
+
+        //Assert
+        assert!(agent_error.to_string().contains("retries exhausted"));
+    }
+
+    #[tokio::test]
+    async fn test_execute_with_retries_and_network_and_http_failures_succeeds() {
+        // Arrange
+        // TOO_MANY_REQUESTS/network errors should be retried enough times, thus success.
+        let client = Arc::new(MockClient {
+            http_failure_statuses: vec![
+                StatusCode::TOO_MANY_REQUESTS,
+                StatusCode::TOO_MANY_REQUESTS,
+                StatusCode::TOO_MANY_REQUESTS,
+            ],
+            http_failures_count: AtomicUsize::new(3),
+            network_failures_count: AtomicUsize::new(3),
+        });
+
+        let transport = ReqwestTransport {
+            route_provider: setup_route_provider(),
+            max_request_retries: 6,
+            max_response_body_size: None,
+            client,
+            use_call_v3_endpoint: false,
+        };
+
+        // Act
+        let (status, body) = transport.execute(Method::GET, "/test", None).await.unwrap();
+
+        //Assert
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, b"executed successfully");
     }
 }
