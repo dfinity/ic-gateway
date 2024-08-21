@@ -80,6 +80,7 @@ mod tests {
         sync::{atomic::AtomicU64, Arc},
         time::Duration,
     };
+    use tokio_util::sync::CancellationToken;
 
     use tokio::time::sleep;
     use tower::Service;
@@ -106,6 +107,7 @@ mod tests {
             remote_addr: "127.0.0.1:8080".parse().unwrap(),
             traffic: Arc::new(Stats::new()),
             req_count: AtomicU64::new(0),
+            close: CancellationToken::new(),
         };
         let mut request = Request::post("/").body(Body::from("".to_string())).unwrap();
         request.extensions_mut().insert(Arc::new(conn_info));

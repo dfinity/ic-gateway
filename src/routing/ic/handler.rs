@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use axum::{
     extract::{Request, State},
@@ -9,9 +9,10 @@ use bytes::Bytes;
 use http::HeaderValue;
 use http_body_util::{BodyExt, LengthLimitError, Limited};
 use ic_http_gateway::{CanisterRequest, HttpGatewayClient, HttpGatewayRequestArgs};
+use tokio::time::timeout;
 
 use crate::{
-    http::headers::X_REQUEST_ID,
+    http::{headers::X_REQUEST_ID, ConnInfo},
     routing::{
         error_cause::ErrorCause,
         ic::{
@@ -31,12 +32,14 @@ const MAX_REQUEST_BODY_SIZE: usize = 10 * 1_048_576;
 pub struct HandlerState {
     client: HttpGatewayClient,
     verify_response: bool,
+    body_read_timeout: Duration,
 }
 
 // Main HTTP->IC request handler
 pub async fn handler(
     State(state): State<Arc<HandlerState>>,
     canister_id: Option<Extension<CanisterId>>,
+    Extension(conn_info): Extension<Arc<ConnInfo>>,
     Extension(request_id): Extension<RequestId>,
     Extension(ctx): Extension<Arc<RequestCtx>>,
     request: Request,
@@ -48,9 +51,19 @@ pub async fn handler(
     let (parts, body) = request.into_parts();
 
     // Collect the request body up to the limit
-    let body = Limited::new(body, MAX_REQUEST_BODY_SIZE)
-        .collect()
-        .await
+    let body = timeout(
+        state.body_read_timeout,
+        Limited::new(body, MAX_REQUEST_BODY_SIZE).collect(),
+    )
+    .await;
+
+    // Close the connection if the body timed out
+    let Ok(body) = body else {
+        conn_info.close();
+        return Err(ErrorCause::UnableToReadBody("timed out".into()));
+    };
+
+    let body = body
         .map_err(|e| {
             // TODO improve the inferring somehow
             e.downcast_ref::<LengthLimitError>().map_or_else(

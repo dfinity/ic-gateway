@@ -53,13 +53,13 @@ pub struct Metrics {
 
 impl Metrics {
     pub fn new(registry: &Registry) -> Self {
-        const LABELS: &[&str] = &["addr", "tls", "family"];
+        const LABELS: &[&str] = &["addr", "tls", "family", "forced_close"];
 
         Self {
             conns_open: register_int_gauge_vec_with_registry!(
                 format!("conn_open"),
                 format!("Number of currently open connections"),
-                LABELS,
+                &LABELS[0..3],
                 registry
             )
             .unwrap(),
@@ -112,6 +112,7 @@ impl Metrics {
 #[derive(Clone, Copy)]
 pub struct Options {
     pub backlog: u32,
+    pub http1_header_read_timeout: Duration,
     pub http2_max_streams: u32,
     pub http2_keepalive_interval: Duration,
     pub http2_keepalive_timeout: Duration,
@@ -156,11 +157,16 @@ pub struct ConnInfo {
     pub remote_addr: SocketAddr,
     pub traffic: Arc<Stats>,
     pub req_count: AtomicU64,
+    pub close: CancellationToken,
 }
 
 impl ConnInfo {
     pub fn req_count(&self) -> u64 {
         self.req_count.load(Ordering::SeqCst)
+    }
+
+    pub fn close(&self) {
+        self.close.cancel();
     }
 }
 
@@ -170,6 +176,7 @@ struct Conn {
     router: Router,
     builder: Builder<TokioExecutor>,
     token: CancellationToken,
+    token_close: CancellationToken,
     options: Options,
     metrics: Metrics,
     tls_acceptor: Option<TlsAcceptor>,
@@ -217,7 +224,7 @@ impl Conn {
 
         // Prepare metric labels
         let addr = self.addr.to_string();
-        let labels = &[
+        let labels = &mut [
             addr.as_str(), // Listening addr
             if self.tls_acceptor.is_some() {
                 "yes"
@@ -229,9 +236,13 @@ impl Conn {
             } else {
                 "v6"
             }, // IP Family
+            "no",
         ];
 
-        self.metrics.conns_open.with_label_values(labels).inc();
+        self.metrics
+            .conns_open
+            .with_label_values(&labels[0..3])
+            .inc();
 
         // Disable Nagle's algo
         stream
@@ -247,6 +258,7 @@ impl Conn {
             remote_addr: self.remote_addr,
             traffic: stats.clone(),
             req_count: AtomicU64::new(0),
+            close: self.token_close.clone(),
         });
 
         let result = self.handle_inner(stream, conn_info.clone()).await;
@@ -255,8 +267,14 @@ impl Conn {
         let (sent, rcvd) = (stats.sent(), stats.rcvd());
         let dur = accepted_at.elapsed().as_secs_f64();
         let reqs = conn_info.req_count.load(Ordering::SeqCst);
+        if self.token_close.is_cancelled() {
+            labels[3] = "yes";
+        }
 
-        self.metrics.conns_open.with_label_values(labels).dec();
+        self.metrics
+            .conns_open
+            .with_label_values(&labels[0..3])
+            .dec();
         self.metrics.requests.with_label_values(labels).inc_by(reqs);
         self.metrics
             .bytes_rcvd
@@ -276,8 +294,8 @@ impl Conn {
             .observe(reqs as f64);
 
         debug!(
-            "{}: connection closed (rcvd: {}, sent: {}, reqs: {}, duration: {})",
-            self, rcvd, sent, reqs, dur,
+            "{self}: connection closed (rcvd: {rcvd}, sent: {sent}, reqs: {reqs}, duration: {dur}, forced close: {})",
+            self.token_close.is_cancelled(),
         );
 
         result
@@ -319,6 +337,7 @@ impl Conn {
         // Convert router to Hyper service
         let service = hyper::service::service_fn(move |mut request: Request<Incoming>| {
             conn_info.req_count.fetch_add(1, Ordering::SeqCst);
+
             // Inject connection information
             request.extensions_mut().insert(conn_info.clone());
             if let Some(v) = &tls_info {
@@ -336,6 +355,11 @@ impl Conn {
 
         select! {
             biased; // Poll top-down
+
+            // Immediately close the connection if was requested
+            () = self.token_close.cancelled() => {
+                return Ok(());
+            }
 
             () = self.token.cancelled() => {
                 // Start graceful shutdown of the connection
@@ -399,6 +423,8 @@ impl Server {
         let mut builder = Builder::new(TokioExecutor::new());
         builder
             .http1()
+            .timer(TokioTimer::new())
+            .header_read_timeout(Some(self.options.http1_header_read_timeout))
             .keep_alive(true)
             .http2()
             .adaptive_window(true)
@@ -457,6 +483,7 @@ impl Server {
                         router: self.router.clone(),
                         builder: builder.clone(),
                         token: token.child_token(),
+                        token_close: CancellationToken::new(),
                         options: self.options,
                         metrics: self.metrics.clone(), // All metrics have Arc inside
                         tls_acceptor: self.tls_acceptor.clone(),
