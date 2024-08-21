@@ -18,9 +18,9 @@ use ic_http_gateway::{HttpGatewayClient, HttpGatewayResponse, HttpGatewayRespons
 use crate::{
     http::{
         headers::{
-            HEADER_IC_CACHE_BYPASS_REASON, HEADER_IC_CACHE_STATUS, HEADER_IC_CANISTER_ID_CBOR,
-            HEADER_IC_ERROR_CAUSE, HEADER_IC_METHOD_NAME, HEADER_IC_NODE_ID, HEADER_IC_RETRIES,
-            HEADER_IC_SENDER, HEADER_IC_SUBNET_ID, HEADER_IC_SUBNET_TYPE,
+            X_IC_CACHE_BYPASS_REASON, X_IC_CACHE_STATUS, X_IC_CANISTER_ID_CBOR, X_IC_ERROR_CAUSE,
+            X_IC_METHOD_NAME, X_IC_NODE_ID, X_IC_RETRIES, X_IC_SENDER, X_IC_SUBNET_ID,
+            X_IC_SUBNET_TYPE,
         },
         Client as HttpClient,
     },
@@ -67,16 +67,16 @@ impl From<&mut HeaderMap> for BNResponseMetadata {
         };
 
         Self {
-            node_id: extract(&HEADER_IC_NODE_ID),
-            subnet_id: extract(&HEADER_IC_SUBNET_ID),
-            subnet_type: extract(&HEADER_IC_SUBNET_TYPE),
-            canister_id_cbor: extract(&HEADER_IC_CANISTER_ID_CBOR),
-            sender: extract(&HEADER_IC_SENDER),
-            method_name: extract(&HEADER_IC_METHOD_NAME),
-            error_cause: extract(&HEADER_IC_ERROR_CAUSE),
-            retries: extract(&HEADER_IC_RETRIES),
-            cache_status: extract(&HEADER_IC_CACHE_STATUS),
-            cache_bypass_reason: extract(&HEADER_IC_CACHE_BYPASS_REASON),
+            node_id: extract(&X_IC_NODE_ID),
+            subnet_id: extract(&X_IC_SUBNET_ID),
+            subnet_type: extract(&X_IC_SUBNET_TYPE),
+            canister_id_cbor: extract(&X_IC_CANISTER_ID_CBOR),
+            sender: extract(&X_IC_SENDER),
+            method_name: extract(&X_IC_METHOD_NAME),
+            error_cause: extract(&X_IC_ERROR_CAUSE),
+            retries: extract(&X_IC_RETRIES),
+            cache_status: extract(&X_IC_CACHE_STATUS),
+            cache_bypass_reason: extract(&X_IC_CACHE_BYPASS_REASON),
         }
     }
 }
