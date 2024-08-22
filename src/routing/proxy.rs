@@ -13,14 +13,14 @@ use candid::Principal;
 use derive_new::new;
 use http::header::{CONTENT_TYPE, X_CONTENT_TYPE_OPTIONS, X_FRAME_OPTIONS};
 use ic_agent::agent::http_transport::route_provider::RouteProvider;
+use ic_bn_lib::http::{
+    headers::{CONTENT_TYPE_CBOR, X_CONTENT_TYPE_OPTIONS_NO_SNIFF, X_FRAME_OPTIONS_DENY},
+    Client,
+};
 use regex::Regex;
 use url::Url;
 
 use super::{body, error_cause::ErrorCause, ic::BNResponseMetadata};
-use crate::http::{
-    headers::{CONTENT_TYPE_CBOR, X_CONTENT_TYPE_OPTIONS_NO_SNIFF, X_FRAME_OPTIONS_DENY},
-    Client,
-};
 
 lazy_static::lazy_static! {
     pub static ref REGEX_REG_ID: Regex = Regex::new(r"^[a-zA-Z0-9]+$").unwrap();

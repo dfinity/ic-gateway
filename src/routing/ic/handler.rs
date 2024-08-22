@@ -8,20 +8,18 @@ use axum::{
 use bytes::Bytes;
 use http::HeaderValue;
 use http_body_util::{BodyExt, LengthLimitError, Limited};
+use ic_bn_lib::http::{headers::X_REQUEST_ID, ConnInfo};
 use ic_http_gateway::{CanisterRequest, HttpGatewayClient, HttpGatewayRequestArgs};
 use tokio::time::timeout;
 
-use crate::{
-    http::{headers::X_REQUEST_ID, ConnInfo},
-    routing::{
-        error_cause::ErrorCause,
-        ic::{
-            transport::{Context, CONTEXT},
-            IcResponseStatus,
-        },
-        middleware::request_id::RequestId,
-        CanisterId, RequestCtx,
+use crate::routing::{
+    error_cause::ErrorCause,
+    ic::{
+        transport::{Context, CONTEXT},
+        IcResponseStatus,
     },
+    middleware::request_id::RequestId,
+    CanisterId, RequestCtx,
 };
 
 use super::{BNRequestMetadata, BNResponseMetadata};

@@ -23,6 +23,7 @@ use fqdn::FQDN;
 use http::{method::Method, StatusCode};
 use http::{uri::PathAndQuery, Uri};
 use ic::route_provider::setup_route_provider;
+use ic_bn_lib::http::Client;
 use little_loadshedder::{LoadShedLayer, LoadShedResponse};
 use middleware::cache::{self, KeyExtractorUriRange};
 use prometheus::Registry;
@@ -33,7 +34,6 @@ use tracing::warn;
 use crate::{
     cache::{Cache, Opts},
     cli::Cli,
-    http::Client,
     metrics::{self, clickhouse::Clickhouse, Vector},
     routing::middleware::{
         canister_match, cors, geoip, headers, rate_limiter, request_id, validate,

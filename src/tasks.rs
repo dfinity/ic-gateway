@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use crate::http;
 use anyhow::Error;
 use async_trait::async_trait;
 use derive_new::new;
+use ic_bn_lib::http;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::{error, warn};
 
@@ -53,7 +53,8 @@ impl TaskManager {
 #[async_trait]
 impl Run for http::Server {
     async fn run(&self, token: CancellationToken) -> Result<(), Error> {
-        self.serve(token).await
+        self.serve(token).await?;
+        Ok(())
     }
 }
 

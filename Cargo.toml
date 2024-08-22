@@ -52,6 +52,7 @@ hostname = "0.4"
 http = "1.1"
 http-body = "1.0"
 http-body-util = "0.1"
+ic-bn-lib = { path = "../ic-bn-lib" }
 itertools = "0.12"
 humantime = "2.1"
 hyper = "1.3"
@@ -136,4 +137,6 @@ lto = "fat"
 panic = "abort"
 
 [patch.crates-io]
-ic-agent = { package = "ic-agent", git = "https://github.com/dfinity/agent-rs", branch = "dynamic_route", features = ["reqwest"]}
+ic-agent = { package = "ic-agent", git = "https://github.com/dfinity/agent-rs", branch = "dynamic_route", features = [
+    "reqwest",
+] }

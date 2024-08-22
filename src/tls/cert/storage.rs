@@ -5,10 +5,11 @@ use anyhow::{anyhow, Context, Error};
 use arc_swap::ArcSwapOption;
 use derive_new::new;
 use fqdn::{Fqdn, FQDN};
+use ic_bn_lib::http::ALPN_ACME;
 use rustls::{server::ClientHello, sign::CertifiedKey};
 
 use super::Cert;
-use crate::{http::ALPN_ACME, tls::resolver::ResolvesServerCert};
+use crate::tls::resolver::ResolvesServerCert;
 
 pub trait StoresCertificates<T: Clone + Send + Sync>: Send + Sync {
     fn store(&self, cert_list: Vec<Cert<T>>) -> Result<(), Error>;

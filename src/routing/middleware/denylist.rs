@@ -6,11 +6,11 @@ use axum::{
     middleware::Next,
     response::Response,
 };
+use ic_bn_lib::http::Client;
 use prometheus::Registry;
 use reqwest::Url;
 
 use crate::{
-    http::Client,
     policy::denylist::Denylist,
     routing::{middleware::geoip::CountryCode, CanisterId, ErrorCause},
     tasks::TaskManager,

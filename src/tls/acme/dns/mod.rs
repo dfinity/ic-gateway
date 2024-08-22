@@ -7,6 +7,7 @@ use backoff::ExponentialBackoffBuilder;
 use core::fmt;
 use derive_new::new;
 use fqdn::FQDN;
+use ic_bn_lib::http::dns::Resolves;
 use rustls::{
     server::{ClientHello, ResolvesServerCert},
     sign::CertifiedKey,
@@ -19,7 +20,6 @@ use tracing::{debug, error, warn};
 
 use super::{Acme, TokenManager, Validity};
 use crate::{
-    http::dns::Resolves,
     tasks::Run,
     tls::{cert::pem_convert_to_rustls, sni_matches},
 };

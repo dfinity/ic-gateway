@@ -10,16 +10,14 @@ use anyhow::{anyhow, Context as AnyhowContext};
 use async_trait::async_trait;
 use candid::Principal;
 use fqdn::FQDN;
+use ic_bn_lib::http;
 use mockall::automock;
 use reqwest::{Method, Request, StatusCode, Url};
 use serde::Deserialize;
 use tokio::sync::Mutex;
 use tracing::info;
 
-use crate::{
-    http,
-    routing::domain::{CustomDomain, ProvidesCustomDomains},
-};
+use crate::routing::domain::{CustomDomain, ProvidesCustomDomains};
 use verify::{Verify, VerifyError, WithVerify};
 
 use super::{Pem, ProvidesCertificates};
@@ -189,11 +187,12 @@ mod tests {
 
     use anyhow::Error as AnyhowError;
     use axum::http::Response;
+    use ic_bn_lib::http::client::MockClient;
     use mockall::predicate;
     use reqwest::Body;
     use std::{str::FromStr, sync::Arc};
 
-    use crate::{http::client::MockClient, tls::cert::providers::issuer::verify::MockVerify};
+    use crate::tls::cert::providers::issuer::verify::MockVerify;
 
     #[tokio::test]
     async fn import_ok() -> Result<(), AnyhowError> {

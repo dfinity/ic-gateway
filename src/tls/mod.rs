@@ -9,6 +9,7 @@ use std::{fs, sync::Arc, time::Duration};
 use anyhow::{anyhow, Context, Error};
 use cert::Storage;
 use fqdn::{Fqdn, FQDN};
+use ic_bn_lib::http::{dns::Resolves, Client, ALPN_ACME, ALPN_H1, ALPN_H2};
 use instant_acme::ChallengeType;
 use ocsp_stapler::Stapler;
 use prometheus::Registry;
@@ -23,7 +24,6 @@ use rustls_platform_verifier::Verifier;
 
 use crate::{
     cli::Cli,
-    http::{dns::Resolves, Client, ALPN_ACME, ALPN_H1, ALPN_H2},
     routing::domain::ProvidesCustomDomains,
     tasks::TaskManager,
     tls::{

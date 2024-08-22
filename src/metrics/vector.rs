@@ -2,6 +2,8 @@ use std::{sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Context, Error};
 use bytes::{Bytes, BytesMut};
+use ic_bn_lib::http;
+use ic_bn_lib::http::headers::CONTENT_TYPE_OCTET_STREAM;
 use reqwest::{
     header::{self, HeaderValue},
     Method, Request,
@@ -20,7 +22,7 @@ use tracing::warn;
 use url::Url;
 use vector_lib::{codecs::encoding::NativeSerializer, config::LogNamespace, event::Event};
 
-use crate::{cli, http, http::headers::CONTENT_TYPE_OCTET_STREAM};
+use crate::cli;
 
 /// Encodes Vector events into a native format with length delimiting
 #[derive(Clone)]

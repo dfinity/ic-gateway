@@ -2982,6 +2982,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "ic-bn-lib"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum 0.7.5",
+ "base64 0.22.1",
+ "bytes",
+ "chrono",
+ "derive-new",
+ "futures",
+ "futures-util",
+ "hickory-proto",
+ "hickory-resolver",
+ "http 1.1.0",
+ "http-body 1.0.1",
+ "http-body-util",
+ "hyper 1.4.1",
+ "hyper-util",
+ "mockall",
+ "prometheus",
+ "reqwest 0.12.7",
+ "rustls 0.23.12",
+ "strum 0.26.3",
+ "strum_macros 0.26.4",
+ "sync_wrapper 1.0.1",
+ "thiserror",
+ "tokio",
+ "tokio-rustls 0.26.0",
+ "tokio-util",
+ "tower-service",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "ic-cbor"
 version = "2.6.0"
 source = "git+https://github.com/dfinity/response-verification#da70db93832f88ecc556ae082612aedec47d3816"
@@ -3072,6 +3108,7 @@ dependencies = [
  "hyper 1.4.1",
  "hyper-util",
  "ic-agent",
+ "ic-bn-lib",
  "ic-http-gateway",
  "instant-acme",
  "itertools 0.12.1",

@@ -9,9 +9,8 @@ use http::{
     },
     Method,
 };
+use ic_bn_lib::http::headers::{X_IC_CANISTER_ID, X_REQUESTED_WITH, X_REQUEST_ID};
 use tower_http::cors::{Any, CorsLayer};
-
-use crate::http::headers::{X_IC_CANISTER_ID, X_REQUESTED_WITH, X_REQUEST_ID};
 
 const MINUTE: Duration = Duration::from_secs(60);
 
