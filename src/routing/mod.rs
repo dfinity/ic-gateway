@@ -18,10 +18,9 @@ use axum_extra::middleware::option_layer;
 use candid::Principal;
 use domain::{CustomDomainStorage, DomainResolver, ProvidesCustomDomains};
 use fqdn::FQDN;
-use http::{method::Method, StatusCode};
-use http::{uri::PathAndQuery, Uri};
+use http::{method::Method, uri::PathAndQuery, StatusCode, Uri};
 use ic::route_provider::setup_route_provider;
-use ic_bn_lib::http::Client;
+use ic_bn_lib::{http::Client, tasks::TaskManager};
 use little_loadshedder::{LoadShedLayer, LoadShedResponse};
 use middleware::cache::{self, KeyExtractorUriRange};
 use prometheus::Registry;
@@ -36,7 +35,6 @@ use crate::{
     routing::middleware::{
         canister_match, cors, geoip, headers, rate_limiter, request_id, validate,
     },
-    tasks::TaskManager,
 };
 
 use self::middleware::denylist;

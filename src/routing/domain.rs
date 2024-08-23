@@ -6,11 +6,10 @@ use async_trait::async_trait;
 use candid::Principal;
 use derive_new::new;
 use fqdn::{fqdn, Fqdn, FQDN};
+use ic_bn_lib::tasks::Run;
 use tokio::select;
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
-
-use crate::tasks::Run;
 
 #[macro_export]
 macro_rules! principal {

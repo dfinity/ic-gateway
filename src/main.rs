@@ -19,7 +19,6 @@ mod log;
 mod metrics;
 mod policy;
 mod routing;
-mod tasks;
 mod tls;
 
 #[global_allocator]

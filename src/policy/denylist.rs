@@ -5,7 +5,7 @@ use anyhow::{anyhow, Context, Error};
 use arc_swap::ArcSwapOption;
 use async_trait::async_trait;
 use candid::Principal;
-use ic_bn_lib::http::Client;
+use ic_bn_lib::{http::Client, tasks::Run};
 use prometheus::{register_int_counter_vec_with_registry, IntCounterVec, Registry};
 use serde::Deserialize;
 use serde_json as json;
@@ -15,7 +15,7 @@ use tracing::{info, warn};
 use url::Url;
 
 use super::load_principal_list;
-use crate::{routing::middleware::geoip::CountryCode, tasks::Run};
+use crate::routing::middleware::geoip::CountryCode;
 
 pub struct Denylist {
     url: Option<Url>,

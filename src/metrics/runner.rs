@@ -6,13 +6,12 @@ use std::{
 use anyhow::Error;
 use axum::{async_trait, extract::State, response::IntoResponse};
 use http::header::CONTENT_TYPE;
+use ic_bn_lib::{tasks::Run, tls::sessions};
 use prometheus::{register_int_gauge_with_registry, Encoder, IntGauge, Registry, TextEncoder};
 use tikv_jemalloc_ctl::{epoch, stats};
 use tokio::{select, sync::RwLock};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
-
-use crate::{tasks::Run, tls::sessions};
 
 // https://prometheus.io/docs/instrumenting/exposition_formats/#basic-info
 const PROMETHEUS_CONTENT_TYPE: &str = "text/plain; version=0.0.4";

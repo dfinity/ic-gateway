@@ -16,10 +16,14 @@ use axum::{
     Router,
 };
 use http::header::{CONTENT_TYPE, ORIGIN, REFERER, USER_AGENT};
-use ic_bn_lib::http::{
-    body::CountingBody,
-    calc_headers_size, http_method, http_version,
-    server::{ConnInfo, TlsInfo},
+use ic_bn_lib::{
+    http::{
+        body::CountingBody,
+        calc_headers_size, http_method, http_version,
+        server::{ConnInfo, TlsInfo},
+    },
+    tasks::TaskManager,
+    tls::sessions,
 };
 use prometheus::{
     register_histogram_vec_with_registry, register_int_counter_vec_with_registry, HistogramVec,
@@ -39,8 +43,6 @@ use crate::{
         middleware::{geoip::CountryCode, request_id::RequestId},
         CanisterId, RequestCtx, RequestType, RequestTypeApi,
     },
-    tasks::TaskManager,
-    tls::sessions,
 };
 
 pub use {

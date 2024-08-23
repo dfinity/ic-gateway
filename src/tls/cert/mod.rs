@@ -1,21 +1,19 @@
 pub mod providers;
 pub mod storage;
 
-use std::{
-    net::{Ipv4Addr, Ipv6Addr},
-    sync::Arc,
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 
-use anyhow::{anyhow, Context, Error};
+use anyhow::{anyhow, Error};
 use async_trait::async_trait;
-use rustls::{crypto::aws_lc_rs, sign::CertifiedKey};
+use ic_bn_lib::{
+    tasks::Run,
+    tls::{extract_sans_der, pem_convert_to_rustls},
+};
+use rustls::sign::CertifiedKey;
 use tokio::{select, sync::Mutex};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
-use x509_parser::prelude::*;
 
-use crate::tasks::Run;
 use providers::{Pem, ProvidesCertificates};
 pub use storage::Storage;
 use storage::StoresCertificates;
@@ -30,83 +28,17 @@ pub struct Cert<T: Clone + Send + Sync> {
 // Commonly used concrete type of the above for Rustls
 pub type CertKey = Cert<Arc<CertifiedKey>>;
 
-fn parse_general_name(name: &GeneralName<'_>) -> Result<Option<String>, Error> {
-    let name = match name {
-        GeneralName::DNSName(v) => (*v).to_string(),
-        GeneralName::IPAddress(v) => match v.len() {
-            4 => {
-                let b: [u8; 4] = (*v).try_into().unwrap(); // We already checked that it's 4
-                let ip = Ipv4Addr::from(b);
-                ip.to_string()
-            }
+pub fn pem_convert_to_certkey(key: &[u8], certs: &[u8]) -> Result<CertKey, Error> {
+    let cert_key = pem_convert_to_rustls(key, certs)?;
 
-            16 => {
-                let b: [u8; 16] = (*v).try_into().unwrap(); // We already checked that it's 16
-                let ip = Ipv6Addr::from(b);
-                ip.to_string()
-            }
-
-            _ => return Err(anyhow!("Invalid IP address length {}", v.len())),
-        },
-
-        // Ignore other types
-        _ => return Ok(None),
-    };
-
-    Ok(Some(name))
-}
-
-// Extracts a list of SubjectAlternativeName from a single certificate, formatted as strings.
-// Skips everything except DNSName and IPAddress
-pub fn extract_sans(cert: &X509Certificate) -> Result<Vec<String>, Error> {
-    for ext in cert.extensions() {
-        if let ParsedExtension::SubjectAlternativeName(san) = ext.parsed_extension() {
-            let names = san
-                .general_names
-                .iter()
-                .map(parse_general_name)
-                .collect::<Result<Vec<_>, _>>()?
-                .into_iter()
-                .flatten()
-                .collect::<Vec<_>>();
-
-            return Ok(names);
-        }
-    }
-
-    Err(anyhow!("SubjectAlternativeName extension not found"))
-}
-
-// Converts raw PEM certificate chain & private key to a CertifiedKey ready to be consumed by Rustls
-pub fn pem_convert_to_rustls(key: &[u8], certs: &[u8]) -> Result<CertKey, Error> {
-    let (key, certs) = (key.to_vec(), certs.to_vec());
-
-    let key = rustls_pemfile::private_key(&mut key.as_ref())?
-        .ok_or_else(|| anyhow!("No private key found"))?;
-
-    // Load the cert chain
-    let certs = rustls_pemfile::certs(&mut certs.as_ref()).collect::<Result<Vec<_>, _>>()?;
-    if certs.is_empty() {
-        return Err(anyhow!("No certificates found"));
-    }
-
-    let cert = X509Certificate::from_der(certs[0].as_ref())
-        .context("Unable to parse DER-encoded certificate")?
-        .1;
-
-    // Extract a list of SANs from the 1st certificate in the chain (the leaf one)
-    let san = extract_sans(&cert)?;
+    let san = extract_sans_der(cert_key.cert[0].as_ref())?;
     if san.is_empty() {
         return Err(anyhow!(
-            "No supported names found in SubjectAlternativeName extension"
+            "no supported names found in SubjectAlternativeName extension"
         ));
     }
 
-    // Parse key
-    let key = aws_lc_rs::sign::any_supported_type(&key)?;
-    let cert_key = CertifiedKey::new(certs, key);
-
-    Ok(Cert {
+    Ok(CertKey {
         san,
         cert: Arc::new(cert_key),
     })
@@ -114,7 +46,7 @@ pub fn pem_convert_to_rustls(key: &[u8], certs: &[u8]) -> Result<CertKey, Error>
 
 fn parse_pem(pem: &[Pem]) -> Result<Vec<CertKey>, Error> {
     pem.iter()
-        .map(|x| pem_convert_to_rustls(&x.key, &x.cert))
+        .map(|x| pem_convert_to_certkey(&x.key, &x.cert))
         .collect::<Result<Vec<_>, _>>()
 }
 
@@ -346,10 +278,10 @@ pub mod test {
     }
 
     #[test]
-    fn test_pem_convert_to_rustls() -> Result<(), Error> {
-        let cert = pem_convert_to_rustls(KEY_1, CERT_1)?;
+    fn test_pem_convert_to_certkey() -> Result<(), Error> {
+        let cert = pem_convert_to_certkey(KEY_1, CERT_1)?;
         assert_eq!(cert.san, vec!["novg"]);
-        let cert = pem_convert_to_rustls(KEY_2, CERT_2)?;
+        let cert = pem_convert_to_certkey(KEY_2, CERT_2)?;
         assert_eq!(cert.san, vec!["3658153f27e0"]);
         Ok(())
     }

@@ -1,16 +1,25 @@
-pub mod acme;
 pub mod cert;
 pub mod resolver;
-pub mod sessions;
-pub mod tickets;
 
 use std::{fs, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Context, Error};
+use async_trait::async_trait;
 use cert::Storage;
-use fqdn::{Fqdn, FQDN};
-use ic_bn_lib::http::{dns::Resolves, Client, ALPN_ACME, ALPN_H1, ALPN_H2};
-use instant_acme::ChallengeType;
+use fqdn::FQDN;
+use ic_bn_lib::{
+    http::{dns::Resolves, Client, ALPN_ACME, ALPN_H1, ALPN_H2},
+    tasks::{Run, TaskManager},
+    tls::{
+        acme::{
+            self,
+            dns::{AcmeDns, DnsBackend, DnsManager, TokenManagerDns},
+            instant_acme::ChallengeType,
+            Acme, AcmeOptions, Challenge,
+        },
+        sessions, tickets,
+    },
+};
 use ocsp_stapler::Stapler;
 use prometheus::Registry;
 use rustls::{
@@ -21,33 +30,29 @@ use rustls::{
     TicketSwitcher,
 };
 use rustls_platform_verifier::Verifier;
+use tokio_util::sync::CancellationToken;
 
 use crate::{
     cli::Cli,
     routing::domain::ProvidesCustomDomains,
-    tasks::TaskManager,
     tls::{
         cert::{providers, Aggregator},
         resolver::AggregatingResolver,
     },
 };
 
-use self::acme::Challenge;
+use cert::providers::ProvidesCertificates;
 
-use {
-    acme::{
-        dns::{AcmeDns, DnsBackend, DnsManager, TokenManagerDns},
-        Acme, AcmeOptions,
-    },
-    cert::providers::ProvidesCertificates,
-};
+// Wrapper is needed since we can't implement foreign traits
+struct OcspStaplerWrapper(Arc<ocsp_stapler::Stapler>);
 
-// Checks if given host matches any of domains
-// If wildcard is true then also checks if host is a direct child of any of domains
-pub fn sni_matches(host: &Fqdn, domains: &[FQDN], wildcard: bool) -> bool {
-    domains
-        .iter()
-        .any(|x| x == host || (wildcard && Some(x.as_ref()) == host.parent()))
+#[async_trait]
+impl Run for OcspStaplerWrapper {
+    async fn run(&self, token: CancellationToken) -> Result<(), Error> {
+        token.cancelled().await;
+        self.0.stop().await;
+        Ok(())
+    }
 }
 
 pub fn prepare_server_config(
@@ -133,7 +138,7 @@ async fn setup_acme(
     );
 
     let resolver = match challenge {
-        acme::Challenge::Alpn => acme::alpn::AcmeAlpn::new(opts, tasks),
+        acme::Challenge::Alpn => acme::alpn::new(opts, tasks.token()),
 
         acme::Challenge::Dns => {
             let dns_backend = match cli.acme.acme_dns_backend {
@@ -228,7 +233,10 @@ pub async fn setup(
             certificate_resolver
         } else {
             let stapler = Arc::new(Stapler::new_with_registry(certificate_resolver, registry));
-            tasks.add("ocsp_stapler", stapler.clone());
+            tasks.add(
+                "ocsp_stapler",
+                Arc::new(OcspStaplerWrapper(stapler.clone())),
+            );
             stapler
         };
 
@@ -248,32 +256,4 @@ pub async fn setup(
     );
 
     Ok((config, custom_domain_providers))
-}
-
-#[cfg(test)]
-mod test {
-    use fqdn::fqdn;
-
-    use super::*;
-
-    #[test]
-    fn test_sni_matches() {
-        let domains = vec![fqdn!("foo1.bar"), fqdn!("foo2.bar"), fqdn!("foo3.bar")];
-
-        // Check direct
-        assert!(sni_matches(&fqdn!("foo1.bar"), &domains, false));
-        assert!(sni_matches(&fqdn!("foo2.bar"), &domains, false));
-        assert!(sni_matches(&fqdn!("foo3.bar"), &domains, false));
-        assert!(!sni_matches(&fqdn!("foo4.bar"), &domains, false));
-
-        // Check wildcard
-        assert!(sni_matches(&fqdn!("foo1.bar"), &domains, true));
-        assert!(sni_matches(&fqdn!("baz.foo1.bar"), &domains, true));
-        assert!(sni_matches(&fqdn!("bza.foo1.bar"), &domains, true));
-        assert!(sni_matches(&fqdn!("baz.foo2.bar"), &domains, true));
-        assert!(sni_matches(&fqdn!("bza.foo2.bar"), &domains, true));
-
-        // Make sure deeper subdomains are not matched
-        assert!(!sni_matches(&fqdn!("baz.baz.foo1.bar"), &domains, true));
-    }
 }

@@ -8,13 +8,13 @@ use clap::{Args, Parser};
 use fqdn::FQDN;
 use hickory_resolver::config::CLOUDFLARE_IPS;
 use humantime::parse_duration;
-use ic_bn_lib::http;
+use ic_bn_lib::{http, tls::acme};
 use reqwest::Url;
 
 use crate::{
     core::{AUTHOR_NAME, SERVICE_NAME},
     routing::domain::CanisterAlias,
-    tls::{self, acme},
+    tls,
 };
 
 fn parse_size(s: &str) -> Result<u64, parse_size::Error> {

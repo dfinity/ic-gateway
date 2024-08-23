@@ -5,12 +5,10 @@ use std::{
 
 use axum::response::{IntoResponse, Response};
 use hickory_resolver::error::ResolveError;
-use http::{header::CONTENT_TYPE, HeaderValue, StatusCode};
+use http::{header::CONTENT_TYPE, StatusCode};
 use ic_agent::AgentError;
+use ic_bn_lib::http::{headers::CONTENT_TYPE_HTML, Error as IcBnError};
 use strum_macros::{Display, IntoStaticStr};
-
-#[allow(clippy::declare_interior_mutable_const)]
-const CONTENT_TYPE_HTML: HeaderValue = HeaderValue::from_static("text/html; charset=utf-8");
 
 // Process error chain trying to find given error type
 pub fn error_infer<E: StdError + Send + Sync + 'static>(error: &anyhow::Error) -> Option<&E> {
@@ -43,6 +41,7 @@ pub enum ErrorCause {
     DomainCanisterMismatch,
     Denylisted,
     AgentError(String),
+    BackendError(String),
     BackendErrorDNS(String),
     BackendErrorConnect,
     BackendTimeout,
@@ -67,6 +66,7 @@ impl ErrorCause {
             Self::AgentError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Self::DomainCanisterMismatch => StatusCode::FORBIDDEN,
             Self::Denylisted => StatusCode::UNAVAILABLE_FOR_LEGAL_REASONS,
+            Self::BackendError(_) => StatusCode::SERVICE_UNAVAILABLE,
             Self::BackendErrorDNS(_) => StatusCode::SERVICE_UNAVAILABLE,
             Self::BackendErrorConnect => StatusCode::SERVICE_UNAVAILABLE,
             Self::BackendTimeout => StatusCode::INTERNAL_SERVER_ERROR,
@@ -82,6 +82,7 @@ impl ErrorCause {
             Self::UnableToReadBody(x) => Some(x.clone()),
             Self::LoadShed => Some("Overloaded".into()),
             Self::MalformedRequest(x) => Some(x.clone()),
+            Self::BackendError(x) => Some(x.clone()),
             Self::BackendErrorDNS(x) => Some(x.clone()),
             Self::BackendTLSErrorOther(x) => Some(x.clone()),
             Self::BackendTLSErrorCert(x) => Some(x.clone()),
@@ -114,6 +115,7 @@ impl fmt::Display for ErrorCause {
             Self::Denylisted => write!(f, "denylisted"),
             Self::NoAuthority => write!(f, "no_authority"),
             Self::AgentError(_) => write!(f, "agent_error"),
+            Self::BackendError(_) => write!(f, "backend_error"),
             Self::BackendErrorDNS(_) => write!(f, "backend_error_dns"),
             Self::BackendErrorConnect => write!(f, "backend_error_connect"),
             Self::BackendTimeout => write!(f, "backend_timeout"),
@@ -153,6 +155,32 @@ impl IntoResponse for RateLimitCause {
     }
 }
 
+impl From<&reqwest::Error> for ErrorCause {
+    fn from(e: &reqwest::Error) -> Self {
+        if e.is_connect() {
+            return Self::BackendErrorConnect;
+        }
+
+        if e.is_timeout() {
+            return Self::BackendTimeout;
+        }
+
+        Self::BackendError(e.to_string())
+    }
+}
+
+impl From<IcBnError> for ErrorCause {
+    fn from(e: IcBnError) -> Self {
+        match e {
+            IcBnError::RequestFailed(v) => Self::from(&v),
+            IcBnError::BodyReadingFailed(v) => Self::UnableToReadBody(v),
+            IcBnError::BodyTimedOut => Self::BackendTimeout,
+            IcBnError::BodyTooBig => Self::RequestTooLarge,
+            _ => Self::Other(e.to_string()),
+        }
+    }
+}
+
 impl From<anyhow::Error> for ErrorCause {
     fn from(e: anyhow::Error) -> Self {
         if let Some(e) = error_infer::<AgentError>(&e) {
@@ -177,13 +205,7 @@ impl From<anyhow::Error> for ErrorCause {
 
         // Check if it's a known Reqwest error
         if let Some(e) = error_infer::<reqwest::Error>(&e) {
-            if e.is_connect() {
-                return Self::BackendErrorConnect;
-            }
-
-            if e.is_timeout() {
-                return Self::BackendTimeout;
-            }
+            return Self::from(e);
         }
 
         if error_infer::<http_body_util::LengthLimitError>(&e).is_some() {
