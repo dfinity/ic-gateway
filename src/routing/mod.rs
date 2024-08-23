@@ -98,19 +98,19 @@ impl RequestCtx {
 pub async fn redirect_to_https(
     Host(host): Host,
     OriginalUri(uri): OriginalUri,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ErrorCause> {
     let fallback_path = PathAndQuery::from_static("/");
     let pq = uri.path_and_query().unwrap_or(&fallback_path).as_str();
 
-    Redirect::permanent(
+    Ok(Redirect::permanent(
         &Uri::builder()
             .scheme("https")
             .authority(host)
             .path_and_query(pq)
             .build()
-            .unwrap()
+            .map_err(|_| ErrorCause::MalformedRequest("incorrect url".into()))?
             .to_string(),
-    )
+    ))
 }
 
 #[allow(clippy::too_many_arguments)]
