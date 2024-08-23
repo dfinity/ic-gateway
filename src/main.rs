@@ -12,15 +12,12 @@ use tracing::warn;
 
 use crate::cli::Cli;
 
-mod cache;
 mod cli;
 mod core;
-mod http;
 mod log;
 mod metrics;
 mod policy;
 mod routing;
-mod tasks;
 mod tls;
 
 #[global_allocator]

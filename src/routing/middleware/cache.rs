@@ -5,43 +5,9 @@ use axum::{
     middleware::Next,
     response::IntoResponse,
 };
-use http::header::RANGE;
-use sha1::{Digest, Sha1};
+use ic_bn_lib::http::cache::{Cache, KeyExtractorUriRange};
 
-use crate::{
-    cache::{Cache, Error, KeyExtractor},
-    routing::error_cause::ErrorCause,
-};
-
-#[derive(Clone, Debug)]
-pub struct KeyExtractorUriRange;
-
-impl KeyExtractor for KeyExtractorUriRange {
-    type Key = [u8; 20];
-
-    fn extract<T>(&self, request: &Request<T>) -> Result<Self::Key, Error> {
-        let authority = request
-            .uri()
-            .authority()
-            .ok_or_else(|| Error::ExtractKey("no authority found".into()))?
-            .host()
-            .as_bytes();
-        let paq = request
-            .uri()
-            .path_and_query()
-            .ok_or_else(|| Error::ExtractKey("no path_and_query found".into()))?
-            .as_str()
-            .as_bytes();
-
-        // Compute a composite hash
-        let mut hash = Sha1::new().chain_update(authority).chain_update(paq);
-        if let Some(v) = request.headers().get(RANGE) {
-            hash = hash.chain_update(v.as_bytes());
-        }
-
-        Ok(hash.finalize().into())
-    }
-}
+use crate::routing::error_cause::ErrorCause;
 
 pub async fn middleware(
     State(cache): State<Arc<Cache<KeyExtractorUriRange>>>,

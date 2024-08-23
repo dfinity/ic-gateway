@@ -1,8 +1,6 @@
-pub mod body;
 pub mod domain;
 pub mod error_cause;
 pub mod ic;
-#[allow(clippy::declare_interior_mutable_const)]
 pub mod middleware;
 pub mod proxy;
 
@@ -20,25 +18,28 @@ use axum_extra::middleware::option_layer;
 use candid::Principal;
 use domain::{CustomDomainStorage, DomainResolver, ProvidesCustomDomains};
 use fqdn::FQDN;
-use http::{method::Method, StatusCode};
-use http::{uri::PathAndQuery, Uri};
+use http::{method::Method, uri::PathAndQuery, StatusCode, Uri};
 use ic::route_provider::setup_route_provider;
+use ic_bn_lib::{
+    http::{
+        cache::{Cache, KeyExtractorUriRange, Opts},
+        Client,
+    },
+    tasks::TaskManager,
+};
 use little_loadshedder::{LoadShedLayer, LoadShedResponse};
-use middleware::cache::{self, KeyExtractorUriRange};
+use middleware::cache;
 use prometheus::Registry;
 use strum::{Display, IntoStaticStr};
 use tower::{limit::ConcurrencyLimitLayer, util::MapResponseLayer, ServiceBuilder, ServiceExt};
 use tracing::warn;
 
 use crate::{
-    cache::{Cache, Opts},
     cli::Cli,
-    http::Client,
     metrics::{self, clickhouse::Clickhouse, Vector},
     routing::middleware::{
         canister_match, cors, geoip, headers, rate_limiter, request_id, validate,
     },
-    tasks::TaskManager,
 };
 
 use self::middleware::denylist;
@@ -276,6 +277,7 @@ pub async fn setup_router(
             max_item_size: cli.cache.cache_max_item_size,
             ttl: cli.cache.cache_ttl,
             lock_timeout: cli.cache.cache_lock_timeout,
+            body_timeout: cli.cache.cache_body_timeout,
             xfetch_beta: cli.cache.cache_xfetch_beta,
             methods: vec![Method::GET],
         };

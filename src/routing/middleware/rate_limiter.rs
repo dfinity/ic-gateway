@@ -3,14 +3,12 @@ use std::{net::IpAddr, sync::Arc, time::Duration};
 use ::governor::{clock::QuantaInstant, middleware::NoOpMiddleware};
 use anyhow::{anyhow, Error};
 use axum::{extract::Request, response::IntoResponse};
+use ic_bn_lib::http::ConnInfo;
 use tower_governor::{
     governor::GovernorConfigBuilder, key_extractor::KeyExtractor, GovernorError, GovernorLayer,
 };
 
-use crate::{
-    http::ConnInfo,
-    routing::error_cause::{ErrorCause, RateLimitCause},
-};
+use crate::routing::error_cause::{ErrorCause, RateLimitCause};
 
 #[derive(Clone)]
 pub struct IpKeyExtractor;
@@ -76,22 +74,19 @@ mod tests {
         Router,
     };
     use http::StatusCode;
+    use ic_bn_lib::http::{ConnInfo, Stats};
     use std::{
         sync::{atomic::AtomicU64, Arc},
         time::Duration,
     };
-    use tokio_util::sync::CancellationToken;
-
     use tokio::time::sleep;
+    use tokio_util::sync::CancellationToken;
     use tower::Service;
     use uuid::Uuid;
 
-    use crate::{
-        http::{ConnInfo, Stats},
-        routing::{
-            error_cause::{ErrorCause, RateLimitCause},
-            middleware::rate_limiter::{layer, IpKeyExtractor},
-        },
+    use crate::routing::{
+        error_cause::{ErrorCause, RateLimitCause},
+        middleware::rate_limiter::{layer, IpKeyExtractor},
     };
 
     async fn handler(_request: Request<Body>) -> Result<impl IntoResponse, ErrorCause> {
@@ -104,7 +99,9 @@ mod tests {
         let conn_info = ConnInfo {
             id: Uuid::now_v7(),
             accepted_at: std::time::Instant::now(),
-            remote_addr: "127.0.0.1:8080".parse().unwrap(),
+            remote_addr: ic_bn_lib::http::server::RemoteAddr::Tcp(
+                "127.0.0.1:8080".parse().unwrap(),
+            ),
             traffic: Arc::new(Stats::new()),
             req_count: AtomicU64::new(0),
             close: CancellationToken::new(),

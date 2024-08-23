@@ -8,13 +8,13 @@ use clap::{Args, Parser};
 use fqdn::FQDN;
 use hickory_resolver::config::CLOUDFLARE_IPS;
 use humantime::parse_duration;
+use ic_bn_lib::{http, tls::acme};
 use reqwest::Url;
 
 use crate::{
     core::{AUTHOR_NAME, SERVICE_NAME},
-    http::dns,
     routing::domain::CanisterAlias,
-    tls::{self, acme},
+    tls,
 };
 
 fn parse_size(s: &str) -> Result<u64, parse_size::Error> {
@@ -104,7 +104,7 @@ pub struct Dns {
 
     /// DNS protocol to use (clear/tls/https)
     #[clap(env, long, default_value = "tls")]
-    pub dns_protocol: dns::Protocol,
+    pub dns_protocol: http::dns::Protocol,
 
     /// TLS name to expect for TLS and HTTPS protocols (e.g. "dns.google" or "cloudflare-dns.com")
     #[clap(env, long, default_value = "cloudflare-dns.com")]
@@ -478,6 +478,10 @@ pub struct CacheConfig {
     #[clap(env, long, default_value = "5s", value_parser = parse_duration)]
     pub cache_lock_timeout: Duration,
 
+    /// Timeout for fetching the response body
+    #[clap(env, long, default_value = "60s", value_parser = parse_duration)]
+    pub cache_body_timeout: Duration,
+
     /// `beta` parameter of an x-fetch algorithm which influences if earlier or later refreshing of the cache entry is performed.
     /// Values >1 favor earlier refreshes, <1 - later.
     /// Value of 0.0 would effectively disable the x-fetch algorithm.
@@ -486,7 +490,7 @@ pub struct CacheConfig {
 }
 
 // Some conversions
-impl From<&Dns> for crate::http::dns::Options {
+impl From<&Dns> for http::dns::Options {
     fn from(c: &Dns) -> Self {
         Self {
             protocol: c.dns_protocol,
@@ -497,7 +501,7 @@ impl From<&Dns> for crate::http::dns::Options {
     }
 }
 
-impl From<&HttpServer> for crate::http::server::Options {
+impl From<&HttpServer> for http::server::Options {
     fn from(c: &HttpServer) -> Self {
         Self {
             backlog: c.http_server_backlog,
@@ -510,7 +514,7 @@ impl From<&HttpServer> for crate::http::server::Options {
     }
 }
 
-impl From<&HttpClient> for crate::http::client::Options {
+impl From<&HttpClient> for http::client::Options {
     fn from(c: &HttpClient) -> Self {
         Self {
             timeout_connect: c.http_client_timeout_connect,

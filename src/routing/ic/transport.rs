@@ -12,14 +12,13 @@ use ic_agent::{
     export::Principal,
     AgentError, TransportCallResponse,
 };
+use ic_bn_lib::http::{headers::CONTENT_TYPE_CBOR, Client as HttpClient};
 use reqwest::{
     header::{HeaderMap, HeaderValue, CONTENT_TYPE},
     Body, Method, Request, StatusCode,
 };
 use tokio::task_local;
 use url::Url;
-
-use crate::http::{headers::CONTENT_TYPE_CBOR, Client as HttpClient};
 
 type AgentFuture<'a, V> = Pin<Box<dyn Future<Output = Result<V, AgentError>> + Send + 'a>>;
 
@@ -360,10 +359,10 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::*;
-    use crate::http::Client as HttpClient;
     use async_trait::async_trait;
     use hyper::{Response, StatusCode};
     use ic_agent::agent::http_transport::route_provider::RoundRobinRouteProvider;
+    use ic_bn_lib::http::Client as HttpClient;
 
     #[derive(Debug)]
     struct MockClient {

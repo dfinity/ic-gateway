@@ -7,21 +7,17 @@ use axum::{
 };
 use bytes::Bytes;
 use http::HeaderValue;
-use http_body_util::{BodyExt, LengthLimitError, Limited};
+use ic_bn_lib::http::{body::buffer_body, headers::X_REQUEST_ID, ConnInfo, Error as IcBnError};
 use ic_http_gateway::{CanisterRequest, HttpGatewayClient, HttpGatewayRequestArgs};
-use tokio::time::timeout;
 
-use crate::{
-    http::{headers::X_REQUEST_ID, ConnInfo},
-    routing::{
-        error_cause::ErrorCause,
-        ic::{
-            transport::{Context, CONTEXT},
-            IcResponseStatus,
-        },
-        middleware::request_id::RequestId,
-        CanisterId, RequestCtx,
+use crate::routing::{
+    error_cause::ErrorCause,
+    ic::{
+        transport::{Context, CONTEXT},
+        IcResponseStatus,
     },
+    middleware::request_id::RequestId,
+    CanisterId, RequestCtx,
 };
 
 use super::{BNRequestMetadata, BNResponseMetadata};
@@ -50,32 +46,21 @@ pub async fn handler(
 
     let (parts, body) = request.into_parts();
 
-    // Collect the request body up to the limit
-    let body = timeout(
-        state.body_read_timeout,
-        Limited::new(body, MAX_REQUEST_BODY_SIZE).collect(),
-    )
-    .await;
+    let body = buffer_body(body, MAX_REQUEST_BODY_SIZE, state.body_read_timeout).await;
+    let body = match body {
+        Ok(v) => v,
+        Err(e) => {
+            // Close the connection if there was a timeout
+            if matches!(e, IcBnError::BodyTimedOut) {
+                conn_info.close();
+            }
 
-    // Close the connection if the body timed out
-    let Ok(body) = body else {
-        conn_info.close();
-        return Err(ErrorCause::UnableToReadBody("timed out".into()));
+            return Err(ErrorCause::from_client_error(e));
+        }
     };
 
-    let body = body
-        .map_err(|e| {
-            // TODO improve the inferring somehow
-            e.downcast_ref::<LengthLimitError>().map_or_else(
-                || ErrorCause::UnableToReadBody(e.to_string()),
-                |_| ErrorCause::RequestTooLarge,
-            )
-        })?
-        .to_bytes()
-        .to_vec();
-
     let args = HttpGatewayRequestArgs {
-        canister_request: CanisterRequest::from_parts(parts, body),
+        canister_request: CanisterRequest::from_parts(parts, body.to_vec()),
         canister_id,
     };
 

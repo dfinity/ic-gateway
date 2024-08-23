@@ -3,55 +3,26 @@ use std::sync::{
     Arc,
 };
 
-use anyhow::Error;
 use axum::{
-    body::Body,
     extract::{MatchedPath, OriginalUri, Path, Request, State},
-    response::{IntoResponse, Response},
+    response::IntoResponse,
 };
 use candid::Principal;
 use derive_new::new;
 use http::header::{CONTENT_TYPE, X_CONTENT_TYPE_OPTIONS, X_FRAME_OPTIONS};
 use ic_agent::agent::http_transport::route_provider::RouteProvider;
+use ic_bn_lib::http::{
+    headers::{CONTENT_TYPE_CBOR, X_CONTENT_TYPE_OPTIONS_NO_SNIFF, X_FRAME_OPTIONS_DENY},
+    proxy::proxy,
+    Client,
+};
 use regex::Regex;
 use url::Url;
 
-use super::{body, error_cause::ErrorCause, ic::BNResponseMetadata};
-use crate::http::{
-    headers::{CONTENT_TYPE_CBOR, X_CONTENT_TYPE_OPTIONS_NO_SNIFF, X_FRAME_OPTIONS_DENY},
-    Client,
-};
+use super::{error_cause::ErrorCause, ic::BNResponseMetadata};
 
 lazy_static::lazy_static! {
     pub static ref REGEX_REG_ID: Regex = Regex::new(r"^[a-zA-Z0-9]+$").unwrap();
-}
-
-// Proxies provided Axum request to a given URL using Reqwest Client trait object and returns Axum response
-async fn proxy(
-    url: Url,
-    request: Request,
-    http_client: &Arc<dyn Client>,
-) -> Result<Response, Error> {
-    // Convert Axum request into Reqwest one
-    let (parts, body) = request.into_parts();
-    let mut request = reqwest::Request::new(parts.method.clone(), url);
-    *request.headers_mut() = parts.headers;
-    // Use SyncBodyDataStream wrapper that is Sync (Axum body is !Sync)
-    *request.body_mut() = Some(reqwest::Body::wrap_stream(body::SyncBodyDataStream::new(
-        body,
-    )));
-
-    // Execute the request
-    let response = http_client.execute(request).await?;
-    let headers = response.headers().clone();
-
-    // Convert the Reqwest response back to the Axum one
-    let mut response = Response::builder()
-        .status(response.status())
-        .body(Body::from_stream(response.bytes_stream()))?;
-    *response.headers_mut() = headers;
-
-    Ok(response)
 }
 
 #[derive(new)]
@@ -87,7 +58,7 @@ pub async fn api_proxy(
     // Proxy the request
     let mut response = proxy(url, request, &state.http_client)
         .await
-        .map_err(ErrorCause::from)?;
+        .map_err(ErrorCause::from_backend_error)?;
 
     // Set the correct content-type for all replies if it's not an error
     // The replica and the API boundary nodes should set these headers. This is just for redundancy.
@@ -144,8 +115,9 @@ pub async fn issuer_proxy(
 
     let mut response = proxy(url, request, &state.http_client)
         .await
-        .map_err(ErrorCause::from)?;
+        .map_err(ErrorCause::from_backend_error)?;
 
     response.extensions_mut().insert(matched_path);
+
     Ok(response)
 }

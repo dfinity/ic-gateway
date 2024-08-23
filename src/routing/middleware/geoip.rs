@@ -6,9 +6,8 @@ use axum::{
     middleware::Next,
     response::Response,
 };
+use ic_bn_lib::http::ConnInfo;
 use maxminddb::geoip2;
-
-use crate::http::ConnInfo;
 use tracing::warn;
 
 #[derive(Clone, Debug)]

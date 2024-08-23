@@ -2,6 +2,7 @@ use std::sync::{Arc, OnceLock};
 
 use anyhow::{anyhow, Context, Error};
 use axum::Router;
+use ic_bn_lib::{http, tasks::TaskManager, tls::sessions};
 use itertools::Itertools;
 use prometheus::Registry;
 use tokio_util::sync::CancellationToken;
@@ -9,9 +10,8 @@ use tracing::warn;
 
 use crate::{
     cli::Cli,
-    http, metrics,
+    metrics,
     routing::{self},
-    tasks::TaskManager,
     tls,
 };
 
@@ -66,7 +66,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     let dns_resolver = http::dns::Resolver::new((&cli.dns).into());
     let reqwest_client = http::client::new((&cli.http_client).into(), dns_resolver.clone())?;
     let http_client = Arc::new(http::ReqwestClient::new(reqwest_client.clone()));
-    let tls_session_cache = Arc::new(tls::sessions::Storage::new(
+    let tls_session_cache = Arc::new(sessions::Storage::new(
         cli.http_server.http_server_tls_session_cache_size,
         cli.http_server.http_server_tls_session_cache_tti,
     ));
@@ -124,7 +124,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
 
     // Set up HTTP
     let http_server = Arc::new(http::Server::new(
-        cli.http_server.http_server_listen_plain,
+        http::server::LocalAddr::Tcp(cli.http_server.http_server_listen_plain),
         http_router,
         (&cli.http_server).into(),
         http_metrics.clone(),
@@ -133,7 +133,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     tasks.add("http_server", http_server);
 
     let https_server = Arc::new(http::Server::new(
-        cli.http_server.http_server_listen_tls,
+        http::server::LocalAddr::Tcp(cli.http_server.http_server_listen_tls),
         https_router,
         (&cli.http_server).into(),
         http_metrics.clone(),
@@ -146,7 +146,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         let router = metrics::setup(&registry, tls_session_cache, &mut tasks);
 
         let srv = Arc::new(http::Server::new(
-            addr,
+            http::server::LocalAddr::Tcp(addr),
             router,
             (&cli.http_server).into(),
             http_metrics,
@@ -156,7 +156,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     }
 
     // Spawn & track tasks
-    tasks.start(&token);
+    tasks.start();
 
     warn!("Service is running, waiting for the shutdown signal");
     token.cancelled().await;

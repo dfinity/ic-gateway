@@ -1,4 +1,3 @@
-pub mod body;
 pub mod clickhouse;
 pub mod runner;
 pub mod vector;
@@ -17,6 +16,16 @@ use axum::{
     Router,
 };
 use http::header::{CONTENT_TYPE, ORIGIN, REFERER, USER_AGENT};
+use ic_bn_lib::{
+    http::{
+        body::CountingBody,
+        cache::CacheStatus,
+        calc_headers_size, http_method, http_version,
+        server::{ConnInfo, TlsInfo},
+    },
+    tasks::TaskManager,
+    tls::sessions,
+};
 use prometheus::{
     register_histogram_vec_with_registry, register_int_counter_vec_with_registry, HistogramVec,
     IntCounterVec, Registry,
@@ -27,22 +36,14 @@ use tower_http::compression::CompressionLayer;
 use tracing::info;
 
 use crate::{
-    cache::CacheStatus,
     core::{ENV, HOSTNAME},
-    http::{
-        calc_headers_size, http_method, http_version,
-        server::{ConnInfo, TlsInfo},
-    },
     routing::{
         error_cause::ErrorCause,
         ic::{BNRequestMetadata, BNResponseMetadata, IcResponseStatus},
         middleware::{geoip::CountryCode, request_id::RequestId},
         CanisterId, RequestCtx, RequestType, RequestTypeApi,
     },
-    tasks::TaskManager,
-    tls::sessions,
 };
-use body::CountingBody;
 
 pub use {
     clickhouse::{Clickhouse, Row},
