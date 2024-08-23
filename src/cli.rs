@@ -478,6 +478,10 @@ pub struct CacheConfig {
     #[clap(env, long, default_value = "5s", value_parser = parse_duration)]
     pub cache_lock_timeout: Duration,
 
+    /// Timeout for fetching the response body
+    #[clap(env, long, default_value = "60s", value_parser = parse_duration)]
+    pub cache_body_timeout: Duration,
+
     /// `beta` parameter of an x-fetch algorithm which influences if earlier or later refreshing of the cache entry is performed.
     /// Values >1 favor earlier refreshes, <1 - later.
     /// Value of 0.0 would effectively disable the x-fetch algorithm.

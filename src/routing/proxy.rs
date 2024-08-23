@@ -56,7 +56,9 @@ pub async fn api_proxy(
         .map_err(|e| ErrorCause::MalformedRequest(format!("incorrect URL: {e:#}")))?;
 
     // Proxy the request
-    let mut response = proxy(url, request, &state.http_client).await?;
+    let mut response = proxy(url, request, &state.http_client)
+        .await
+        .map_err(ErrorCause::from_backend_error)?;
 
     // Set the correct content-type for all replies if it's not an error
     // The replica and the API boundary nodes should set these headers. This is just for redundancy.
@@ -111,7 +113,10 @@ pub async fn issuer_proxy(
         .join(original_uri.path())
         .map_err(|_| ErrorCause::MalformedRequest("unable to parse path as URL part".into()))?;
 
-    let mut response = proxy(url, request, &state.http_client).await?;
+    let mut response = proxy(url, request, &state.http_client)
+        .await
+        .map_err(ErrorCause::from_backend_error)?;
+
     response.extensions_mut().insert(matched_path);
 
     Ok(response)

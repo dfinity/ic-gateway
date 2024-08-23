@@ -277,6 +277,7 @@ pub async fn setup_router(
             max_item_size: cli.cache.cache_max_item_size,
             ttl: cli.cache.cache_ttl,
             lock_timeout: cli.cache.cache_lock_timeout,
+            body_timeout: cli.cache.cache_body_timeout,
             xfetch_beta: cli.cache.cache_xfetch_beta,
             methods: vec![Method::GET],
         };
