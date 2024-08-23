@@ -1,8 +1,6 @@
-pub mod body;
 pub mod domain;
 pub mod error_cause;
 pub mod ic;
-#[allow(clippy::declare_interior_mutable_const)]
 pub mod middleware;
 pub mod proxy;
 
