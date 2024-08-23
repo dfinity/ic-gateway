@@ -12,7 +12,6 @@ use tracing::warn;
 
 use crate::cli::Cli;
 
-mod cache;
 mod cli;
 mod core;
 mod log;

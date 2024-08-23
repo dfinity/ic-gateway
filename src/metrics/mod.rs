@@ -19,6 +19,7 @@ use http::header::{CONTENT_TYPE, ORIGIN, REFERER, USER_AGENT};
 use ic_bn_lib::{
     http::{
         body::CountingBody,
+        cache::CacheStatus,
         calc_headers_size, http_method, http_version,
         server::{ConnInfo, TlsInfo},
     },
@@ -35,7 +36,6 @@ use tower_http::compression::CompressionLayer;
 use tracing::info;
 
 use crate::{
-    cache::CacheStatus,
     core::{ENV, HOSTNAME},
     routing::{
         error_cause::ErrorCause,

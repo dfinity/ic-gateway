@@ -20,16 +20,21 @@ use domain::{CustomDomainStorage, DomainResolver, ProvidesCustomDomains};
 use fqdn::FQDN;
 use http::{method::Method, uri::PathAndQuery, StatusCode, Uri};
 use ic::route_provider::setup_route_provider;
-use ic_bn_lib::{http::Client, tasks::TaskManager};
+use ic_bn_lib::{
+    http::{
+        cache::{Cache, KeyExtractorUriRange, Opts},
+        Client,
+    },
+    tasks::TaskManager,
+};
 use little_loadshedder::{LoadShedLayer, LoadShedResponse};
-use middleware::cache::{self, KeyExtractorUriRange};
+use middleware::cache;
 use prometheus::Registry;
 use strum::{Display, IntoStaticStr};
 use tower::{limit::ConcurrencyLimitLayer, util::MapResponseLayer, ServiceBuilder, ServiceExt};
 use tracing::warn;
 
 use crate::{
-    cache::{Cache, Opts},
     cli::Cli,
     metrics::{self, clickhouse::Clickhouse, Vector},
     routing::middleware::{
