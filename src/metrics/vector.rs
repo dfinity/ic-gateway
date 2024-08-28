@@ -113,6 +113,7 @@ impl Vector {
     }
 
     pub async fn stop(&self) {
+        warn!("Vector: shutting down actor");
         self.token.cancel();
         self.tracker.close();
         self.tracker.wait().await;
@@ -198,12 +199,7 @@ impl VectorActor {
                 return Ok(());
             }
 
-            select! {
-                _ = self.token.cancelled() => {
-                    return Ok(());
-                },
-                _ = sleep(interval) => {}
-            }
+            sleep(interval).await;
 
             // Back off a bit
             retries -= 1;
@@ -211,6 +207,19 @@ impl VectorActor {
         }
 
         Err(anyhow!("unable to flush batch: retries exhausted"))
+    }
+
+    async fn drain(&mut self) -> Result<(), Error> {
+        // Close the channel
+        self.rx.close();
+
+        // Drain the buffer
+        while let Some(v) = self.rx.recv().await {
+            self.add_to_batch(v).await.context("unable to flush")?;
+        }
+
+        // Flush the rest if anything left
+        self.flush().await.context("unable to flush")
     }
 
     async fn run(mut self, flush_interval: Duration) {
@@ -223,19 +232,7 @@ impl VectorActor {
 
                 () = self.token.cancelled() => {
                     warn!("Vector: stopping, draining");
-
-                    // Close the channel
-                    self.rx.close();
-
-                    // Drain the buffer
-                    while let Some(v) = self.rx.recv().await {
-                        if let Err(e) = self.add_to_batch(v).await {
-                            warn!("Vector: unable to drain: {e:#}");
-                            break;
-                        }
-                    }
-
-                    if let Err(e) = self.flush().await {
+                    if let Err(e) = self.drain().await {
                         warn!("Vector: unable to drain: {e:#}");
                     }
 
@@ -263,9 +260,37 @@ impl VectorActor {
 
 #[cfg(test)]
 mod test {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
     use super::*;
+    use async_trait::async_trait;
     use serde_json::json;
     use vector_lib::config::LogNamespace;
+
+    #[derive(Debug)]
+    struct TestClient(AtomicU64, AtomicU64);
+
+    #[async_trait]
+    impl http::Client for TestClient {
+        async fn execute(
+            &self,
+            req: reqwest::Request,
+        ) -> Result<reqwest::Response, reqwest::Error> {
+            let mut resp = ::http::Response::new(vec![]);
+
+            // fail from time to time
+            if rand::random::<f64>() < 0.05 {
+                *resp.status_mut() = ::http::StatusCode::SERVICE_UNAVAILABLE;
+                return Ok(resp.into());
+            }
+
+            let body = req.body().unwrap().as_bytes().unwrap();
+            self.0.fetch_add(1, Ordering::SeqCst);
+            self.1.fetch_add(body.len() as u64, Ordering::SeqCst);
+
+            Ok(resp.into())
+        }
+    }
 
     #[test]
     fn test_encoder() {
@@ -284,5 +309,38 @@ mod test {
             *buf.freeze(),
             *b"\0\0\0\x1c\n\x1a\n\x18\n\x0c\n\x03foo\x12\x05\n\x03bar\x1a\x02:\0\"\x04\n\x02:\0"
         );
+    }
+
+    #[tokio::test]
+    async fn test_vector() {
+        let cli = cli::Vector {
+            log_vector_url: Some(Url::parse("http://127.0.0.1:1234").unwrap()),
+            log_vector_user: None,
+            log_vector_pass: None,
+            log_vector_batch: 50,
+            log_vector_buffer: 5000,
+            log_vector_interval: Duration::from_secs(100),
+            log_vector_timeout: Duration::from_secs(10),
+        };
+
+        // 32 bytes on wire
+        let event = json!({
+            "foo": "bar",
+        });
+
+        let client = Arc::new(TestClient(AtomicU64::new(0), AtomicU64::new(0)));
+        let vector = Vector::new(&cli, client.clone());
+
+        let mut i = 6000;
+        while i > 0 {
+            vector.send(event.clone());
+            i -= 1;
+        }
+
+        vector.stop().await;
+
+        // 6k sent, buffer 5k => 1k will be dropped
+        assert_eq!(client.0.load(Ordering::SeqCst), 100);
+        assert_eq!(client.1.load(Ordering::SeqCst), 5000 * 32);
     }
 }

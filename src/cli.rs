@@ -129,6 +129,12 @@ pub struct HttpServer {
     #[clap(env, long, default_value = "2048")]
     pub http_server_backlog: u32,
 
+    /// Maximum number of HTTP requests to serve over a single connection.
+    /// After this number is reached the connection is closed.
+    /// The default is consistend with nginx's `keepalive_requests` parameter.
+    #[clap(env, long, default_value = "1000")]
+    pub http_server_max_requests_per_conn: u64,
+
     /// For how long to wait for the client to send headers
     /// Currently applies only to HTTP1 connections.
     #[clap(env, long, default_value = "15s", value_parser = parse_duration)]
@@ -341,6 +347,11 @@ pub struct Log {
     #[clap(env, long)]
     pub log_null: bool,
 
+    /// Enables the Tokio console.
+    /// It's listening on 127.0.0.1:6669
+    #[clap(env, long)]
+    pub log_tokio_console: bool,
+
     /// Enables logging of HTTP requests to stdout/journald/null.
     /// This does not affect Clickhouse/Vector logging targets -
     /// if they're enabled they'll log the requests in any case.
@@ -510,6 +521,7 @@ impl From<&HttpServer> for http::server::Options {
             http2_keepalive_timeout: c.http_server_http2_keepalive_timeout,
             http2_max_streams: c.http_server_http2_max_streams,
             grace_period: c.http_server_grace_period,
+            max_requests_per_conn: Some(c.http_server_max_requests_per_conn),
         }
     }
 }

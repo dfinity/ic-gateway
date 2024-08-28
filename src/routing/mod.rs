@@ -321,6 +321,7 @@ pub async fn setup_router(
             http_client,
             cli.cert.cert_provider_issuer_url.clone(),
         ));
+
         let router = Router::new()
             .route(
                 "/registrations/:id",
