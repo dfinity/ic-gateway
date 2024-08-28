@@ -4,6 +4,10 @@ use anyhow::{anyhow, Context, Error};
 use bytes::{Bytes, BytesMut};
 use ic_bn_lib::http;
 use ic_bn_lib::http::headers::CONTENT_TYPE_OCTET_STREAM;
+use prometheus::{
+    register_int_counter_vec_with_registry, register_int_counter_with_registry,
+    register_int_gauge_with_registry, IntCounter, IntCounterVec, IntGauge, Registry,
+};
 use reqwest::{
     header::{self, HeaderValue},
     Method, Request,
@@ -11,7 +15,7 @@ use reqwest::{
 use tokio::{
     select,
     sync::mpsc::{channel, Receiver, Sender},
-    time::{interval, sleep},
+    time::{interval, sleep, timeout},
 };
 use tokio_util::{
     codec::{Encoder, LengthDelimitedCodec},
@@ -23,6 +27,60 @@ use url::Url;
 use vector_lib::{codecs::encoding::NativeSerializer, config::LogNamespace, event::Event};
 
 use crate::cli;
+
+const RETRY_INTERVAL: Duration = Duration::from_millis(200);
+const RETRY_COUNT: usize = 5;
+
+#[derive(Clone)]
+struct Metrics {
+    buffer_size: IntGauge,
+    batch_size: IntGauge,
+    buffer_drops: IntCounter,
+    batch_flush_retries: IntCounter,
+    batch_flushes: IntCounterVec,
+}
+
+impl Metrics {
+    pub fn new(registry: &Registry) -> Self {
+        Self {
+            buffer_size: register_int_gauge_with_registry!(
+                format!("vector_buffer_size"),
+                format!("Number of events in the incoming buffer"),
+                registry
+            )
+            .unwrap(),
+
+            batch_size: register_int_gauge_with_registry!(
+                format!("vector_batch_size"),
+                format!("Number of events in the outgoing batch"),
+                registry
+            )
+            .unwrap(),
+
+            buffer_drops: register_int_counter_with_registry!(
+                format!("vector_buffer_drops"),
+                format!("Number of events that were dropped due to buffer overflow"),
+                registry
+            )
+            .unwrap(),
+
+            batch_flush_retries: register_int_counter_with_registry!(
+                format!("vector_batch_flush_retries"),
+                format!("Number of batch flush retries"),
+                registry
+            )
+            .unwrap(),
+
+            batch_flushes: register_int_counter_vec_with_registry!(
+                format!("vector_batch_flushes"),
+                format!("Count of batch flushes"),
+                &["ok"],
+                registry
+            )
+            .unwrap(),
+        }
+    }
+}
 
 /// Encodes Vector events into a native format with length delimiting
 #[derive(Clone)]
@@ -72,10 +130,11 @@ pub struct Vector {
     token: CancellationToken,
     tracker: TaskTracker,
     tx: Sender<Event>,
+    metrics: Metrics,
 }
 
 impl Vector {
-    pub fn new(cli: &cli::Vector, client: Arc<dyn http::Client>) -> Self {
+    pub fn new(cli: &cli::Vector, client: Arc<dyn http::Client>, registry: &Registry) -> Self {
         let cli = cli.clone();
 
         let (tx, rx) = channel(cli.log_vector_buffer);
@@ -86,6 +145,8 @@ impl Vector {
             .log_vector_user
             .map(|x| http::client::basic_auth(x, cli.log_vector_pass));
 
+        let metrics = Metrics::new(registry);
+
         let actor = VectorActor {
             client,
             url: cli.log_vector_url.unwrap(),
@@ -95,6 +156,7 @@ impl Vector {
             token: token.child_token(),
             encoder: EventEncoder::new(),
             timeout: cli.log_vector_timeout,
+            metrics: metrics.clone(),
         };
 
         let tracker = TaskTracker::new();
@@ -102,14 +164,24 @@ impl Vector {
             actor.run(cli.log_vector_interval).await;
         });
 
-        Self { token, tracker, tx }
+        Self {
+            token,
+            tracker,
+            tx,
+            metrics,
+        }
     }
 
     pub fn send(&self, v: serde_json::Value) {
         // This never fails with LogNamespace::Vector
         let event = Event::from_json_value(v, LogNamespace::Vector).unwrap();
-        // If it fails we'll lose the message, but it's better than to block & eat memory.
-        let _ = self.tx.try_send(event);
+
+        // If it fails we'll lose the event, but it's better than to block & eat memory.
+        if self.tx.try_send(event).is_err() {
+            self.metrics.buffer_drops.inc();
+        } else {
+            self.metrics.buffer_size.inc();
+        };
     }
 
     pub async fn stop(&self) {
@@ -131,11 +203,13 @@ struct VectorActor {
 
     encoder: EventEncoder,
     token: CancellationToken,
+    metrics: Metrics,
 }
 
 impl VectorActor {
     async fn add_to_batch(&mut self, event: Event) -> Result<(), Error> {
         self.batch.push(event);
+        self.metrics.batch_size.set(self.batch.len() as i64);
 
         if self.batch.len() == self.batch.capacity() {
             self.flush().await?;
@@ -161,10 +235,9 @@ impl VectorActor {
         *request.body_mut() = Some(body.into());
         *request.timeout_mut() = Some(self.timeout);
 
-        let response = self
-            .client
-            .execute(request)
+        let response = timeout(self.timeout, self.client.execute(request))
             .await
+            .context("HTTP request timed out")?
             .context("unable to execute HTTP request")?;
 
         if !response.status().is_success() {
@@ -188,17 +261,19 @@ impl VectorActor {
 
         // Retry
         // TODO make configurable?
-        let mut interval = Duration::from_millis(200);
-        let mut retries = 5;
+        let mut interval = RETRY_INTERVAL;
+        let mut retries = RETRY_COUNT;
 
         while retries > 0 {
             // Bytes is cheap to clone
             if let Err(e) = self.send(body.clone()).await {
                 warn!("Vector: unable to flush batch: {e:#}");
             } else {
+                self.metrics.batch_flushes.with_label_values(&["yes"]).inc();
                 return Ok(());
             }
 
+            self.metrics.batch_flush_retries.inc();
             sleep(interval).await;
 
             // Back off a bit
@@ -206,6 +281,7 @@ impl VectorActor {
             interval *= 2;
         }
 
+        self.metrics.batch_flushes.with_label_values(&["no"]).inc();
         Err(anyhow!("unable to flush batch: retries exhausted"))
     }
 
@@ -246,11 +322,11 @@ impl VectorActor {
                     }
                 }
 
-                event = self.rx.recv() => {
-                    if let Some(v) = event {
-                        if let Err(e) = self.add_to_batch(v).await {
-                            warn!("Vector: unable to flush: {e:#}");
-                        }
+                Some(event) = self.rx.recv() => {
+                    self.metrics.buffer_size.dec();
+
+                    if let Err(e) = self.add_to_batch(event).await {
+                        warn!("Vector: unable to flush: {e:#}");
                     }
                 }
             }
@@ -329,7 +405,7 @@ mod test {
         });
 
         let client = Arc::new(TestClient(AtomicU64::new(0), AtomicU64::new(0)));
-        let vector = Vector::new(&cli, client.clone());
+        let vector = Vector::new(&cli, client.clone(), &Registry::new());
 
         let mut i = 6000;
         while i > 0 {

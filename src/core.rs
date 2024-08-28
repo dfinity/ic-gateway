@@ -77,12 +77,13 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     } else {
         None
     };
-    let vector = cli
-        .log
-        .vector
-        .log_vector_url
-        .as_ref()
-        .map(|_| Arc::new(metrics::Vector::new(&cli.log.vector, http_client.clone())));
+    let vector = cli.log.vector.log_vector_url.as_ref().map(|_| {
+        Arc::new(metrics::Vector::new(
+            &cli.log.vector,
+            http_client.clone(),
+            &registry,
+        ))
+    });
 
     // List of cancellable tasks to execute & track
     let mut tasks = TaskManager::new();

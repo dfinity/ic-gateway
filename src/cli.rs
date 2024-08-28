@@ -79,7 +79,12 @@ pub struct HttpClient {
     #[clap(env, long, default_value = "5s", value_parser = parse_duration)]
     pub http_client_timeout_connect: Duration,
 
-    /// Timeout for whole HTTP call
+    /// Timeout for a single read request
+    #[clap(env, long, default_value = "15s", value_parser = parse_duration)]
+    pub http_client_timeout_read: Duration,
+
+    /// Timeout for the whole HTTP call: this includes connecting, sending request,
+    /// receiving response etc.
     #[clap(env, long, default_value = "60s", value_parser = parse_duration)]
     pub http_client_timeout: Duration,
 
@@ -530,6 +535,7 @@ impl From<&HttpClient> for http::client::Options {
     fn from(c: &HttpClient) -> Self {
         Self {
             timeout_connect: c.http_client_timeout_connect,
+            timeout_read: c.http_client_timeout_read,
             timeout: c.http_client_timeout,
             tcp_keepalive: Some(c.http_client_tcp_keepalive),
             http2_keepalive: Some(c.http_client_http2_keepalive),
