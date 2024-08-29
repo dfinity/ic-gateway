@@ -3104,10 +3104,10 @@ dependencies = [
 [[package]]
 name = "ic-cbor"
 version = "2.6.0"
-source = "git+https://github.com/dfinity/response-verification#f8a7f42ecfe7be437e4f3e3752b57dbf9b3c9aa9"
+source = "git+https://github.com/dfinity/response-verification?rev=da70db93832f88ecc556ae082612aedec47d3816#da70db93832f88ecc556ae082612aedec47d3816"
 dependencies = [
  "candid",
- "ic-certification 2.6.0 (git+https://github.com/dfinity/response-verification)",
+ "ic-certification 2.6.0 (git+https://github.com/dfinity/response-verification?rev=da70db93832f88ecc556ae082612aedec47d3816)",
  "leb128",
  "nom",
  "thiserror",
@@ -3116,12 +3116,12 @@ dependencies = [
 [[package]]
 name = "ic-certificate-verification"
 version = "2.6.0"
-source = "git+https://github.com/dfinity/response-verification#f8a7f42ecfe7be437e4f3e3752b57dbf9b3c9aa9"
+source = "git+https://github.com/dfinity/response-verification?rev=da70db93832f88ecc556ae082612aedec47d3816#da70db93832f88ecc556ae082612aedec47d3816"
 dependencies = [
  "cached 0.47.0",
  "candid",
  "ic-cbor",
- "ic-certification 2.6.0 (git+https://github.com/dfinity/response-verification)",
+ "ic-certification 2.6.0 (git+https://github.com/dfinity/response-verification?rev=da70db93832f88ecc556ae082612aedec47d3816)",
  "lazy_static",
  "leb128",
  "miracl_core_bls12381",
@@ -3146,7 +3146,7 @@ dependencies = [
 [[package]]
 name = "ic-certification"
 version = "2.6.0"
-source = "git+https://github.com/dfinity/response-verification#f8a7f42ecfe7be437e4f3e3752b57dbf9b3c9aa9"
+source = "git+https://github.com/dfinity/response-verification?rev=da70db93832f88ecc556ae082612aedec47d3816#da70db93832f88ecc556ae082612aedec47d3816"
 dependencies = [
  "hex",
  "sha2 0.10.8",
@@ -3213,8 +3213,6 @@ dependencies = [
  "strum_macros 0.26.4",
  "tempfile",
  "thiserror",
- "tikv-jemalloc-ctl",
- "tikv-jemallocator",
  "time",
  "tokio",
  "tokio-util",
@@ -3236,11 +3234,11 @@ dependencies = [
 [[package]]
 name = "ic-http-certification"
 version = "2.6.0"
-source = "git+https://github.com/dfinity/response-verification#f8a7f42ecfe7be437e4f3e3752b57dbf9b3c9aa9"
+source = "git+https://github.com/dfinity/response-verification?rev=da70db93832f88ecc556ae082612aedec47d3816#da70db93832f88ecc556ae082612aedec47d3816"
 dependencies = [
  "candid",
  "http 0.2.12",
- "ic-certification 2.6.0 (git+https://github.com/dfinity/response-verification)",
+ "ic-certification 2.6.0 (git+https://github.com/dfinity/response-verification?rev=da70db93832f88ecc556ae082612aedec47d3816)",
  "ic-representation-independent-hash",
  "serde",
  "thiserror",
@@ -3250,7 +3248,7 @@ dependencies = [
 [[package]]
 name = "ic-http-gateway"
 version = "0.0.0"
-source = "git+https://github.com/dfinity/http-gateway#a1f63eb17b0a89f7fadcab67b3a0afe1720ef9b3"
+source = "git+https://github.com/blind-oracle/http-gateway?branch=pin#b4df8cfaf693cf3e6d3f936956073ee6c5f2f0c1"
 dependencies = [
  "bytes",
  "candid",
@@ -3268,7 +3266,7 @@ dependencies = [
 [[package]]
 name = "ic-representation-independent-hash"
 version = "2.6.0"
-source = "git+https://github.com/dfinity/response-verification#f8a7f42ecfe7be437e4f3e3752b57dbf9b3c9aa9"
+source = "git+https://github.com/dfinity/response-verification?rev=da70db93832f88ecc556ae082612aedec47d3816#da70db93832f88ecc556ae082612aedec47d3816"
 dependencies = [
  "leb128",
  "sha2 0.10.8",
@@ -3277,7 +3275,7 @@ dependencies = [
 [[package]]
 name = "ic-response-verification"
 version = "2.6.0"
-source = "git+https://github.com/dfinity/response-verification#f8a7f42ecfe7be437e4f3e3752b57dbf9b3c9aa9"
+source = "git+https://github.com/dfinity/response-verification?rev=da70db93832f88ecc556ae082612aedec47d3816#da70db93832f88ecc556ae082612aedec47d3816"
 dependencies = [
  "base64 0.21.7",
  "candid",
@@ -3286,7 +3284,7 @@ dependencies = [
  "http 0.2.12",
  "ic-cbor",
  "ic-certificate-verification",
- "ic-certification 2.6.0 (git+https://github.com/dfinity/response-verification)",
+ "ic-certification 2.6.0 (git+https://github.com/dfinity/response-verification?rev=da70db93832f88ecc556ae082612aedec47d3816)",
  "ic-http-certification",
  "ic-representation-independent-hash",
  "leb128",
@@ -6722,37 +6720,6 @@ checksum = "8b9ef9bad013ada3808854ceac7b46812a6465ba368859a37e2100283d2d719c"
 dependencies = [
  "cfg-if",
  "once_cell",
-]
-
-[[package]]
-name = "tikv-jemalloc-ctl"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f21f216790c8df74ce3ab25b534e0718da5a1916719771d3fec23315c99e468b"
-dependencies = [
- "libc",
- "paste",
- "tikv-jemalloc-sys",
-]
-
-[[package]]
-name = "tikv-jemalloc-sys"
-version = "0.6.0+5.3.0-1-ge13ca993e8ccb9ba9847cc330696e02839f328f7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd3c60906412afa9c2b5b5a48ca6a5abe5736aec9eb48ad05037a677e52e4e2d"
-dependencies = [
- "cc",
- "libc",
-]
-
-[[package]]
-name = "tikv-jemallocator"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4cec5ff18518d81584f477e9bfdf957f5bb0979b0bac3af4ca30b5b3ae2d2865"
-dependencies = [
- "libc",
- "tikv-jemalloc-sys",
 ]
 
 [[package]]

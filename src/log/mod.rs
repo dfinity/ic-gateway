@@ -123,7 +123,7 @@ pub fn setup_logging(cli: &Log) -> Result<(), Error> {
         None
     };
 
-    let tokio_layer = if cli.log_tokio_console {
+    let tokio_console_layer = if cli.log_tokio_console {
         Some(console_subscriber::spawn())
     } else {
         None
@@ -147,7 +147,7 @@ pub fn setup_logging(cli: &Log) -> Result<(), Error> {
                 .flatten_event(true)
                 .with_filter(level_filter)
         }))
-        .with(tokio_layer);
+        .with(tokio_console_layer);
 
     tracing::subscriber::set_global_default(subscriber).context("unable to set global subscriber")
 }
