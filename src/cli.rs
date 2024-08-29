@@ -354,6 +354,7 @@ pub struct Log {
 
     /// Enables the Tokio console.
     /// It's listening on 127.0.0.1:6669
+    #[cfg(tokio_unstable)]
     #[clap(env, long)]
     pub log_tokio_console: bool,
 

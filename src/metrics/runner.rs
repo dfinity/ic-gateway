@@ -8,7 +8,7 @@ use axum::{async_trait, extract::State, response::IntoResponse};
 use http::header::CONTENT_TYPE;
 use ic_bn_lib::{tasks::Run, tls::sessions};
 use prometheus::{register_int_gauge_with_registry, Encoder, IntGauge, Registry, TextEncoder};
-//use tikv_jemalloc_ctl::{epoch, stats};
+use tikv_jemalloc_ctl::{epoch, stats};
 use tokio::{select, sync::RwLock};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
@@ -93,11 +93,11 @@ impl MetricsRunner {
 impl MetricsRunner {
     async fn update(&self) -> Result<(), Error> {
         // Record jemalloc memory usage
-        // epoch::advance().unwrap();
-        // self.mem_allocated
-        //     .set(stats::allocated::read().unwrap() as i64);
-        // self.mem_resident
-        //     .set(stats::resident::read().unwrap() as i64);
+        epoch::advance().unwrap();
+        self.mem_allocated
+            .set(stats::allocated::read().unwrap() as i64);
+        self.mem_resident
+            .set(stats::resident::read().unwrap() as i64);
 
         // Record TLS session stats
         let stats = self.tls_session_cache.stats();
