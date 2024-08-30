@@ -161,8 +161,9 @@ pub struct HttpServer {
     #[clap(env, long, default_value = "10s", value_parser = parse_duration)]
     pub http_server_http2_keepalive_timeout: Duration,
 
-    /// How long to wait for the existing connections to finish before shutting down
-    #[clap(env, long, default_value = "10s", value_parser = parse_duration)]
+    /// How long to wait for the existing connections to finish before shutting down.
+    /// Also applies to the the recycling of connections with `http_server_max_requests_per_conn` option.
+    #[clap(env, long, default_value = "60s", value_parser = parse_duration)]
     pub http_server_grace_period: Duration,
 
     /// Maximum size of cache to store TLS sessions in memory
