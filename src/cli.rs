@@ -135,8 +135,8 @@ pub struct HttpServer {
     pub http_server_backlog: u32,
 
     /// Maximum number of HTTP requests to serve over a single connection.
-    /// After this number is reached the connection is closed.
-    /// The default is consistend with nginx's `keepalive_requests` parameter.
+    /// After this number is reached the connection is gracefully closed.
+    /// The default is consistent with nginx's `keepalive_requests` parameter.
     #[clap(env, long, default_value = "1000")]
     pub http_server_max_requests_per_conn: u64,
 
