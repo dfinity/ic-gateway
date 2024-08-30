@@ -162,7 +162,7 @@ pub struct HttpServer {
     pub http_server_http2_keepalive_timeout: Duration,
 
     /// How long to wait for the existing connections to finish before shutting down.
-    /// Also applies to the the recycling of connections with `http_server_max_requests_per_conn` option.
+    /// Also applies to the recycling of connections with `http_server_max_requests_per_conn` option.
     #[clap(env, long, default_value = "60s", value_parser = parse_duration)]
     pub http_server_grace_period: Duration,
 
