@@ -3202,6 +3202,7 @@ dependencies = [
  "futures",
  "futures-util",
  "governor",
+ "hex",
  "hex-literal",
  "hickory-resolver",
  "hostname 0.4.0",

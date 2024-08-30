@@ -432,17 +432,26 @@ async fn report_handler(
     Extension(fw): Extension<Arc<Mutex<Firmware>>>,
     body: Bytes,
 ) -> Result<impl IntoResponse, ApiError> {
-    if body.len() != 64 {
+    if body.len() != 128 {
         return Err(ApiError::Custom(
             StatusCode::BAD_REQUEST,
-            "payload must be exactly 64 bytes".to_string(),
+            "payload must be exactly 128 bytes".to_string(),
         ));
     }
 
-    let data: [u8; 64] = body
+    let body: [u8; 128] = body
         .as_ref()
         .try_into()
         .context("failed to read request body")?;
+
+    // Expect hex payload
+    let mut data = [0u8; 64];
+
+    hex::decode_to_slice(
+        body,       // data
+        &mut data, // out
+    )
+    .context("failed to decode hex string")?;
 
     let r = fw
         .lock()
