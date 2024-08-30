@@ -81,7 +81,7 @@ thiserror = "1.0"
 tikv-jemallocator = "0.6"
 tikv-jemalloc-ctl = { version = "0.6", features = ["stats"] }
 time = { version = "0.3", features = ["macros", "serde"] }
-tokio = { version = "1.39", features = ["full", "tracing"] }
+tokio = { version = "1.40", features = ["full", "tracing"] }
 tokio-util = { version = "0.7.11", features = ["full"] }
 tower = "0.4"
 tower_governor = "0.4"
