@@ -7,8 +7,7 @@
 
 use anyhow::{Context, Error};
 use clap::Parser;
-//#[cfg(not(feature = "dhat-heap"))]
-//use tikv_jemallocator::Jemalloc;
+use tikv_jemallocator::Jemalloc;
 use tracing::warn;
 
 use crate::cli::Cli;
@@ -21,9 +20,8 @@ mod policy;
 mod routing;
 mod tls;
 
-// #[cfg(not(feature = "dhat-heap"))]
-// #[global_allocator]
-// static GLOBAL: Jemalloc = Jemalloc;
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
 
 fn main() -> Result<(), Error> {
     let cli = Cli::parse();
