@@ -18,15 +18,14 @@ candid = "0.10"
 chrono = "0.4"
 clap = { version = "4.5", features = ["derive", "string", "env"] }
 clap_derive = "4.5"
-# TODO lz4 feature requires C++ compiler to build due to cityhash, fails with MUSL.
-# Fork uses a pure Rust cityhash crate
-clickhouse = { git = "https://github.com/dfinity/clickhouse-rs.git", default-features = false, features = [
+clickhouse = { version = "0.12.2", features = [
     "lz4",
-    "inserter",
-    "tls",
     "uuid",
     "time",
+    "inserter",
+    "rustls-tls",
 ] }
+console-subscriber = "0.4"
 ctrlc = { version = "3.4", features = ["termination"] }
 derive-new = "0.6"
 fqdn = "0.3"
@@ -46,7 +45,7 @@ humantime = "2.1"
 hyper-util = "0.1"
 ic-agent = { version = "0.37.1", features = ["reqwest"] }
 ic-bn-lib = { git = "https://github.com/dfinity/ic-bn-lib" }
-ic-http-gateway = { git = "https://github.com/dfinity/http-gateway" }
+ic-http-gateway = { git = "https://github.com/dfinity/http-gateway", tag = "0.1.0-b0" }
 itertools = "0.13"
 lazy_static = "1.5"
 little-loadshedder = "0.2"
@@ -80,7 +79,7 @@ thiserror = "1.0"
 tikv-jemallocator = "0.6"
 tikv-jemalloc-ctl = { version = "0.6", features = ["stats"] }
 time = { version = "0.3", features = ["macros", "serde"] }
-tokio = { version = "1.39", features = ["full"] }
+tokio = { version = "1.40", features = ["full", "tracing"] }
 tokio-util = { version = "0.7.11", features = ["full"] }
 tower = "0.4"
 tower_governor = "0.4"
@@ -114,6 +113,9 @@ strip = "symbols"
 codegen-units = 1
 lto = "fat"
 panic = "abort"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tokio_unstable)'] }
 
 [patch.crates-io]
 ic-agent = { package = "ic-agent", git = "https://github.com/dfinity/agent-rs", branch = "dynamic_route", features = [

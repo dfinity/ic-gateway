@@ -77,12 +77,13 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     } else {
         None
     };
-    let vector = cli
-        .log
-        .vector
-        .log_vector_url
-        .as_ref()
-        .map(|_| Arc::new(metrics::Vector::new(&cli.log.vector, http_client.clone())));
+    let vector = cli.log.vector.log_vector_url.as_ref().map(|_| {
+        Arc::new(metrics::Vector::new(
+            &cli.log.vector,
+            http_client.clone(),
+            &registry,
+        ))
+    });
 
     // List of cancellable tasks to execute & track
     let mut tasks = TaskManager::new();
@@ -124,7 +125,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
 
     // Set up HTTP
     let http_server = Arc::new(http::Server::new(
-        http::server::LocalAddr::Tcp(cli.http_server.http_server_listen_plain),
+        http::server::Addr::Tcp(cli.http_server.http_server_listen_plain),
         http_router,
         (&cli.http_server).into(),
         http_metrics.clone(),
@@ -133,7 +134,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     tasks.add("http_server", http_server);
 
     let https_server = Arc::new(http::Server::new(
-        http::server::LocalAddr::Tcp(cli.http_server.http_server_listen_tls),
+        http::server::Addr::Tcp(cli.http_server.http_server_listen_tls),
         https_router,
         (&cli.http_server).into(),
         http_metrics.clone(),
@@ -146,7 +147,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         let router = metrics::setup(&registry, tls_session_cache, &mut tasks);
 
         let srv = Arc::new(http::Server::new(
-            http::server::LocalAddr::Tcp(addr),
+            http::server::Addr::Tcp(addr),
             router,
             (&cli.http_server).into(),
             http_metrics,

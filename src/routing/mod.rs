@@ -282,8 +282,9 @@ pub async fn setup_router(
             methods: vec![Method::GET],
         };
 
-        let state = Arc::new(Cache::new(opts, KeyExtractorUriRange, registry)?);
-        Some(from_fn_with_state(state, cache::middleware))
+        let cache = Arc::new(Cache::new(opts, KeyExtractorUriRange, registry)?);
+        tasks.add("cache", cache.clone());
+        Some(from_fn_with_state(cache, cache::middleware))
     } else {
         warn!("Running without HTTP cache.");
         None
@@ -320,6 +321,7 @@ pub async fn setup_router(
             http_client,
             cli.cert.cert_provider_issuer_url.clone(),
         ));
+
         let router = Router::new()
             .route(
                 "/registrations/:id",

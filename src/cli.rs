@@ -79,7 +79,12 @@ pub struct HttpClient {
     #[clap(env, long, default_value = "5s", value_parser = parse_duration)]
     pub http_client_timeout_connect: Duration,
 
-    /// Timeout for whole HTTP call
+    /// Timeout for a single read request
+    #[clap(env, long, default_value = "15s", value_parser = parse_duration)]
+    pub http_client_timeout_read: Duration,
+
+    /// Timeout for the whole HTTP call: this includes connecting, sending request,
+    /// receiving response etc.
     #[clap(env, long, default_value = "60s", value_parser = parse_duration)]
     pub http_client_timeout: Duration,
 
@@ -129,6 +134,12 @@ pub struct HttpServer {
     #[clap(env, long, default_value = "2048")]
     pub http_server_backlog: u32,
 
+    /// Maximum number of HTTP requests to serve over a single connection.
+    /// After this number is reached the connection is gracefully closed.
+    /// The default is consistent with nginx's `keepalive_requests` parameter.
+    #[clap(env, long, default_value = "1000")]
+    pub http_server_max_requests_per_conn: u64,
+
     /// For how long to wait for the client to send headers
     /// Currently applies only to HTTP1 connections.
     #[clap(env, long, default_value = "15s", value_parser = parse_duration)]
@@ -150,8 +161,9 @@ pub struct HttpServer {
     #[clap(env, long, default_value = "10s", value_parser = parse_duration)]
     pub http_server_http2_keepalive_timeout: Duration,
 
-    /// How long to wait for the existing connections to finish before shutting down
-    #[clap(env, long, default_value = "10s", value_parser = parse_duration)]
+    /// How long to wait for the existing connections to finish before shutting down.
+    /// Also applies to the recycling of connections with `http_server_max_requests_per_conn` option.
+    #[clap(env, long, default_value = "60s", value_parser = parse_duration)]
     pub http_server_grace_period: Duration,
 
     /// Maximum size of cache to store TLS sessions in memory
@@ -341,6 +353,12 @@ pub struct Log {
     #[clap(env, long)]
     pub log_null: bool,
 
+    /// Enables the Tokio console.
+    /// It's listening on 127.0.0.1:6669
+    #[cfg(tokio_unstable)]
+    #[clap(env, long)]
+    pub log_tokio_console: bool,
+
     /// Enables logging of HTTP requests to stdout/journald/null.
     /// This does not affect Clickhouse/Vector logging targets -
     /// if they're enabled they'll log the requests in any case.
@@ -510,6 +528,7 @@ impl From<&HttpServer> for http::server::Options {
             http2_keepalive_timeout: c.http_server_http2_keepalive_timeout,
             http2_max_streams: c.http_server_http2_max_streams,
             grace_period: c.http_server_grace_period,
+            max_requests_per_conn: Some(c.http_server_max_requests_per_conn),
         }
     }
 }
@@ -518,6 +537,7 @@ impl From<&HttpClient> for http::client::Options {
     fn from(c: &HttpClient) -> Self {
         Self {
             timeout_connect: c.http_client_timeout_connect,
+            timeout_read: c.http_client_timeout_read,
             timeout: c.http_client_timeout,
             tcp_keepalive: Some(c.http_client_tcp_keepalive),
             http2_keepalive: Some(c.http_client_http2_keepalive),
