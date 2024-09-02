@@ -533,7 +533,7 @@ impl From<&HttpServer> for http::server::Options {
     }
 }
 
-impl From<&HttpClient> for http::client::Options {
+impl<R: reqwest::dns::Resolve + Clone + 'static> From<&HttpClient> for http::client::Options<R> {
     fn from(c: &HttpClient) -> Self {
         Self {
             timeout_connect: c.http_client_timeout_connect,
@@ -543,7 +543,8 @@ impl From<&HttpClient> for http::client::Options {
             http2_keepalive: Some(c.http_client_http2_keepalive),
             http2_keepalive_timeout: c.http_client_http2_keepalive_timeout,
             user_agent: crate::core::SERVICE_NAME.into(),
-            tls_config: tls::prepare_client_config(),
+            tls_config: Some(tls::prepare_client_config()),
+            dns_resolver: None,
         }
     }
 }
