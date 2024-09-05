@@ -63,13 +63,23 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     let token = CancellationToken::new();
     let registry = Registry::new_custom(Some(SERVICE_NAME.into()), None)
         .context("unable to create Prometheus registry")?;
+
+    // DNS resolver
     let dns_resolver = http::dns::Resolver::new((&cli.dns).into());
-    let reqwest_client = http::client::new((&cli.http_client).into(), dns_resolver.clone())?;
+
+    // HTTP client
+    let mut http_client_opts: http::client::Options<_> = (&cli.http_client).into();
+    http_client_opts.dns_resolver = Some(dns_resolver.clone());
+    let reqwest_client = http::client::new(http_client_opts)?;
     let http_client = Arc::new(http::ReqwestClient::new(reqwest_client.clone()));
+
+    // TLS session cache
     let tls_session_cache = Arc::new(sessions::Storage::new(
         cli.http_server.http_server_tls_session_cache_size,
         cli.http_server.http_server_tls_session_cache_tti,
     ));
+
+    // Event sinks
     let clickhouse = if cli.log.clickhouse.log_clickhouse_url.is_some() {
         Some(Arc::new(
             metrics::Clickhouse::new(&cli.log.clickhouse).context("unable to init Clickhouse")?,
