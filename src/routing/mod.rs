@@ -359,13 +359,14 @@ pub async fn setup_router(
         .layer(from_fn_with_state(domain_resolver, validate::middleware));
 
     // SEV-SNP (Firmware and handler)
-    let fw = Firmware::open().context("unable to open firmware")?;
-    let fw = Arc::new(Mutex::new(fw));
+    let fw = Firmware::open()
+        .inspect_err(|e| warn!(?e, msg = "unable to open sev-snp firmware"))
+        .ok();
 
-    let report_handler = report_handler.layer(Extension({
-        let v: Arc<Mutex<Firmware>> = fw;
-        v
-    }));
+    let fw = Mutex::new(fw);
+    let fw = Arc::new(fw);
+
+    let report_handler = report_handler.layer(Extension(fw));
 
     // Top-level router
     let router = Router::new()
@@ -429,7 +430,7 @@ impl IntoResponse for ApiError {
 }
 
 async fn report_handler(
-    Extension(fw): Extension<Arc<Mutex<Firmware>>>,
+    Extension(fw): Extension<Arc<Mutex<Option<Firmware>>>>,
     body: Bytes,
 ) -> Result<impl IntoResponse, ApiError> {
     if body.len() != 128 {
@@ -448,14 +449,23 @@ async fn report_handler(
     let mut data = [0u8; 64];
 
     hex::decode_to_slice(
-        body,       // data
+        body,      // data
         &mut data, // out
     )
     .context("failed to decode hex string")?;
 
+    let mut fw = fw.lock().unwrap();
+    let fw = match fw.as_mut() {
+        Some(fw) => fw,
+        None => {
+            return Err(ApiError::Custom(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "the server you have reached does not support sev-snp".to_string(),
+            ))
+        }
+    };
+
     let r = fw
-        .lock()
-        .unwrap()
         .get_report(
             None,       // message_version
             Some(data), // data
