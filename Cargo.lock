@@ -3139,6 +3139,7 @@ dependencies = [
  "ahash 0.8.11",
  "anyhow",
  "arc-swap",
+ "async-channel",
  "async-trait",
  "axum 0.7.5",
  "axum-extra",

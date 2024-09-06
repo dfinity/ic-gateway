@@ -36,6 +36,7 @@ struct Metrics {
     buffer_size: IntGauge,
     batch_size: IntGauge,
     buffer_drops: IntCounter,
+    batch_encoding_failures: IntCounter,
     batch_flush_retries: IntCounter,
     batch_flushes: IntCounterVec,
 }
@@ -60,6 +61,13 @@ impl Metrics {
             buffer_drops: register_int_counter_with_registry!(
                 format!("vector_buffer_drops"),
                 format!("Number of events that were dropped due to buffer overflow"),
+                registry
+            )
+            .unwrap(),
+
+            batch_encoding_failures: register_int_counter_with_registry!(
+                format!("vector_batch_encoding_failures"),
+                format!("Number of batches that were dropped due to encoding failure"),
                 registry
             )
             .unwrap(),
@@ -127,8 +135,10 @@ impl EventEncoder {
 }
 
 pub struct Vector {
-    token: CancellationToken,
-    tracker: TaskTracker,
+    token_batcher: CancellationToken,
+    token_flushers: CancellationToken,
+    tracker_batcher: TaskTracker,
+    tracker_flushers: TaskTracker,
     tx: Sender<Event>,
     metrics: Metrics,
 }
@@ -137,37 +147,60 @@ impl Vector {
     pub fn new(cli: &cli::Vector, client: Arc<dyn http::Client>, registry: &Registry) -> Self {
         let cli = cli.clone();
 
-        let (tx, rx) = channel(cli.log_vector_buffer);
-        let token = CancellationToken::new();
+        let (tx_event, rx_event) = channel(cli.log_vector_buffer);
+        let (tx_batch, rx_batch) = async_channel::bounded(64);
+
+        let metrics = Metrics::new(registry);
+
+        // Start batcher
+        warn!("Vector: starting batcher");
+        let token_batcher = CancellationToken::new();
+        let batcher = Batcher {
+            rx: rx_event,
+            tx: tx_batch,
+            batch: Vec::with_capacity(cli.log_vector_batch),
+            token: token_batcher.child_token(),
+            encoder: EventEncoder::new(),
+            metrics: metrics.clone(),
+        };
+
+        let tracker_batcher = TaskTracker::new();
+        tracker_batcher.spawn(async move {
+            batcher.run(cli.log_vector_interval).await;
+        });
+
+        // Start flushers
+        let token_flushers = CancellationToken::new();
+        let tracker_flushers = TaskTracker::new();
 
         // Prepare auth header
         let auth = cli
             .log_vector_user
             .map(|x| http::client::basic_auth(x, cli.log_vector_pass));
 
-        let metrics = Metrics::new(registry);
+        warn!("Vector: starting flushers ({})", cli.log_vector_flushers);
+        for _ in 0..cli.log_vector_flushers {
+            let flusher = Flusher {
+                rx: rx_batch.clone(),
+                client: client.clone(),
+                url: cli.log_vector_url.clone().unwrap(),
+                auth: auth.clone(),
+                token: token_flushers.child_token(),
+                timeout: cli.log_vector_timeout,
+                metrics: metrics.clone(),
+            };
 
-        let actor = VectorActor {
-            client,
-            url: cli.log_vector_url.unwrap(),
-            batch: Vec::with_capacity(cli.log_vector_batch),
-            auth,
-            rx,
-            token: token.child_token(),
-            encoder: EventEncoder::new(),
-            timeout: cli.log_vector_timeout,
-            metrics: metrics.clone(),
-        };
-
-        let tracker = TaskTracker::new();
-        tracker.spawn(async move {
-            actor.run(cli.log_vector_interval).await;
-        });
+            tracker_flushers.spawn(async move {
+                flusher.run().await;
+            });
+        }
 
         Self {
-            token,
-            tracker,
-            tx,
+            token_batcher,
+            token_flushers,
+            tracker_batcher,
+            tracker_flushers,
+            tx: tx_event,
             metrics,
         }
     }
@@ -185,39 +218,106 @@ impl Vector {
     }
 
     pub async fn stop(&self) {
-        warn!("Vector: shutting down actor");
-        self.token.cancel();
-        self.tracker.close();
-        self.tracker.wait().await;
+        warn!("Vector: shutting down batcher");
+        self.token_batcher.cancel();
+        self.tracker_batcher.close();
+        self.tracker_batcher.wait().await;
+
+        warn!("Vector: shutting down flushers");
+        self.token_flushers.cancel();
+        self.tracker_flushers.close();
+        self.tracker_flushers.wait().await;
     }
 }
 
-struct VectorActor {
+struct Batcher {
     rx: Receiver<Event>,
+    tx: async_channel::Sender<Bytes>,
     batch: Vec<Event>,
-
-    client: Arc<dyn http::Client>,
-    timeout: Duration,
-    url: Url,
-    auth: Option<HeaderValue>,
-
     encoder: EventEncoder,
     token: CancellationToken,
     metrics: Metrics,
 }
 
-impl VectorActor {
-    async fn add_to_batch(&mut self, event: Event) -> Result<(), Error> {
+impl Batcher {
+    async fn add_to_batch(&mut self, event: Event) {
         self.batch.push(event);
         self.metrics.batch_size.set(self.batch.len() as i64);
 
         if self.batch.len() == self.batch.capacity() {
-            self.flush().await?;
+            self.flush().await;
         }
-
-        Ok(())
     }
 
+    async fn flush(&mut self) {
+        if self.batch.is_empty() {
+            return;
+        }
+
+        // Encode the batch
+        let mut encoder = self.encoder.clone();
+        let Ok(batch) = encoder.encode_batch(&mut self.batch) else {
+            self.metrics.batch_encoding_failures.inc();
+            self.batch.clear();
+            return;
+        };
+
+        // In our case the Batcher is dropped before the Flusher, so no error can occur
+        let _ = self.tx.send(batch).await;
+    }
+
+    async fn drain(&mut self) {
+        // Close the channel
+        self.rx.close();
+
+        // Drain the buffer
+        while let Some(v) = self.rx.recv().await {
+            self.add_to_batch(v).await;
+        }
+
+        // Flush the rest if anything left
+        self.flush().await;
+    }
+
+    async fn run(mut self, flush_interval: Duration) {
+        let mut interval = interval(flush_interval);
+
+        warn!("Vector: Batcher started");
+        loop {
+            select! {
+                biased;
+
+                () = self.token.cancelled() => {
+                    warn!("Vector: Batcher: stopping, draining");
+                    self.drain().await;
+                    warn!("Vector: Batcher: stopped");
+                    return;
+                }
+
+                _ = interval.tick() => {
+                    self.flush().await;
+                }
+
+                Some(event) = self.rx.recv() => {
+                    self.metrics.buffer_size.dec();
+                    self.add_to_batch(event).await;
+                }
+            }
+        }
+    }
+}
+
+struct Flusher {
+    rx: async_channel::Receiver<Bytes>,
+    client: Arc<dyn http::Client>,
+    timeout: Duration,
+    url: Url,
+    auth: Option<HeaderValue>,
+    token: CancellationToken,
+    metrics: Metrics,
+}
+
+impl Flusher {
     // Sends the given body to Vector
     async fn send(&self, body: Bytes) -> Result<(), Error> {
         let mut request = Request::new(Method::POST, self.url.clone());
@@ -247,18 +347,7 @@ impl VectorActor {
         Ok(())
     }
 
-    async fn flush(&mut self) -> Result<(), Error> {
-        if self.batch.is_empty() {
-            return Ok(());
-        }
-
-        // Encode the batch
-        let mut encoder = self.encoder.clone();
-        let Ok(body) = encoder.encode_batch(&mut self.batch) else {
-            self.batch.clear();
-            return Err(anyhow!("unable to encode batch, dropping it"));
-        };
-
+    async fn flush(&self, batch: Bytes) -> Result<(), Error> {
         // Retry
         // TODO make configurable?
         let mut interval = RETRY_INTERVAL;
@@ -266,8 +355,11 @@ impl VectorActor {
 
         while retries > 0 {
             // Bytes is cheap to clone
-            if let Err(e) = self.send(body.clone()).await {
-                warn!("Vector: unable to flush batch: {e:#}");
+            if let Err(e) = self.send(batch.clone()).await {
+                warn!(
+                    "Vector: Batcher: unable to send (try {}): {e:#}",
+                    RETRY_COUNT - retries + 1
+                );
             } else {
                 self.metrics.batch_flushes.with_label_values(&["yes"]).inc();
                 return Ok(());
@@ -285,49 +377,40 @@ impl VectorActor {
         Err(anyhow!("unable to flush batch: retries exhausted"))
     }
 
-    async fn drain(&mut self) -> Result<(), Error> {
+    async fn drain(&self) -> Result<(), Error> {
         // Close the channel
         self.rx.close();
 
         // Drain the buffer
-        while let Some(v) = self.rx.recv().await {
-            self.add_to_batch(v).await.context("unable to flush")?;
+        while let Ok(v) = self.rx.recv().await {
+            self.flush(v).await.context("unable to flush")?;
         }
 
-        // Flush the rest if anything left
-        self.flush().await.context("unable to flush")
+        Ok(())
     }
 
-    async fn run(mut self, flush_interval: Duration) {
-        let mut interval = interval(flush_interval);
+    async fn run(self) {
+        warn!("Vector: Flusher started");
 
-        warn!("Vector: started");
         loop {
             select! {
                 biased;
 
                 () = self.token.cancelled() => {
-                    warn!("Vector: stopping, draining");
+                    warn!("Vector: Flusher: stopping, draining");
+
                     if let Err(e) = self.drain().await {
-                        warn!("Vector: unable to drain: {e:#}");
+                        warn!("Vector: Flusher: unable to drain: {e:#}");
                     }
 
-                    warn!("Vector: stopped");
+                    warn!("Vector: Flusher: stopped");
                     return;
                 }
 
-                _ = interval.tick() => {
-                    if let Err(e) = self.flush().await {
-                        warn!("Vector: unable to flush: {e:#}");
-                    }
-                }
-
-                Some(event) = self.rx.recv() => {
-                    self.metrics.buffer_size.dec();
-
-                    if let Err(e) = self.add_to_batch(event).await {
-                        warn!("Vector: unable to flush: {e:#}");
-                    }
+                Ok(batch) = self.rx.recv() => {
+                    if let Err(e) = self.flush(batch).await {
+                        warn!("Vector: Flusher: unable to flush: {e:#}");
+                    };
                 }
             }
         }
@@ -397,6 +480,7 @@ mod test {
             log_vector_buffer: 5000,
             log_vector_interval: Duration::from_secs(100),
             log_vector_timeout: Duration::from_secs(10),
+            log_vector_flushers: 4,
         };
 
         // 32 bytes on wire
@@ -407,10 +491,8 @@ mod test {
         let client = Arc::new(TestClient(AtomicU64::new(0), AtomicU64::new(0)));
         let vector = Vector::new(&cli, client.clone(), &Registry::new());
 
-        let mut i = 6000;
-        while i > 0 {
+        for _ in 0..6000 {
             vector.send(event.clone());
-            i -= 1;
         }
 
         vector.stop().await;
