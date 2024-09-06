@@ -263,10 +263,7 @@ impl Batcher {
         };
 
         // In our case the Batcher is dropped before the Flusher, so no error can occur
-        //let _ = self.tx.send(batch).await;
-        if self.tx.send(batch).await.is_err() {
-            warn!("error");
-        }
+        let _ = self.tx.send(batch).await;
     }
 
     async fn drain(&mut self) {
