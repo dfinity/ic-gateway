@@ -1,9 +1,9 @@
 use std::{sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Context, Error};
+use async_channel::{bounded, Receiver, Sender};
 use bytes::{Bytes, BytesMut};
-use ic_bn_lib::http;
-use ic_bn_lib::http::headers::CONTENT_TYPE_OCTET_STREAM;
+use ic_bn_lib::http::{self, headers::CONTENT_TYPE_OCTET_STREAM};
 use prometheus::{
     register_int_counter_vec_with_registry, register_int_counter_with_registry,
     register_int_gauge_with_registry, IntCounter, IntCounterVec, IntGauge, Registry,
@@ -14,15 +14,14 @@ use reqwest::{
 };
 use tokio::{
     select,
-    sync::mpsc::{channel, Receiver, Sender},
-    time::{interval, sleep, timeout},
+    time::{interval, sleep},
 };
 use tokio_util::{
     codec::{Encoder, LengthDelimitedCodec},
     sync::CancellationToken,
     task::TaskTracker,
 };
-use tracing::warn;
+use tracing::{info, warn};
 use url::Url;
 use vector_lib::{codecs::encoding::NativeSerializer, config::LogNamespace, event::Event};
 
@@ -147,8 +146,8 @@ impl Vector {
     pub fn new(cli: &cli::Vector, client: Arc<dyn http::Client>, registry: &Registry) -> Self {
         let cli = cli.clone();
 
-        let (tx_event, rx_event) = channel(cli.log_vector_buffer);
-        let (tx_batch, rx_batch) = async_channel::bounded(64);
+        let (tx_event, rx_event) = bounded(cli.log_vector_buffer);
+        let (tx_batch, rx_batch) = bounded(64);
 
         let metrics = Metrics::new(registry);
 
@@ -232,7 +231,7 @@ impl Vector {
 
 struct Batcher {
     rx: Receiver<Event>,
-    tx: async_channel::Sender<Bytes>,
+    tx: Sender<Bytes>,
     batch: Vec<Event>,
     encoder: EventEncoder,
     token: CancellationToken,
@@ -263,7 +262,9 @@ impl Batcher {
         };
 
         // In our case the Batcher is dropped before the Flusher, so no error can occur
+        info!("Vector: Batcher: queueing batch (len {})", batch.len());
         let _ = self.tx.send(batch).await;
+        info!("Vector: Batcher: batch sent");
     }
 
     async fn drain(&mut self) {
@@ -271,7 +272,7 @@ impl Batcher {
         self.rx.close();
 
         // Drain the buffer
-        while let Some(v) = self.rx.recv().await {
+        while let Ok(v) = self.rx.recv().await {
             self.add_to_batch(v).await;
         }
 
@@ -298,7 +299,7 @@ impl Batcher {
                     self.flush().await;
                 }
 
-                Some(event) = self.rx.recv() => {
+                Ok(event) = self.rx.recv() => {
                     self.metrics.buffer_size.dec();
                     self.add_to_batch(event).await;
                 }
@@ -308,7 +309,7 @@ impl Batcher {
 }
 
 struct Flusher {
-    rx: async_channel::Receiver<Bytes>,
+    rx: Receiver<Bytes>,
     client: Arc<dyn http::Client>,
     timeout: Duration,
     url: Url,
@@ -335,13 +336,14 @@ impl Flusher {
         *request.body_mut() = Some(body.into());
         *request.timeout_mut() = Some(self.timeout);
 
-        let response = timeout(self.timeout, self.client.execute(request))
+        let response = self
+            .client
+            .execute(request)
             .await
-            .context("HTTP request timed out")?
             .context("unable to execute HTTP request")?;
 
         if !response.status().is_success() {
-            return Err(anyhow!("Incorrect HTTP code: {}", response.status()));
+            return Err(anyhow!("incorrect HTTP code: {}", response.status()));
         }
 
         Ok(())
@@ -354,14 +356,20 @@ impl Flusher {
         let mut retries = RETRY_COUNT;
 
         while retries > 0 {
+            info!(
+                "Vector: Flusher: sending batch (retry {})",
+                RETRY_COUNT - retries + 1
+            );
+
             // Bytes is cheap to clone
             if let Err(e) = self.send(batch.clone()).await {
                 warn!(
-                    "Vector: Batcher: unable to send (try {}): {e:#}",
+                    "Vector: Flusher: unable to send (try {}): {e:#}",
                     RETRY_COUNT - retries + 1
                 );
             } else {
                 self.metrics.batch_flushes.with_label_values(&["yes"]).inc();
+                info!("Vector: Flusher: batch sent");
                 return Ok(());
             }
 
@@ -408,9 +416,13 @@ impl Flusher {
                 }
 
                 Ok(batch) = self.rx.recv() => {
+                    info!("Vector: Flusher: received batch (len {})", batch.len());
+
                     if let Err(e) = self.flush(batch).await {
                         warn!("Vector: Flusher: unable to flush: {e:#}");
                     };
+
+                    info!("Vector: Flusher: received batch flushed");
                 }
             }
         }
