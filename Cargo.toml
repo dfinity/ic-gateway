@@ -101,6 +101,7 @@ uuid = { version = "1.10", features = ["v7"] }
 vector-lib = { git = "https://github.com/dfinity/vector.git" }
 webpki-roots = "0.26"
 x509-parser = "0.16"
+zstd = "0.13.2"
 
 [dev-dependencies]
 hex-literal = "0.4"
