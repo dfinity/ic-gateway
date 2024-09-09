@@ -418,7 +418,7 @@ pub struct Vector {
     pub log_vector_pass: Option<String>,
 
     /// Vector batch size
-    #[clap(env, long, default_value = "50000")]
+    #[clap(env, long, default_value = "10000")]
     pub log_vector_batch: usize,
 
     /// Vector batch flush interval

@@ -141,6 +141,7 @@ impl Aggregator {
 impl Run for Aggregator {
     async fn run(&self, token: CancellationToken) -> Result<(), Error> {
         let mut interval = tokio::time::interval(self.poll_interval);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         loop {
             select! {

@@ -3206,6 +3206,7 @@ dependencies = [
  "vector-lib",
  "webpki-roots 0.26.5",
  "x509-parser",
+ "zstd",
 ]
 
 [[package]]

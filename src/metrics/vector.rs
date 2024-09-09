@@ -1,8 +1,12 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    fmt::Display,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use anyhow::{anyhow, Context, Error};
 use async_channel::{bounded, Receiver, Sender};
-use bytes::{Bytes, BytesMut};
+use bytes::{Buf, Bytes, BytesMut};
 use ic_bn_lib::http::{self, headers::CONTENT_TYPE_OCTET_STREAM};
 use prometheus::{
     register_int_counter_vec_with_registry, register_int_counter_with_registry,
@@ -29,6 +33,7 @@ use crate::cli;
 
 const RETRY_INTERVAL: Duration = Duration::from_millis(200);
 const RETRY_COUNT: usize = 5;
+const CONTENT_ENCODING_ZSTD: HeaderValue = HeaderValue::from_static("zstd");
 
 #[derive(Clone)]
 struct Metrics {
@@ -178,8 +183,9 @@ impl Vector {
             .map(|x| http::client::basic_auth(x, cli.log_vector_pass));
 
         warn!("Vector: starting flushers ({})", cli.log_vector_flushers);
-        for _ in 0..cli.log_vector_flushers {
+        for id in 0..cli.log_vector_flushers {
             let flusher = Flusher {
+                id,
                 rx: rx_batch.clone(),
                 client: client.clone(),
                 url: cli.log_vector_url.clone().unwrap(),
@@ -255,16 +261,40 @@ impl Batcher {
 
         // Encode the batch
         let mut encoder = self.encoder.clone();
-        let Ok(batch) = encoder.encode_batch(&mut self.batch) else {
-            self.metrics.batch_encoding_failures.inc();
-            self.batch.clear();
-            return;
+        let batch = match encoder.encode_batch(&mut self.batch) {
+            Ok(v) => v,
+            Err(e) => {
+                warn!("Vector: Batcher: unable to encode batch: {e:#}");
+                self.metrics.batch_encoding_failures.inc();
+                self.batch.clear();
+                return;
+            }
         };
+        let batch_size = batch.len();
+
+        let batch = match zstd::encode_all(batch.reader(), 5) {
+            Ok(v) => v,
+            Err(e) => {
+                warn!("Vector: Batcher: unable to compress batch: {e:#}");
+                self.metrics.batch_encoding_failures.inc();
+                self.batch.clear();
+                return;
+            }
+        };
+        let batch = Bytes::from(batch);
 
         // In our case the Batcher is dropped before the Flusher, so no error can occur
-        info!("Vector: Batcher: queueing batch (len {})", batch.len());
+        let start = Instant::now();
+        info!(
+            "Vector: Batcher: queueing batch (len {}, compressed {})",
+            batch_size,
+            batch.len()
+        );
         let _ = self.tx.send(batch).await;
-        info!("Vector: Batcher: batch sent");
+        info!(
+            "Vector: Batcher: batch queued in {}s",
+            start.elapsed().as_secs_f64()
+        );
     }
 
     async fn drain(&mut self) {
@@ -282,6 +312,7 @@ impl Batcher {
 
     async fn run(mut self, flush_interval: Duration) {
         let mut interval = interval(flush_interval);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         warn!("Vector: Batcher started");
         loop {
@@ -309,6 +340,7 @@ impl Batcher {
 }
 
 struct Flusher {
+    id: usize,
     rx: Receiver<Bytes>,
     client: Arc<dyn http::Client>,
     timeout: Duration,
@@ -318,6 +350,12 @@ struct Flusher {
     metrics: Metrics,
 }
 
+impl Display for Flusher {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Flusher{}", self.id)
+    }
+}
+
 impl Flusher {
     // Sends the given body to Vector
     async fn send(&self, body: Bytes) -> Result<(), Error> {
@@ -325,6 +363,9 @@ impl Flusher {
         request
             .headers_mut()
             .insert(header::CONTENT_TYPE, CONTENT_TYPE_OCTET_STREAM);
+        request
+            .headers_mut()
+            .insert(header::CONTENT_ENCODING, CONTENT_ENCODING_ZSTD);
 
         // Add basic auth header if configured
         if let Some(v) = &self.auth {
@@ -357,19 +398,19 @@ impl Flusher {
 
         while retries > 0 {
             info!(
-                "Vector: Flusher: sending batch (retry {})",
+                "Vector: {self}: sending batch (retry {})",
                 RETRY_COUNT - retries + 1
             );
 
             // Bytes is cheap to clone
             if let Err(e) = self.send(batch.clone()).await {
                 warn!(
-                    "Vector: Flusher: unable to send (try {}): {e:#}",
+                    "Vector: {self}: unable to send (try {}): {e:#}",
                     RETRY_COUNT - retries + 1
                 );
             } else {
                 self.metrics.batch_flushes.with_label_values(&["yes"]).inc();
-                info!("Vector: Flusher: batch sent");
+                info!("Vector: {self}: batch sent");
                 return Ok(());
             }
 
@@ -398,31 +439,31 @@ impl Flusher {
     }
 
     async fn run(self) {
-        warn!("Vector: Flusher started");
+        warn!("Vector: {self} started");
 
         loop {
             select! {
                 biased;
 
                 () = self.token.cancelled() => {
-                    warn!("Vector: Flusher: stopping, draining");
+                    warn!("Vector: {self}: stopping, draining");
 
                     if let Err(e) = self.drain().await {
-                        warn!("Vector: Flusher: unable to drain: {e:#}");
+                        warn!("Vector: {self}: unable to drain: {e:#}");
                     }
 
-                    warn!("Vector: Flusher: stopped");
+                    warn!("Vector: {self}: stopped");
                     return;
                 }
 
                 Ok(batch) = self.rx.recv() => {
-                    info!("Vector: Flusher: received batch (len {})", batch.len());
+                    info!("Vector: {self}: received batch (len {})", batch.len());
 
                     if let Err(e) = self.flush(batch).await {
-                        warn!("Vector: Flusher: unable to flush: {e:#}");
+                        warn!("Vector: {self}: unable to flush: {e:#}");
                     };
 
-                    info!("Vector: Flusher: received batch flushed");
+                    info!("Vector: {self}: received batch flushed");
                 }
             }
         }
@@ -495,15 +536,14 @@ mod test {
             log_vector_flushers: 4,
         };
 
-        // 32 bytes on wire
-        let event = json!({
-            "foo": "bar",
-        });
-
         let client = Arc::new(TestClient(AtomicU64::new(0), AtomicU64::new(0)));
         let vector = Vector::new(&cli, client.clone(), &Registry::new());
 
-        for _ in 0..6000 {
+        for i in 0..6000 {
+            let event = json!({
+                format!("foo{i}"): format!("bar{i}"),
+            });
+
             vector.send(event.clone());
         }
 
@@ -511,6 +551,6 @@ mod test {
 
         // 6k sent, buffer 5k => 1k will be dropped
         assert_eq!(client.0.load(Ordering::SeqCst), 100);
-        assert_eq!(client.1.load(Ordering::SeqCst), 5000 * 32);
+        assert_eq!(client.1.load(Ordering::SeqCst), 16981); // Compressed size
     }
 }

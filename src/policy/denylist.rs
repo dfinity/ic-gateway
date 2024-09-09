@@ -165,6 +165,8 @@ impl Run for Denylist {
         );
 
         let mut interval = tokio::time::interval(self.update_interval);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
         loop {
             select! {
                 biased;
