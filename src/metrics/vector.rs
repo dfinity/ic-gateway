@@ -536,15 +536,14 @@ mod test {
             log_vector_flushers: 4,
         };
 
-        // 32 bytes on wire
-        let event = json!({
-            "foo": "bar",
-        });
-
         let client = Arc::new(TestClient(AtomicU64::new(0), AtomicU64::new(0)));
         let vector = Vector::new(&cli, client.clone(), &Registry::new());
 
-        for _ in 0..6000 {
+        for i in 0..6000 {
+            let event = json!({
+                format!("foo{i}"): format!("bar{i}"),
+            });
+
             vector.send(event.clone());
         }
 
@@ -552,6 +551,6 @@ mod test {
 
         // 6k sent, buffer 5k => 1k will be dropped
         assert_eq!(client.0.load(Ordering::SeqCst), 100);
-        assert_eq!(client.1.load(Ordering::SeqCst), 5000 * 32);
+        assert_eq!(client.1.load(Ordering::SeqCst), 16981); // Compressed size
     }
 }
