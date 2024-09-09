@@ -343,7 +343,7 @@ impl Flusher {
             .context("unable to execute HTTP request")?;
 
         if !response.status().is_success() {
-            return Err(anyhow!("Incorrect HTTP code: {}", response.status()));
+            return Err(anyhow!("incorrect HTTP code: {}", response.status()));
         }
 
         Ok(())
@@ -416,13 +416,13 @@ impl Flusher {
                 }
 
                 Ok(batch) = self.rx.recv() => {
-                    info!("Vector: Flusher: flushing batch (len {})", batch.len());
+                    info!("Vector: Flusher: received batch (len {})", batch.len());
 
                     if let Err(e) = self.flush(batch).await {
                         warn!("Vector: Flusher: unable to flush: {e:#}");
                     };
 
-                    info!("Vector: Flusher: batch flushed");
+                    info!("Vector: Flusher: received batch flushed");
                 }
             }
         }
