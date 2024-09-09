@@ -3,8 +3,7 @@ use std::{sync::Arc, time::Duration};
 use anyhow::{anyhow, Context, Error};
 use async_channel::{bounded, Receiver, Sender};
 use bytes::{Bytes, BytesMut};
-use ic_bn_lib::http;
-use ic_bn_lib::http::headers::CONTENT_TYPE_OCTET_STREAM;
+use ic_bn_lib::http::{self, headers::CONTENT_TYPE_OCTET_STREAM};
 use prometheus::{
     register_int_counter_vec_with_registry, register_int_counter_with_registry,
     register_int_gauge_with_registry, IntCounter, IntCounterVec, IntGauge, Registry,
@@ -22,7 +21,7 @@ use tokio_util::{
     sync::CancellationToken,
     task::TaskTracker,
 };
-use tracing::warn;
+use tracing::{info, warn};
 use url::Url;
 use vector_lib::{codecs::encoding::NativeSerializer, config::LogNamespace, event::Event};
 
@@ -263,7 +262,9 @@ impl Batcher {
         };
 
         // In our case the Batcher is dropped before the Flusher, so no error can occur
+        info!("Vector: Batcher: queueing batch (len {})", batch.len());
         let _ = self.tx.send(batch).await;
+        info!("Vector: Batcher: batch sent");
     }
 
     async fn drain(&mut self) {
@@ -355,14 +356,20 @@ impl Flusher {
         let mut retries = RETRY_COUNT;
 
         while retries > 0 {
+            info!(
+                "Vector: Flusher: sending batch (retry {})",
+                RETRY_COUNT - retries + 1
+            );
+
             // Bytes is cheap to clone
             if let Err(e) = self.send(batch.clone()).await {
                 warn!(
-                    "Vector: Batcher: unable to send (try {}): {e:#}",
+                    "Vector: Flusher: unable to send (try {}): {e:#}",
                     RETRY_COUNT - retries + 1
                 );
             } else {
                 self.metrics.batch_flushes.with_label_values(&["yes"]).inc();
+                info!("Vector: Flusher: batch sent");
                 return Ok(());
             }
 
@@ -409,9 +416,13 @@ impl Flusher {
                 }
 
                 Ok(batch) = self.rx.recv() => {
+                    info!("Vector: Flusher: flushing batch (len {})", batch.len());
+
                     if let Err(e) = self.flush(batch).await {
                         warn!("Vector: Flusher: unable to flush: {e:#}");
                     };
+
+                    info!("Vector: Flusher: batch flushed");
                 }
             }
         }
