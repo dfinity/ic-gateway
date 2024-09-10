@@ -6,7 +6,7 @@ use std::{
 use anyhow::Error;
 use arc_swap::ArcSwap;
 use axum::{async_trait, extract::State, response::IntoResponse};
-use bytes::Bytes;
+use bytes::{BufMut, Bytes, BytesMut};
 use http::header::CONTENT_TYPE;
 use ic_bn_lib::{tasks::Run, tls::sessions};
 use prometheus::{register_int_gauge_with_registry, Encoder, IntGauge, Registry, TextEncoder};
@@ -109,13 +109,13 @@ impl MetricsRunner {
         let metric_families = self.registry.gather();
 
         // Encode the metrics into the buffer
-        let mut buffer = Vec::with_capacity(10 * 1024 * 1024);
+        let mut buffer = BytesMut::with_capacity(10 * 1024 * 1024).writer();
         self.encoder.encode(&metric_families, &mut buffer)?;
 
         // Store the new snapshot
         self.metrics_cache
             .buffer
-            .store(Arc::new(Bytes::from(buffer)));
+            .store(Arc::new(buffer.into_inner().freeze()));
 
         Ok(())
     }
