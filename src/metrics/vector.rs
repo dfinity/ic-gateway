@@ -270,26 +270,10 @@ impl Batcher {
                 return;
             }
         };
-        let batch_size = batch.len();
-
-        let batch = match zstd::encode_all(batch.reader(), 5) {
-            Ok(v) => v,
-            Err(e) => {
-                warn!("Vector: Batcher: unable to compress batch: {e:#}");
-                self.metrics.batch_encoding_failures.inc();
-                self.batch.clear();
-                return;
-            }
-        };
-        let batch = Bytes::from(batch);
 
         // In our case the Batcher is dropped before the Flusher, so no error can occur
         let start = Instant::now();
-        info!(
-            "Vector: Batcher: queueing batch (len {}, compressed {})",
-            batch_size,
-            batch.len()
-        );
+        info!("Vector: Batcher: queueing batch (len {})", batch.len());
         let _ = self.tx.send(batch).await;
         info!(
             "Vector: Batcher: batch queued in {}s",
@@ -391,14 +375,21 @@ impl Flusher {
     }
 
     async fn flush(&self, batch: Bytes) -> Result<(), Error> {
+        let raw_size = batch.len();
+
+        let batch = zstd::encode_all(batch.reader(), 3).context("unable to compress batch")?;
+        let batch = Bytes::from(batch);
+
         // Retry
         // TODO make configurable?
         let mut interval = RETRY_INTERVAL;
         let mut retries = RETRY_COUNT;
 
         while retries > 0 {
+            let start = Instant::now();
             info!(
-                "Vector: {self}: sending batch (retry {})",
+                "Vector: {self}: sending batch (raw size {raw_size}, compressed {}, retry {})",
+                batch.len(),
                 RETRY_COUNT - retries + 1
             );
 
@@ -410,7 +401,10 @@ impl Flusher {
                 );
             } else {
                 self.metrics.batch_flushes.with_label_values(&["yes"]).inc();
-                info!("Vector: {self}: batch sent");
+                info!(
+                    "Vector: {self}: batch sent in {}s",
+                    start.elapsed().as_secs_f64()
+                );
                 return Ok(());
             }
 
@@ -551,6 +545,6 @@ mod test {
 
         // 6k sent, buffer 5k => 1k will be dropped
         assert_eq!(client.0.load(Ordering::SeqCst), 100);
-        assert_eq!(client.1.load(Ordering::SeqCst), 16981); // Compressed size
+        assert_eq!(client.1.load(Ordering::SeqCst), 16327); // Compressed size
     }
 }

@@ -427,13 +427,13 @@ pub struct Vector {
 
     /// Vector buffer size (in number of events) to account for ingest problems.
     /// If the buffer is full then new events will be dropped.
-    #[clap(env, long, default_value = "131072")]
+    #[clap(env, long, default_value = "524288")]
     pub log_vector_buffer: usize,
 
     /// Number of batch flusher tasks to spawn.
     /// If there's a big event volume - increasing this number might help.
-    /// Each task is flushing a single batch which contains time-orderded events.
-    #[clap(env, long, default_value = "4")]
+    /// Each task is flushing a single batch which contains time-ordered events.
+    #[clap(env, long, default_value = "8")]
     pub log_vector_flushers: usize,
 
     /// Vector HTTP request timeout for a batch flush
