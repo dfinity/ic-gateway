@@ -4,12 +4,14 @@ use std::{
 };
 
 use anyhow::Error;
+use arc_swap::ArcSwap;
 use axum::{async_trait, extract::State, response::IntoResponse};
+use bytes::Bytes;
 use http::header::CONTENT_TYPE;
 use ic_bn_lib::{tasks::Run, tls::sessions};
 use prometheus::{register_int_gauge_with_registry, Encoder, IntGauge, Registry, TextEncoder};
 use tikv_jemalloc_ctl::{epoch, stats};
-use tokio::{select, sync::RwLock};
+use tokio::select;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 
@@ -17,20 +19,19 @@ use tracing::{debug, warn};
 const PROMETHEUS_CONTENT_TYPE: &str = "text/plain; version=0.0.4";
 
 pub struct MetricsCache {
-    buffer: Vec<u8>,
+    buffer: ArcSwap<Bytes>,
 }
 
 impl MetricsCache {
-    pub fn new(capacity: usize) -> Self {
+    pub fn new() -> Self {
         Self {
-            // Preallocate a large enough vector, it'll be expanded if needed
-            buffer: Vec::with_capacity(capacity),
+            buffer: ArcSwap::new(Arc::new(Bytes::from(vec![]))),
         }
     }
 }
 
 pub struct MetricsRunner {
-    metrics_cache: Arc<RwLock<MetricsCache>>,
+    metrics_cache: Arc<MetricsCache>,
     registry: Registry,
     tls_session_cache: Arc<sessions::Storage>,
     encoder: TextEncoder,
@@ -45,7 +46,7 @@ pub struct MetricsRunner {
 // Snapshots & encodes the metrics for the handler to export
 impl MetricsRunner {
     pub fn new(
-        metrics_cache: Arc<RwLock<MetricsCache>>,
+        metrics_cache: Arc<MetricsCache>,
         registry: &Registry,
         tls_session_cache: Arc<sessions::Storage>,
     ) -> Self {
@@ -107,12 +108,14 @@ impl MetricsRunner {
         // Get a snapshot of metrics
         let metric_families = self.registry.gather();
 
-        // Take a write lock, truncate the vector and encode the metrics into it
-        let mut metrics_cache = self.metrics_cache.write().await;
-        metrics_cache.buffer.clear();
-        self.encoder
-            .encode(&metric_families, &mut metrics_cache.buffer)?;
-        drop(metrics_cache); // clippy
+        // Encode the metrics into the buffer
+        let mut buffer = Vec::with_capacity(10 * 1024 * 1024);
+        self.encoder.encode(&metric_families, &mut buffer)?;
+
+        // Store the new snapshot
+        self.metrics_cache
+            .buffer
+            .store(Arc::new(Bytes::from(buffer)));
 
         Ok(())
     }
@@ -147,10 +150,9 @@ impl Run for MetricsRunner {
     }
 }
 
-pub async fn handler(State(state): State<Arc<RwLock<MetricsCache>>>) -> impl IntoResponse {
-    // Get a read lock and clone the buffer contents
+pub async fn handler(State(state): State<Arc<MetricsCache>>) -> impl IntoResponse {
     (
         [(CONTENT_TYPE, PROMETHEUS_CONTENT_TYPE)],
-        state.read().await.buffer.clone(),
+        state.buffer.load_full().as_ref().clone(),
     )
 }
