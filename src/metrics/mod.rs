@@ -31,7 +31,6 @@ use prometheus::{
     IntCounterVec, Registry,
 };
 use serde_json::json;
-use tokio::sync::RwLock;
 use tower_http::compression::CompressionLayer;
 use tracing::info;
 
@@ -51,7 +50,6 @@ pub use {
 };
 
 const KB: f64 = 1024.0;
-const METRICS_CACHE_CAPACITY: usize = 15 * 1024 * 1024;
 
 pub const HTTP_DURATION_BUCKETS: &[f64] = &[0.05, 0.2, 1.0, 2.0];
 pub const HTTP_REQUEST_SIZE_BUCKETS: &[f64] = &[128.0, KB, 2.0 * KB, 4.0 * KB, 8.0 * KB];
@@ -62,9 +60,7 @@ pub fn setup(
     tls_session_cache: Arc<sessions::Storage>,
     tasks: &mut TaskManager,
 ) -> Router {
-    let cache = Arc::new(RwLock::new(runner::MetricsCache::new(
-        METRICS_CACHE_CAPACITY,
-    )));
+    let cache = Arc::new(runner::MetricsCache::new());
     let runner = Arc::new(runner::MetricsRunner::new(
         cache.clone(),
         registry,
