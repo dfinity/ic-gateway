@@ -417,8 +417,9 @@ pub struct Vector {
     #[clap(env, long)]
     pub log_vector_pass: Option<String>,
 
-    /// Vector batch size
-    #[clap(env, long, default_value = "10000")]
+    /// Vector batch size in bytes, uncompressed.
+    /// When it's exceeded then the batch is closed & queued for sending.
+    #[clap(env, long, default_value = "16MB", value_parser = parse_size_usize)]
     pub log_vector_batch: usize,
 
     /// Vector batch flush interval
