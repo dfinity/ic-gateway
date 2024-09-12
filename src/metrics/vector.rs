@@ -274,10 +274,16 @@ struct Batcher {
     metrics: Metrics,
 }
 
+impl Display for Batcher {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Vector: Batcher")
+    }
+}
+
 impl Batcher {
     fn add_to_batch(&mut self, event: Event) {
         if let Err(e) = self.encoder.encode_event(event, &mut self.batch) {
-            warn!("Vector: Batcher: unable to encode event: {e:#}");
+            warn!("{self}: unable to encode event: {e:#}");
             self.metrics.encoding_failures.inc();
 
             // Reclaim back the space that was split off
@@ -303,13 +309,10 @@ impl Batcher {
         let batch = self.batch.clone().freeze();
 
         let start = Instant::now();
-        info!("Vector: Batcher: queueing batch (len {})", batch.len());
+        info!("{self}: queueing batch (len {})", batch.len());
         // In our case the Batcher is dropped before the Flusher, so no error can occur
         let _ = self.tx.send(batch).await;
-        info!(
-            "Vector: Batcher: batch queued in {}s",
-            start.elapsed().as_secs_f64()
-        );
+        info!("{self}: batch queued in {}s", start.elapsed().as_secs_f64());
         self.metrics.buffer_batch_size.inc();
         self.batch.clear();
     }
@@ -332,15 +335,15 @@ impl Batcher {
     }
 
     async fn run(mut self) {
-        warn!("Vector: Batcher started");
+        warn!("{self}: started");
         loop {
             select! {
                 biased;
 
                 () = self.token.cancelled() => {
-                    warn!("Vector: Batcher: stopping, draining");
+                    warn!("{self}: stopping, draining");
                     self.drain().await;
-                    warn!("Vector: Batcher: stopped");
+                    warn!("{self}: stopped");
                     return;
                 }
 
@@ -370,7 +373,7 @@ struct Flusher {
 
 impl Display for Flusher {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Flusher{}", self.id)
+        write!(f, "Vector: Flusher{}", self.id)
     }
 }
 
@@ -422,7 +425,7 @@ impl Flusher {
         while retries > 0 {
             let start = Instant::now();
             info!(
-                "Vector: {self}: sending batch (raw size {raw_size}, compressed {}, retry {})",
+                "{self}: sending batch (raw size {raw_size}, compressed {}, retry {})",
                 batch.len(),
                 RETRY_COUNT - retries + 1
             );
@@ -430,7 +433,7 @@ impl Flusher {
             // Bytes is cheap to clone
             if let Err(e) = self.send(batch.clone()).await {
                 warn!(
-                    "Vector: {self}: unable to send (try {}): {e:#}",
+                    "{self}: unable to send (try {}): {e:#}",
                     RETRY_COUNT - retries + 1
                 );
             } else {
@@ -438,10 +441,7 @@ impl Flusher {
                 self.metrics.sent_compressed.inc_by(batch.len() as u64);
                 self.metrics.batch_flushes.with_label_values(&["yes"]).inc();
 
-                info!(
-                    "Vector: {self}: batch sent in {}s",
-                    start.elapsed().as_secs_f64()
-                );
+                info!("{self}: batch sent in {}s", start.elapsed().as_secs_f64());
                 return Ok(());
             }
 
@@ -470,32 +470,32 @@ impl Flusher {
     }
 
     async fn run(self) {
-        warn!("Vector: {self} started");
+        warn!("{self} started");
 
         loop {
             select! {
                 biased;
 
                 () = self.token.cancelled() => {
-                    warn!("Vector: {self}: stopping, draining");
+                    warn!("{self}: stopping, draining");
 
                     if let Err(e) = self.drain().await {
-                        warn!("Vector: {self}: unable to drain: {e:#}");
+                        warn!("{self}: unable to drain: {e:#}");
                     }
 
-                    warn!("Vector: {self}: stopped");
+                    warn!("{self}: stopped");
                     return;
                 }
 
                 Ok(batch) = self.rx.recv() => {
                     self.metrics.buffer_batch_size.dec();
-                    info!("Vector: {self}: received batch (len {})", batch.len());
+                    info!("{self}: received batch (len {})", batch.len());
 
                     if let Err(e) = self.flush(batch).await {
-                        warn!("Vector: {self}: unable to flush: {e:#}");
+                        warn!("{self}: unable to flush: {e:#}");
                     };
 
-                    info!("Vector: {self}: received batch flushed");
+                    info!("{self}: received batch flushed");
                 }
             }
         }
