@@ -217,6 +217,7 @@ impl Vector {
                 client: client.clone(),
                 url: cli.log_vector_url.clone().unwrap(),
                 auth: auth.clone(),
+                zstd_level: cli.log_vector_zstd_level,
                 token: token_flushers.child_token(),
                 timeout: cli.log_vector_timeout,
                 metrics: metrics.clone(),
@@ -367,6 +368,7 @@ struct Flusher {
     timeout: Duration,
     url: Url,
     auth: Option<HeaderValue>,
+    zstd_level: usize,
     token: CancellationToken,
     metrics: Metrics,
 }
@@ -414,7 +416,8 @@ impl Flusher {
     async fn flush(&self, batch: Bytes) -> Result<(), Error> {
         let raw_size = batch.len();
 
-        let batch = zstd::encode_all(batch.reader(), 3).context("unable to compress batch")?;
+        let batch = zstd::encode_all(batch.reader(), self.zstd_level as i32)
+            .context("unable to compress batch")?;
         let batch = Bytes::from(batch);
 
         // Retry
@@ -422,7 +425,7 @@ impl Flusher {
         let mut interval = RETRY_INTERVAL;
         let mut retries = RETRY_COUNT;
 
-        while retries > 0 {
+        loop {
             let start = Instant::now();
             info!(
                 "{self}: sending batch (raw size {raw_size}, compressed {}, retry {})",
@@ -445,12 +448,15 @@ impl Flusher {
                 return Ok(());
             }
 
-            self.metrics.batch_flush_retries.inc();
-            sleep(interval).await;
-
             // Back off a bit
             retries -= 1;
             interval *= 2;
+            if retries == 0 {
+                break;
+            }
+
+            self.metrics.batch_flush_retries.inc();
+            sleep(interval).await;
         }
 
         self.metrics.batch_flushes.with_label_values(&["no"]).inc();
@@ -566,6 +572,7 @@ mod test {
             log_vector_interval: Duration::from_secs(100),
             log_vector_timeout: Duration::from_secs(10),
             log_vector_flushers: 4,
+            log_vector_zstd_level: 3,
         };
 
         let client = Arc::new(TestClient(AtomicU64::new(0), AtomicU64::new(0)));

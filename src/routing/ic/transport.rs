@@ -120,7 +120,7 @@ impl ReqwestTransport {
         body: Option<Vec<u8>>,
     ) -> Result<(StatusCode, Vec<u8>), AgentError> {
         // Create the initial request with a fake URL which will be overridden later
-        let mut http_request = Request::new(method.clone(), Url::parse("http://foo").unwrap());
+        let mut http_request = Request::new(method.clone(), Url::parse("https://foo").unwrap());
 
         http_request
             .headers_mut()

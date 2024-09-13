@@ -440,6 +440,10 @@ pub struct Vector {
     /// Vector HTTP request timeout for a batch flush
     #[clap(env, long, default_value = "30s", value_parser = parse_duration)]
     pub log_vector_timeout: Duration,
+
+    /// ZSTD compression level to use when sending data
+    #[clap(env, long, default_value = "3")]
+    pub log_vector_zstd_level: usize,
 }
 
 #[derive(Args)]
