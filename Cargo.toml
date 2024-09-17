@@ -45,7 +45,7 @@ http-body-util = "0.1"
 humantime = "2.1"
 hyper-util = "0.1"
 ic-agent = { version = "0.37.1", features = ["reqwest"] }
-ic-bn-lib = { git = "https://github.com/dfinity/ic-bn-lib" }
+ic-bn-lib = { git = "https://github.com/dfinity/ic-bn-lib", rev = "bded503b282a61cea498ce47bc5990019197367a" }
 ic-http-gateway = { git = "https://github.com/dfinity/http-gateway", tag = "0.1.0-b0" }
 itertools = "0.13"
 lazy_static = "1.5"
