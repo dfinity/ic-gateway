@@ -128,7 +128,13 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         vector.clone(),
     )
     .await?;
-    let http_router = Router::new().fallback(routing::redirect_to_https);
+
+    // Redirect to HTTPS by default, otherwise serve same endpoints as on HTTPS
+    let http_router = if cli.misc.serve_http {
+        https_router.clone()
+    } else {
+        Router::new().fallback(routing::redirect_to_https)
+    };
 
     // HTTP server metrics
     let http_metrics = http::server::Metrics::new(&registry);

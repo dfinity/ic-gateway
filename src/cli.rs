@@ -514,6 +514,10 @@ pub struct Misc {
     /// Defaults to the number of CPUs
     #[clap(env, long)]
     pub threads: Option<usize>,
+
+    /// Option to also serve HTTP instead of redirecting to HTTPS.
+    #[clap(env, long)]
+    pub serve_http: bool,
 }
 
 #[derive(Args)]
