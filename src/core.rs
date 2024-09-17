@@ -70,8 +70,8 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     // HTTP client
     let mut http_client_opts: http::client::Options<_> = (&cli.http_client).into();
     http_client_opts.dns_resolver = Some(dns_resolver.clone());
-    let reqwest_client = http::client::new(http_client_opts)?;
-    let http_client = Arc::new(http::ReqwestClient::new(reqwest_client.clone()));
+    let reqwest_client = http::client::new(http_client_opts.clone())?;
+    let http_client = Arc::new(http::ReqwestClient::new(http_client_opts)?);
 
     // TLS session cache
     let tls_session_cache = Arc::new(sessions::Storage::new(

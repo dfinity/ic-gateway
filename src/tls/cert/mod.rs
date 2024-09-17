@@ -147,15 +147,20 @@ impl Aggregator {
         }
 
         let certs = snapshot.flatten();
-
-        // Store the new snapshot
-        *snapshot_lock = snapshot;
+        warn!(
+            "CertAggregator: publishing new snapshot with {} certs",
+            certs.len()
+        );
 
         debug!("CertAggregator: {} certs fetched:", certs.len());
         for v in &certs {
             debug!("CertAggregator: {:?}", v.san);
         }
 
+        // Store the new snapshot
+        *snapshot_lock = snapshot;
+
+        // Publish to storage
         if let Err(e) = self.storage.store(certs) {
             warn!("CertAggregator: error storing certificates: {e:#}");
         }

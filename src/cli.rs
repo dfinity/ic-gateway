@@ -8,7 +8,10 @@ use clap::{Args, Parser};
 use fqdn::FQDN;
 use hickory_resolver::config::CLOUDFLARE_IPS;
 use humantime::parse_duration;
-use ic_bn_lib::{http, tls::acme};
+use ic_bn_lib::{
+    http::{self, client::CloneableDnsResolver},
+    tls::acme,
+};
 use reqwest::Url;
 
 use crate::{
@@ -87,6 +90,10 @@ pub struct HttpClient {
     /// receiving response etc.
     #[clap(env, long, default_value = "60s", value_parser = parse_duration)]
     pub http_client_timeout: Duration,
+
+    /// How long to keep idle HTTP connections open
+    #[clap(env, long, default_value = "120s", value_parser = parse_duration)]
+    pub http_client_pool_idle: Duration,
 
     /// TCP Keepalive interval
     #[clap(env, long, default_value = "15s", value_parser = parse_duration)]
@@ -544,15 +551,18 @@ impl From<&HttpServer> for http::server::Options {
     }
 }
 
-impl<R: reqwest::dns::Resolve + Clone + 'static> From<&HttpClient> for http::client::Options<R> {
+impl<R: CloneableDnsResolver> From<&HttpClient> for http::client::Options<R> {
     fn from(c: &HttpClient) -> Self {
         Self {
             timeout_connect: c.http_client_timeout_connect,
             timeout_read: c.http_client_timeout_read,
             timeout: c.http_client_timeout,
+            pool_idle_timeout: Some(c.http_client_pool_idle),
+            pool_idle_max: None,
             tcp_keepalive: Some(c.http_client_tcp_keepalive),
             http2_keepalive: Some(c.http_client_http2_keepalive),
             http2_keepalive_timeout: c.http_client_http2_keepalive_timeout,
+            http2_keepalive_idle: false,
             user_agent: crate::core::SERVICE_NAME.into(),
             tls_config: Some(tls::prepare_client_config()),
             dns_resolver: None,
