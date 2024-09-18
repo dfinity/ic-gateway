@@ -73,12 +73,6 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     let reqwest_client = http::client::new(http_client_opts.clone())?;
     let http_client = Arc::new(http::ReqwestClient::new(http_client_opts)?);
 
-    // TLS session cache
-    let tls_session_cache = Arc::new(sessions::Storage::new(
-        cli.http_server.http_server_tls_session_cache_size,
-        cli.http_server.http_server_tls_session_cache_tti,
-    ));
-
     // Event sinks
     let clickhouse = if cli.log.clickhouse.log_clickhouse_url.is_some() {
         Some(Arc::new(
@@ -103,60 +97,86 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     let handler_token = token.clone();
     ctrlc::set_handler(move || handler_token.cancel())?;
 
-    // Prepare TLS related stuff
-    let (rustls_cfg, custom_domain_providers) = tls::setup(
-        cli,
-        &mut tasks,
-        domains.clone(),
-        http_client.clone(),
-        Arc::new(dns_resolver),
-        tls_session_cache.clone(),
-        &registry,
-    )
-    .await
-    .context("unable to setup TLS")?;
-
-    // Create routers
-    let https_router = routing::setup_router(
-        cli,
-        custom_domain_providers,
-        &mut tasks,
-        http_client.clone(),
-        reqwest_client,
-        &registry,
-        clickhouse.clone(),
-        vector.clone(),
-    )
-    .await?;
-
-    // Redirect to HTTPS by default, otherwise serve same endpoints as on HTTPS
-    let http_router = if cli.misc.serve_http {
-        https_router.clone()
-    } else {
-        Router::new().fallback(routing::redirect_to_https)
-    };
+    // TLS session cache
+    let tls_session_cache = Arc::new(sessions::Storage::new(
+        cli.http_server.http_server_tls_session_cache_size,
+        cli.http_server.http_server_tls_session_cache_tti,
+    ));
 
     // HTTP server metrics
     let http_metrics = http::server::Metrics::new(&registry);
 
-    // Set up HTTP
-    let http_server = Arc::new(http::Server::new(
-        http::server::Addr::Tcp(cli.http_server.http_server_listen_plain),
-        http_router,
-        (&cli.http_server).into(),
-        http_metrics.clone(),
-        None,
-    ));
-    tasks.add("http_server", http_server);
+    if cli.misc.insecure_serve_http_only {
+        // Create routers
+        let gateway_router = routing::setup_router(
+            cli,
+            Vec::new(),
+            &mut tasks,
+            http_client.clone(),
+            reqwest_client,
+            &registry,
+            clickhouse.clone(),
+            vector.clone(),
+        )
+        .await?;
 
-    let https_server = Arc::new(http::Server::new(
-        http::server::Addr::Tcp(cli.http_server.http_server_listen_tls),
-        https_router,
-        (&cli.http_server).into(),
-        http_metrics.clone(),
-        Some(rustls_cfg),
-    ));
-    tasks.add("https_server", https_server);
+        // Set up HTTP to serve all gateway endpoints
+        let http_server = Arc::new(http::Server::new(
+            http::server::Addr::Tcp(cli.http_server.http_server_listen_plain),
+            gateway_router,
+            (&cli.http_server).into(),
+            http_metrics.clone(),
+            None,
+        ));
+        tasks.add("http_server", http_server);
+    } else {
+        // Set up HTTP to redirect to HTTPS
+        let redirect_router = Router::new().fallback(routing::redirect_to_https);
+        let http_server = Arc::new(http::Server::new(
+            http::server::Addr::Tcp(cli.http_server.http_server_listen_plain),
+            redirect_router,
+            (&cli.http_server).into(),
+            http_metrics.clone(),
+            None,
+        ));
+        tasks.add("http_server", http_server);
+
+        // Prepare TLS related stuff
+        let (rustls_cfg, custom_domain_providers) = tls::setup(
+            cli,
+            &mut tasks,
+            domains.clone(),
+            http_client.clone(),
+            Arc::new(dns_resolver),
+            tls_session_cache.clone(),
+            &registry,
+        )
+        .await
+        .context("unable to setup TLS")?;
+
+        // Create routers
+        let gateway_router = routing::setup_router(
+            cli,
+            custom_domain_providers,
+            &mut tasks,
+            http_client.clone(),
+            reqwest_client,
+            &registry,
+            clickhouse.clone(),
+            vector.clone(),
+        )
+        .await?;
+
+        // Set up HTTPS to serve all gateway endpoints
+        let https_server = Arc::new(http::Server::new(
+            http::server::Addr::Tcp(cli.http_server.http_server_listen_tls),
+            gateway_router,
+            (&cli.http_server).into(),
+            http_metrics.clone(),
+            Some(rustls_cfg),
+        ));
+        tasks.add("https_server", https_server);
+    }
 
     // Setup metrics
     if let Some(addr) = cli.metrics.metrics_listen {

@@ -515,9 +515,9 @@ pub struct Misc {
     #[clap(env, long)]
     pub threads: Option<usize>,
 
-    /// Option to also serve HTTP instead of redirecting to HTTPS.
+    /// Option to only serve HTTP instead for testing.
     #[clap(env, long)]
-    pub serve_http: bool,
+    pub insecure_serve_http_only: bool,
 }
 
 #[derive(Args)]
