@@ -5,7 +5,6 @@ use std::{fs, sync::Arc};
 
 use anyhow::{anyhow, Context, Error};
 use async_trait::async_trait;
-use cert::Storage;
 use fqdn::FQDN;
 use ic_bn_lib::{
     http::{dns::Resolves, Client, ALPN_ACME, ALPN_H1, ALPN_H2},
@@ -39,7 +38,7 @@ use crate::{
     },
 };
 
-use cert::providers::ProvidesCertificates;
+use cert::{providers::ProvidesCertificates, storage};
 
 // Wrapper is needed since we can't implement foreign traits
 struct OcspStaplerWrapper(Arc<ocsp_stapler::Stapler>);
@@ -143,7 +142,7 @@ pub async fn setup(
     registry: &Registry,
 ) -> Result<(ServerConfig, Vec<Arc<dyn ProvidesCustomDomains>>), Error> {
     // Prepare certificate storage
-    let cert_storage = Arc::new(Storage::new());
+    let cert_storage = Arc::new(storage::Storage::new(storage::Metrics::new(registry)));
 
     let mut cert_providers: Vec<Arc<dyn ProvidesCertificates>> = vec![];
     let mut custom_domain_providers: Vec<Arc<dyn ProvidesCustomDomains>> = vec![];
@@ -183,8 +182,11 @@ pub async fn setup(
     tasks.add("cert_aggregator", cert_aggregator);
 
     // Set up certificate resolver
-    let certificate_resolver =
-        Arc::new(AggregatingResolver::new(acme_resolver, vec![cert_storage]));
+    let certificate_resolver = Arc::new(AggregatingResolver::new(
+        acme_resolver,
+        vec![cert_storage],
+        resolver::Metrics::new(registry),
+    ));
 
     // Optionally wrap resolver with OCSP stapler
     let certificate_resolver: Arc<dyn ResolvesServerCertRustls> =

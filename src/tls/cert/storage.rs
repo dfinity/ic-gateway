@@ -6,6 +6,7 @@ use arc_swap::ArcSwapOption;
 use derive_new::new;
 use fqdn::{Fqdn, FQDN};
 use ic_bn_lib::http::ALPN_ACME;
+use prometheus::{register_int_gauge_vec_with_registry, IntGaugeVec, Registry};
 use rustls::{server::ClientHello, sign::CertifiedKey};
 
 use super::Cert;
@@ -13,6 +14,25 @@ use crate::tls::resolver::ResolvesServerCert;
 
 pub trait StoresCertificates<T: Clone + Send + Sync>: Send + Sync {
     fn store(&self, cert_list: Vec<Cert<T>>) -> Result<(), Error>;
+}
+
+#[derive(Debug, Clone)]
+pub struct Metrics {
+    count: IntGaugeVec,
+}
+
+impl Metrics {
+    pub fn new(registry: &Registry) -> Self {
+        Self {
+            count: register_int_gauge_vec_with_registry!(
+                format!("cert_storage_count_total"),
+                format!("Counts the number of certificates in the storage"),
+                &["wildcard"],
+                registry
+            )
+            .unwrap(),
+        }
+    }
 }
 
 struct StorageInner<T: Clone + Send + Sync> {
@@ -25,6 +45,7 @@ struct StorageInner<T: Clone + Send + Sync> {
 pub struct Storage<T: Clone + Send + Sync> {
     #[new(default)]
     inner: ArcSwapOption<StorageInner<T>>,
+    metrics: Metrics,
 }
 
 impl<T: Clone + Send + Sync> fmt::Debug for Storage<T> {
@@ -90,6 +111,16 @@ impl<T: Clone + Send + Sync> StoresCertificates<T> for Storage<T> {
             }
         }
 
+        self.metrics
+            .count
+            .with_label_values(&["no"])
+            .set(certs.len() as i64);
+
+        self.metrics
+            .count
+            .with_label_values(&["yes"])
+            .set(certs_wildcard.len() as i64);
+
         let inner = StorageInner {
             certs,
             certs_wildcard,
@@ -124,11 +155,12 @@ impl ResolvesServerCert for StorageKey {
 #[cfg(test)]
 pub mod test {
     use fqdn::fqdn;
+    use prometheus::Registry;
 
     use super::*;
 
     pub fn create_test_storage() -> Storage<String> {
-        let storage: Storage<String> = Storage::new();
+        let storage: Storage<String> = Storage::new(Metrics::new(&Registry::new()));
 
         let certs = vec![
             Cert {
