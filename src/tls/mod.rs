@@ -154,12 +154,13 @@ pub async fn setup(
 
     // Create CertIssuer providers
     // It's a custom domain & cert provider at the same time.
+    let issuer_metrics = providers::issuer::Metrics::new(registry);
     for v in &cli.cert.cert_provider_issuer_url {
         let issuer = Arc::new(providers::Issuer::new(
             http_client.clone(),
             v.clone(),
             cli.cert.cert_provider_issuer_poll_interval,
-            registry,
+            issuer_metrics.clone(),
         ));
 
         cert_providers.push(issuer.clone());

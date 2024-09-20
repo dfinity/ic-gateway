@@ -120,7 +120,7 @@ impl CertificatesImporter {
         http_client: Arc<dyn http::Client>,
         mut exporter_url: Url,
         poll_interval: Duration,
-        registry: &Registry,
+        metrics: Metrics,
     ) -> Self {
         exporter_url.set_path("");
         let exporter_url = exporter_url.join("/certificates").unwrap();
@@ -131,7 +131,7 @@ impl CertificatesImporter {
             poll_interval,
             snapshot: ArcSwapOption::empty(),
             verifier: Verifier(Parser),
-            metrics: Metrics::new(registry),
+            metrics,
         }
     }
 
