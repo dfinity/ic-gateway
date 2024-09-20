@@ -319,7 +319,7 @@ mod tests {
             Arc::new(http_client),
             Url::from_str("http://foo")?,
             Duration::ZERO,
-            &Registry::new(),
+            Metrics::new(&Registry::new()),
         );
 
         let out = importer.import().await?;
