@@ -15,7 +15,6 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 
 use providers::{Pem, ProvidesCertificates};
-pub use storage::Storage;
 use storage::StoresCertificates;
 
 // Generic certificate and a list of its SANs
@@ -194,6 +193,7 @@ impl Run for Aggregator {
 pub mod test {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    use prometheus::Registry;
     use providers::Pem;
 
     use super::*;
@@ -341,7 +341,9 @@ pub mod test {
             AtomicUsize::new(0),
         );
 
-        let storage = Arc::new(storage::StorageKey::new());
+        let storage = Arc::new(storage::StorageKey::new(storage::Metrics::new(
+            &Registry::new(),
+        )));
         let aggregator = Aggregator::new(
             vec![Arc::new(prov1), Arc::new(prov2)],
             storage,
