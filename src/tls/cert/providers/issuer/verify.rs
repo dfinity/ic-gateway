@@ -90,8 +90,6 @@ impl<P: Parse> Verify for Verifier<P> {
     }
 }
 
-pub struct WithVerify<T, V>(pub T, pub V);
-
 #[cfg(test)]
 mod tests {
     use candid::Principal;

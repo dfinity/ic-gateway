@@ -433,6 +433,12 @@ pub struct Vector {
     #[clap(env, long, default_value = "16MB", value_parser = parse_size_usize)]
     pub log_vector_batch: usize,
 
+    /// Number of batches to store in the queue for the Flushers to consume.
+    /// So the maximum memory occupied by batch queue will be roughly
+    /// log_vector_batch*log_vector_batch_count, plus anything in the event queue (log_vector_buffer).
+    #[clap(env, long, default_value = "32")]
+    pub log_vector_batch_count: usize,
+
     /// Vector batch flush interval
     #[clap(env, long, default_value = "5s", value_parser = parse_duration)]
     pub log_vector_interval: Duration,
@@ -451,6 +457,12 @@ pub struct Vector {
     /// Vector HTTP request timeout for a batch flush
     #[clap(env, long, default_value = "30s", value_parser = parse_duration)]
     pub log_vector_timeout: Duration,
+
+    /// Vector HTTP request retry interval
+    /// With each retry it will be linearly increased until it reaches 5x
+    /// E.g. for 2s the retry intervals will be 2s/4s/6s/8s/10s/10s/10s...
+    #[clap(env, long, default_value = "2s", value_parser = parse_duration)]
+    pub log_vector_retry_interval: Duration,
 
     /// ZSTD compression level to use when sending data
     #[clap(env, long, default_value = "3")]
