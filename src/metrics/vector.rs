@@ -32,8 +32,6 @@ use vector_lib::{codecs::encoding::NativeSerializer, config::LogNamespace, event
 
 use crate::cli;
 
-const RETRY_INTERVAL: Duration = Duration::from_millis(200);
-const RETRY_COUNT: usize = 5;
 const CONTENT_ENCODING_ZSTD: HeaderValue = HeaderValue::from_static("zstd");
 
 #[derive(Clone)]
@@ -159,6 +157,7 @@ impl EventEncoder {
 pub struct Vector {
     token_batcher: CancellationToken,
     token_flushers: CancellationToken,
+    token_flushers_drain: CancellationToken,
     tracker_batcher: TaskTracker,
     tracker_flushers: TaskTracker,
     tx: mpsc::Sender<Event>,
@@ -170,7 +169,7 @@ impl Vector {
         let cli = cli.clone();
 
         let (tx_event, rx_event) = mpsc::channel(cli.log_vector_buffer);
-        let (tx_batch, rx_batch) = bounded(64);
+        let (tx_batch, rx_batch) = bounded(cli.log_vector_batch_count);
 
         let metrics = Metrics::new(registry);
 
@@ -202,6 +201,7 @@ impl Vector {
 
         // Start flushers
         let token_flushers = CancellationToken::new();
+        let token_flushers_drain = CancellationToken::new();
         let tracker_flushers = TaskTracker::new();
 
         // Prepare auth header
@@ -219,6 +219,8 @@ impl Vector {
                 auth: auth.clone(),
                 zstd_level: cli.log_vector_zstd_level,
                 token: token_flushers.child_token(),
+                token_drain: token_flushers_drain.child_token(),
+                retry_interval: cli.log_vector_retry_interval,
                 timeout: cli.log_vector_timeout,
                 metrics: metrics.clone(),
             };
@@ -231,6 +233,7 @@ impl Vector {
         Self {
             token_batcher,
             token_flushers,
+            token_flushers_drain,
             tracker_batcher,
             tracker_flushers,
             tx: tx_event,
@@ -251,6 +254,9 @@ impl Vector {
     }
 
     pub async fn stop(&self) {
+        // Signal the flushers to limit the retries first
+        self.token_flushers_drain.cancel();
+
         warn!("Vector: shutting down batcher");
         self.token_batcher.cancel();
         self.tracker_batcher.close();
@@ -364,11 +370,13 @@ struct Flusher {
     id: usize,
     rx: Receiver<Bytes>,
     client: Arc<dyn http::Client>,
+    retry_interval: Duration,
     timeout: Duration,
     url: Url,
     auth: Option<HeaderValue>,
     zstd_level: usize,
     token: CancellationToken,
+    token_drain: CancellationToken,
     metrics: Metrics,
 }
 
@@ -420,23 +428,24 @@ impl Flusher {
         let batch = Bytes::from(batch);
 
         // Retry
-        // TODO make configurable?
-        let mut interval = RETRY_INTERVAL;
-        let mut retries = RETRY_COUNT;
+        let mut interval = self.retry_interval;
+        let mut retries = 1;
 
         loop {
             let start = Instant::now();
             debug!(
                 "{self}: sending batch (raw size {raw_size}, compressed {}, retry {})",
                 batch.len(),
-                RETRY_COUNT - retries + 1
+                retries
             );
 
             // Bytes is cheap to clone
             if let Err(e) = self.send(batch.clone()).await {
+                self.metrics.batch_flushes.with_label_values(&["no"]).inc();
                 warn!(
-                    "{self}: unable to send (try {}): {e:#}",
-                    RETRY_COUNT - retries + 1
+                    "{self}: unable to send (try {}, retry interval {}s): {e:#}",
+                    retries,
+                    interval.as_secs_f64()
                 );
             } else {
                 self.metrics.sent.inc_by(raw_size as u64);
@@ -447,18 +456,21 @@ impl Flusher {
                 return Ok(());
             }
 
-            // Back off a bit
-            retries -= 1;
-            interval *= 2;
-            if retries == 0 {
+            // Back off a bit until some limit
+            interval = (interval + self.retry_interval).min(self.retry_interval * 5);
+
+            self.metrics.batch_flush_retries.inc();
+            retries += 1;
+
+            // Limit the retry count if we're draining.
+            // Otherwise we wouldn't be able to stop with dead endpoint.
+            if self.token_drain.is_cancelled() && retries > 5 {
                 break;
             }
 
-            self.metrics.batch_flush_retries.inc();
             sleep(interval).await;
         }
 
-        self.metrics.batch_flushes.with_label_values(&["no"]).inc();
         Err(anyhow!("unable to flush batch: retries exhausted"))
     }
 
@@ -539,6 +551,21 @@ mod test {
         }
     }
 
+    #[derive(Debug)]
+    struct TestClientDead;
+
+    #[async_trait]
+    impl http::Client for TestClientDead {
+        async fn execute(
+            &self,
+            _req: reqwest::Request,
+        ) -> Result<reqwest::Response, reqwest::Error> {
+            let mut resp = ::http::Response::new(vec![]);
+            *resp.status_mut() = ::http::StatusCode::SERVICE_UNAVAILABLE;
+            Ok(resp.into())
+        }
+    }
+
     #[test]
     fn test_encoder() {
         let mut encoder = EventEncoder::new();
@@ -558,9 +585,8 @@ mod test {
         );
     }
 
-    #[tokio::test]
-    async fn test_vector() {
-        let cli = cli::Vector {
+    fn make_cli() -> cli::Vector {
+        cli::Vector {
             log_vector_url: Some(Url::parse("http://127.0.0.1:1234").unwrap()),
             log_vector_user: None,
             log_vector_pass: None,
@@ -570,7 +596,14 @@ mod test {
             log_vector_timeout: Duration::from_secs(10),
             log_vector_flushers: 4,
             log_vector_zstd_level: 3,
-        };
+            log_vector_batch_count: 32,
+            log_vector_retry_interval: Duration::from_millis(1),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_vector() {
+        let cli = make_cli();
 
         let client = Arc::new(TestClient(AtomicU64::new(0), AtomicU64::new(0)));
         let vector = Vector::new(&cli, client.clone(), &Registry::new());
@@ -588,5 +621,24 @@ mod test {
         // 6k sent, buffer 5k => 1k will be dropped
         assert_eq!(client.0.load(Ordering::SeqCst), 131);
         assert_eq!(client.1.load(Ordering::SeqCst), 197780); // Uncompressed size
+    }
+
+    /// Make sure we can drain when the endpoint is down
+    #[tokio::test]
+    async fn test_vector_drain() {
+        let cli = make_cli();
+
+        let client = Arc::new(TestClientDead);
+        let vector = Vector::new(&cli, client, &Registry::new());
+
+        for i in 0..6000 {
+            let event = json!({
+                format!("foo{i}"): format!("bar{i}"),
+            });
+
+            vector.send(event.clone());
+        }
+
+        vector.stop().await;
     }
 }
