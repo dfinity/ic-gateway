@@ -13,6 +13,10 @@ use candid::Principal;
 use fqdn::FQDN;
 use ic_bn_lib::{http, tasks::Run};
 use mockall::automock;
+use prometheus::{
+    register_histogram_vec_with_registry, register_int_gauge_vec_with_registry, HistogramVec,
+    IntGaugeVec, Registry,
+};
 use reqwest::{Method, Request, StatusCode, Url};
 use serde::Deserialize;
 use tokio::select;
@@ -20,7 +24,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use crate::routing::domain::{CustomDomain, ProvidesCustomDomains};
-use verify::{Verify, VerifyError, WithVerify};
+use verify::{Parser, Verifier, Verify, VerifyError};
 
 use super::{Pem, ProvidesCertificates};
 
@@ -31,6 +35,44 @@ pub enum Error {
 
     #[error(transparent)]
     VerificationError(#[from] VerifyError),
+}
+
+#[derive(Debug, Clone)]
+pub struct Metrics {
+    packages: IntGaugeVec,
+    errors: IntGaugeVec,
+    duration: HistogramVec,
+}
+
+impl Metrics {
+    pub fn new(registry: &Registry) -> Self {
+        Self {
+            packages: register_int_gauge_vec_with_registry!(
+                format!("issuer_packages_loaded"),
+                format!("Number of packages in the current snapshot"),
+                &["issuer"],
+                registry
+            )
+            .unwrap(),
+
+            errors: register_int_gauge_vec_with_registry!(
+                format!("issuer_packages_errors"),
+                format!("Number of packages with errors"),
+                &["issuer"],
+                registry
+            )
+            .unwrap(),
+
+            duration: register_histogram_vec_with_registry!(
+                format!("issuer_fetch_duration_sec"),
+                format!("Time it takes to fetch a package in seconds"),
+                &["issuer"],
+                vec![0.2, 0.4, 0.8, 1.6, 3.2, 6.4, 12.8, 25.6],
+                registry
+            )
+            .unwrap(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -46,6 +88,12 @@ pub struct Package {
     pub pair: Pair,
 }
 
+impl std::fmt::Display for Package {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} ({})", self.name, self.canister)
+    }
+}
+
 #[automock]
 #[async_trait]
 pub trait Import: Sync + Send {
@@ -57,6 +105,8 @@ pub struct CertificatesImporter {
     exporter_url: Url,
     poll_interval: Duration,
     snapshot: ArcSwapOption<Vec<Package>>,
+    verifier: Verifier<Parser>,
+    metrics: Metrics,
 }
 
 impl std::fmt::Debug for CertificatesImporter {
@@ -70,6 +120,7 @@ impl CertificatesImporter {
         http_client: Arc<dyn http::Client>,
         mut exporter_url: Url,
         poll_interval: Duration,
+        registry: &Registry,
     ) -> Self {
         exporter_url.set_path("");
         let exporter_url = exporter_url.join("/certificates").unwrap();
@@ -79,17 +130,48 @@ impl CertificatesImporter {
             exporter_url,
             poll_interval,
             snapshot: ArcSwapOption::empty(),
+            verifier: Verifier(Parser),
+            metrics: Metrics::new(registry),
         }
     }
 
     async fn refresh(&self) -> Result<(), Error> {
         let start = Instant::now();
         let packages = self.import().await.context("unable to fetch packages")?;
+        let len_full = packages.len();
+
+        let packages = packages
+            .into_iter()
+            .filter(|x| match self.verifier.verify(x) {
+                Ok(_) => true,
+                Err(e) => {
+                    warn!("{self:?}: package '{x}' verification failed, skipping: {e:#}");
+                    false
+                }
+            })
+            .collect::<Vec<_>>();
+
         info!(
-            "{self:?}: {} certs loaded in {}s",
+            "{self:?}: {} certs loaded ({} skipped due to errors) in {}s",
             packages.len(),
+            len_full - packages.len(),
             start.elapsed().as_secs_f64()
         );
+
+        let id = format!("{self:?}");
+        let labels = &[id.as_str()];
+        self.metrics
+            .packages
+            .with_label_values(labels)
+            .set(packages.len() as i64);
+        self.metrics
+            .errors
+            .with_label_values(labels)
+            .set((len_full - packages.len()) as i64);
+        self.metrics
+            .duration
+            .with_label_values(labels)
+            .observe(start.elapsed().as_secs_f64());
 
         self.snapshot.store(Some(Arc::new(packages)));
         Ok(())
@@ -194,23 +276,6 @@ impl Run for CertificatesImporter {
     }
 }
 
-// Wraps an importer with a verifier
-// The importer imports a set of packages as usual, but then passes the packages to the verifier.
-// The verifier parses out the public certificate and compares the common name to the name in the package to make sure they match.
-// This should help eliminate risk of the replica returning a malicious package.
-#[async_trait]
-impl<T: Import, V: Verify> Import for WithVerify<T, V> {
-    async fn import(&self) -> Result<Vec<Package>, Error> {
-        let pkgs = self.0.import().await?;
-
-        for pkg in &pkgs {
-            self.1.verify(pkg)?;
-        }
-
-        Ok(pkgs)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -221,8 +286,6 @@ mod tests {
     use mockall::predicate;
     use reqwest::Body;
     use std::{str::FromStr, sync::Arc};
-
-    use crate::tls::cert::providers::issuer::verify::MockVerify;
 
     #[tokio::test]
     async fn import_ok() -> Result<(), AnyhowError> {
@@ -256,6 +319,7 @@ mod tests {
             Arc::new(http_client),
             Url::from_str("http://foo")?,
             Duration::ZERO,
+            &Registry::new(),
         );
 
         let out = importer.import().await?;
@@ -273,30 +337,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn import_verify_multiple() {
-        let mut verifier = MockVerify::new();
-        verifier
-            .expect_verify()
-            .times(3)
-            .with(predicate::in_iter(vec![
-                Package {
-                    name: "name-1".into(),
-                    canister: Principal::from_text("aaaaa-aa").unwrap(),
-                    pair: Pair(vec![], vec![]),
-                },
-                Package {
-                    name: "name-2".into(),
-                    canister: Principal::from_text("aaaaa-aa").unwrap(),
-                    pair: Pair(vec![], vec![]),
-                },
-                Package {
-                    name: "name-3".into(),
-                    canister: Principal::from_text("aaaaa-aa").unwrap(),
-                    pair: Pair(vec![], vec![]),
-                },
-            ]))
-            .returning(|_| Ok(()));
-
+    async fn import_multiple() {
         let mut importer = MockImport::new();
         importer.expect_import().times(1).returning(|| {
             Ok(vec![
@@ -318,47 +359,9 @@ mod tests {
             ])
         });
 
-        let importer = WithVerify(importer, verifier);
-
         match importer.import().await {
             Ok(_) => {}
             other => panic!("expected Ok but got {other:?}"),
-        }
-    }
-
-    #[tokio::test]
-    async fn import_verify_mismatch() {
-        let mut verifier = MockVerify::new();
-        verifier
-            .expect_verify()
-            .times(1)
-            .with(predicate::eq(Package {
-                name: "name-1".into(),
-                canister: Principal::from_text("aaaaa-aa").unwrap(),
-                pair: Pair(vec![], vec![]),
-            }))
-            .returning(|_| {
-                // Mock an error
-                Err(VerifyError::CommonNameMismatch(
-                    "name-1".into(),
-                    "name-2".into(),
-                ))
-            });
-
-        let mut importer = MockImport::new();
-        importer.expect_import().times(1).returning(|| {
-            Ok(vec![Package {
-                name: "name-1".into(),
-                canister: Principal::from_text("aaaaa-aa").unwrap(),
-                pair: Pair(vec![], vec![]),
-            }])
-        });
-
-        let importer = WithVerify(importer, verifier);
-
-        match importer.import().await {
-            Err(Error::VerificationError(_)) => {}
-            other => panic!("expected VerificationError but got {other:?}"),
         }
     }
 }

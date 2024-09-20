@@ -26,7 +26,7 @@ use tokio_util::{
     sync::CancellationToken,
     task::TaskTracker,
 };
-use tracing::{info, warn};
+use tracing::{debug, warn};
 use url::Url;
 use vector_lib::{codecs::encoding::NativeSerializer, config::LogNamespace, event::Event};
 
@@ -310,10 +310,10 @@ impl Batcher {
         let batch = self.batch.clone().freeze();
 
         let start = Instant::now();
-        info!("{self}: queueing batch (len {})", batch.len());
+        debug!("{self}: queueing batch (len {})", batch.len());
         // In our case the Batcher is dropped before the Flusher, so no error can occur
         let _ = self.tx.send(batch).await;
-        info!("{self}: batch queued in {}s", start.elapsed().as_secs_f64());
+        debug!("{self}: batch queued in {}s", start.elapsed().as_secs_f64());
         self.metrics.buffer_batch_size.inc();
         self.batch.clear();
     }
@@ -336,7 +336,6 @@ impl Batcher {
     }
 
     async fn run(mut self) {
-        warn!("{self}: started");
         loop {
             select! {
                 biased;
@@ -427,7 +426,7 @@ impl Flusher {
 
         loop {
             let start = Instant::now();
-            info!(
+            debug!(
                 "{self}: sending batch (raw size {raw_size}, compressed {}, retry {})",
                 batch.len(),
                 RETRY_COUNT - retries + 1
@@ -444,7 +443,7 @@ impl Flusher {
                 self.metrics.sent_compressed.inc_by(batch.len() as u64);
                 self.metrics.batch_flushes.with_label_values(&["yes"]).inc();
 
-                info!("{self}: batch sent in {}s", start.elapsed().as_secs_f64());
+                debug!("{self}: batch sent in {}s", start.elapsed().as_secs_f64());
                 return Ok(());
             }
 
@@ -476,8 +475,6 @@ impl Flusher {
     }
 
     async fn run(self) {
-        warn!("{self} started");
-
         loop {
             select! {
                 biased;
@@ -495,13 +492,13 @@ impl Flusher {
 
                 Ok(batch) = self.rx.recv() => {
                     self.metrics.buffer_batch_size.dec();
-                    info!("{self}: received batch (len {})", batch.len());
+                    debug!("{self}: received batch (len {})", batch.len());
 
                     if let Err(e) = self.flush(batch).await {
                         warn!("{self}: unable to flush: {e:#}");
                     };
 
-                    info!("{self}: received batch flushed");
+                    debug!("{self}: received batch flushed");
                 }
             }
         }

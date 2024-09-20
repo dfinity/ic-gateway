@@ -159,6 +159,7 @@ pub async fn setup(
             http_client.clone(),
             v.clone(),
             cli.cert.cert_provider_issuer_poll_interval,
+            registry,
         ));
 
         cert_providers.push(issuer.clone());
