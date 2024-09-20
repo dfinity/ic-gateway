@@ -155,9 +155,15 @@ pub async fn setup(
     // Create CertIssuer providers
     // It's a custom domain & cert provider at the same time.
     for v in &cli.cert.cert_provider_issuer_url {
-        let issuer = Arc::new(providers::Issuer::new(http_client.clone(), v.clone()));
+        let issuer = Arc::new(providers::Issuer::new(
+            http_client.clone(),
+            v.clone(),
+            cli.cert.cert_provider_issuer_poll_interval,
+        ));
+
         cert_providers.push(issuer.clone());
-        custom_domain_providers.push(issuer);
+        custom_domain_providers.push(issuer.clone());
+        tasks.add(&format!("{issuer:?}"), issuer);
     }
 
     // Prepare ACME if configured
