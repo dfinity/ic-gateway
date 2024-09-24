@@ -234,6 +234,12 @@ pub struct Cert {
     #[clap(env, long, default_value = "5s", value_parser = parse_duration)]
     pub cert_provider_poll_interval: Duration,
 
+    /// Default certificate to serve when there's no SNI in the request.
+    /// Tries to find a certificate that covers given FQDN.
+    /// If not found or not specified - picks the first one available.
+    #[clap(env, long)]
+    pub cert_default: Option<FQDN>,
+
     /// Disable OCSP stapling
     #[clap(env, long)]
     pub cert_ocsp_stapling_disable: bool,

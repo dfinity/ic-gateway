@@ -341,9 +341,10 @@ pub mod test {
             AtomicUsize::new(0),
         );
 
-        let storage = Arc::new(storage::StorageKey::new(storage::Metrics::new(
-            &Registry::new(),
-        )));
+        let storage = Arc::new(storage::StorageKey::new(
+            None,
+            storage::Metrics::new(&Registry::new()),
+        ));
         let aggregator = Aggregator::new(
             vec![Arc::new(prov1), Arc::new(prov2)],
             storage,
