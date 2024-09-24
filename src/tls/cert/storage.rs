@@ -45,6 +45,7 @@ struct StorageInner<T: Clone + Send + Sync> {
 pub struct Storage<T: Clone + Send + Sync> {
     #[new(default)]
     inner: ArcSwapOption<StorageInner<T>>,
+    cert_default: Option<FQDN>,
     metrics: Metrics,
 }
 
@@ -75,12 +76,19 @@ impl<T: Clone + Send + Sync> Storage<T> {
         let inner = self.inner.load_full()?;
 
         // Try to find some certificate
-        inner
-            .certs
-            .first_key_value()
-            .or_else(|| inner.certs_wildcard.first_key_value())
-            .map(|x| x.1)
-            .cloned()
+        self.cert_default
+            .as_ref()
+            // Try to find the default one if specified first
+            .and_then(|x| self.lookup_cert(x))
+            // Then just pick first available
+            .or_else(|| {
+                inner
+                    .certs
+                    .first_key_value()
+                    .or_else(|| inner.certs_wildcard.first_key_value())
+                    .map(|x| x.1)
+                    .cloned()
+            })
     }
 }
 
@@ -160,7 +168,8 @@ pub mod test {
     use super::*;
 
     pub fn create_test_storage() -> Storage<String> {
-        let storage: Storage<String> = Storage::new(Metrics::new(&Registry::new()));
+        let storage: Storage<String> =
+            Storage::new(Some(fqdn!("foo.baz")), Metrics::new(&Registry::new()));
 
         let certs = vec![
             Cert {
@@ -244,8 +253,8 @@ pub mod test {
             "foo.bar.cert"
         );
 
-        // Check any
-        assert_eq!(storage.any().unwrap().cert, "foo.bar.cert");
+        // Check any, make sure it returns the cert_default
+        assert_eq!(storage.any().unwrap().cert, "foo.baz.cert");
 
         Ok(())
     }

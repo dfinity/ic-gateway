@@ -142,7 +142,10 @@ pub async fn setup(
     registry: &Registry,
 ) -> Result<(ServerConfig, Vec<Arc<dyn ProvidesCustomDomains>>), Error> {
     // Prepare certificate storage
-    let cert_storage = Arc::new(storage::Storage::new(storage::Metrics::new(registry)));
+    let cert_storage = Arc::new(storage::Storage::new(
+        cli.cert.cert_default.clone(),
+        storage::Metrics::new(registry),
+    ));
 
     let mut cert_providers: Vec<Arc<dyn ProvidesCertificates>> = vec![];
     let mut custom_domain_providers: Vec<Arc<dyn ProvidesCustomDomains>> = vec![];
