@@ -187,7 +187,7 @@ pub struct HttpServer {
 
     /// Option to only serve HTTP instead for testing.
     #[clap(env, long)]
-    pub insecure_serve_http_only: bool,
+    pub http_server_insecure_serve_http_only: bool,
 }
 
 #[derive(Args)]

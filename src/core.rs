@@ -129,7 +129,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     .await?;
 
     // Set up HTTP router (redirecting to HTTPS or serving all endpoints)
-    let http_router = if !cli.http_server.insecure_serve_http_only {
+    let http_router = if !cli.http_server.http_server_insecure_serve_http_only {
         Router::new().fallback(routing::redirect_to_https)
     } else {
         gateway_router.clone()
@@ -146,7 +146,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     tasks.add("http_server", http_server);
 
     // Create HTTPS server
-    if !cli.http_server.insecure_serve_http_only {
+    if !cli.http_server.http_server_insecure_serve_http_only {
         // Prepare TLS related stuff
         let rustls_cfg = tls::setup(
             cli,
