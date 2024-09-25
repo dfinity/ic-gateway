@@ -184,6 +184,10 @@ pub struct HttpServer {
     /// Lifetime of a TLS1.3 ticket, due to key rotation the actual lifetime will be twice than this.
     #[clap(env, long, default_value = "9h", value_parser = parse_duration)]
     pub http_server_tls_ticket_lifetime: Duration,
+
+    /// Option to only serve HTTP instead for testing.
+    #[clap(env, long)]
+    pub insecure_serve_http_only: bool,
 }
 
 #[derive(Args)]
@@ -514,10 +518,6 @@ pub struct Misc {
     /// Defaults to the number of CPUs
     #[clap(env, long)]
     pub threads: Option<usize>,
-
-    /// Option to only serve HTTP instead for testing.
-    #[clap(env, long)]
-    pub insecure_serve_http_only: bool,
 }
 
 #[derive(Args)]
