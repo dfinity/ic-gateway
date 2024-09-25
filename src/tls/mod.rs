@@ -7,7 +7,7 @@ use anyhow::{anyhow, Context, Error};
 use async_trait::async_trait;
 use fqdn::FQDN;
 use ic_bn_lib::{
-    http::{dns::Resolves, Client, ALPN_ACME, ALPN_H1, ALPN_H2},
+    http::{dns::Resolves, ALPN_ACME, ALPN_H1, ALPN_H2},
     tasks::{Run, TaskManager},
     tls::{
         acme::{
@@ -31,7 +31,6 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     cli::Cli,
-    routing::domain::ProvidesCustomDomains,
     tls::{
         cert::{providers, Aggregator},
         resolver::AggregatingResolver,
@@ -136,11 +135,11 @@ pub async fn setup(
     cli: &Cli,
     tasks: &mut TaskManager,
     domains: Vec<FQDN>,
-    http_client: Arc<dyn Client>,
     dns_resolver: Arc<dyn Resolves>,
+    custom_domain_providers: Vec<Arc<dyn ProvidesCertificates>>,
     tls_session_storage: Arc<dyn StoresServerSessions + Send + Sync>,
     registry: &Registry,
-) -> Result<(ServerConfig, Vec<Arc<dyn ProvidesCustomDomains>>), Error> {
+) -> Result<ServerConfig, Error> {
     // Prepare certificate storage
     let cert_storage = Arc::new(storage::Storage::new(
         cli.cert.cert_default.clone(),
@@ -148,28 +147,14 @@ pub async fn setup(
     ));
 
     let mut cert_providers: Vec<Arc<dyn ProvidesCertificates>> = vec![];
-    let mut custom_domain_providers: Vec<Arc<dyn ProvidesCustomDomains>> = vec![];
 
     // Create Dir providers
     for v in &cli.cert.cert_provider_dir {
         cert_providers.push(Arc::new(providers::Dir::new(v.clone())));
     }
 
-    // Create CertIssuer providers
-    // It's a custom domain & cert provider at the same time.
-    let issuer_metrics = providers::issuer::Metrics::new(registry);
-    for v in &cli.cert.cert_provider_issuer_url {
-        let issuer = Arc::new(providers::Issuer::new(
-            http_client.clone(),
-            v.clone(),
-            cli.cert.cert_provider_issuer_poll_interval,
-            issuer_metrics.clone(),
-        ));
-
-        cert_providers.push(issuer.clone());
-        custom_domain_providers.push(issuer.clone());
-        tasks.add(&format!("{issuer:?}"), issuer);
-    }
+    // Add custom domain certificate providers
+    cert_providers.extend(custom_domain_providers);
 
     // Prepare ACME if configured
     let acme_resolver = if let Some(v) = &cli.acme.acme_challenge {
@@ -228,5 +213,5 @@ pub async fn setup(
         registry,
     );
 
-    Ok((config, custom_domain_providers))
+    Ok(config)
 }
