@@ -168,7 +168,7 @@ fn infer_request_type(path: &str) -> RequestType {
     match path {
         "/api/v2/canister/:principal/query" => RequestType::Api(RequestTypeApi::Query),
         "/api/v2/canister/:principal/call" => RequestType::Api(RequestTypeApi::Call),
-        "/api/v3/canister/:principal/call" => RequestType::Api(RequestTypeApi::CallV3),
+        "/api/v3/canister/:principal/call" => RequestType::Api(RequestTypeApi::SyncCall),
         "/api/v2/canister/:principal/read_state" => RequestType::Api(RequestTypeApi::ReadState),
         "/api/v2/subnet/:principal/read_state" => RequestType::Api(RequestTypeApi::ReadStateSubnet),
         "/api/v2/status" => RequestType::Api(RequestTypeApi::Status),

@@ -66,7 +66,7 @@ pub enum RequestTypeApi {
     Status,
     Query,
     Call,
-    CallV3,
+    SyncCall,
     ReadState,
     ReadStateSubnet,
 }
