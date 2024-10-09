@@ -22,7 +22,7 @@ use url::Url;
 
 type AgentFuture<'a, V> = Pin<Box<dyn Future<Output = Result<V, AgentError>> + Send + 'a>>;
 
-const MAX_RESPONSE_SIZE: usize = 2 * 1_048_576;
+const MAX_RESPONSE_SIZE: usize = 3 * 1_048_576;
 
 pub struct Context {
     pub hostname: Option<String>,
