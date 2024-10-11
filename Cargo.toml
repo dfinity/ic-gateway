@@ -96,9 +96,6 @@ tracing-subscriber = { version = "0.3", features = [
 ] }
 url = "2.5"
 uuid = { version = "1.10", features = ["v7"] }
-# vector-lib depends on openssl and we don't want that.
-# thus use the fork where openssl dependency is removed
-vector-lib = { git = "https://github.com/dfinity/vector.git" }
 webpki-roots = "0.26"
 x509-parser = "0.16"
 zstd = "0.13.2"
