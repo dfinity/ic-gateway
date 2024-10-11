@@ -24,6 +24,7 @@ pub trait ProvidesCertificates: Sync + Send + std::fmt::Debug {
     async fn get_certificates(&self) -> Result<Vec<Pem>, anyhow::Error>;
 }
 
+#[allow(clippy::type_complexity)]
 pub fn setup_issuer_providers(
     cli: &Cli,
     tasks: &mut TaskManager,

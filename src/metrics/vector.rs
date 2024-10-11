@@ -7,7 +7,10 @@ use std::{
 use anyhow::{anyhow, Context, Error};
 use async_channel::{bounded, Receiver, Sender};
 use bytes::{Buf, Bytes, BytesMut};
-use ic_bn_lib::http::{self, headers::CONTENT_TYPE_OCTET_STREAM};
+use ic_bn_lib::{
+    http::{self, headers::CONTENT_TYPE_OCTET_STREAM},
+    vector::encode_event,
+};
 use prometheus::{
     register_int_counter_vec_with_registry, register_int_counter_with_registry,
     register_int_gauge_with_registry, IntCounter, IntCounterVec, IntGauge, Registry,
@@ -16,6 +19,7 @@ use reqwest::{
     header::{self, HeaderValue},
     Method, Request,
 };
+use serde_json::Value;
 use tokio::{
     select,
     sync::mpsc,
@@ -28,7 +32,6 @@ use tokio_util::{
 };
 use tracing::{debug, warn};
 use url::Url;
-use vector_lib::{codecs::encoding::NativeSerializer, config::LogNamespace, event::Event};
 
 use crate::cli;
 
@@ -119,35 +122,27 @@ impl Metrics {
 
 /// Encodes Vector events into a native format with length delimiting
 #[derive(Clone)]
-struct EventEncoder {
-    framer: LengthDelimitedCodec,
-    serializer: NativeSerializer,
-}
+struct EventEncoder(LengthDelimitedCodec);
 
 impl EventEncoder {
     fn new() -> Self {
-        Self {
-            framer: LengthDelimitedCodec::new(),
-            serializer: NativeSerializer,
-        }
+        Self(LengthDelimitedCodec::new())
     }
 
     /// Encodes the event into provided buffer and adds framing
     #[inline]
-    fn encode_event(&mut self, event: Event, buf: &mut BytesMut) -> Result<(), Error> {
+    fn encode_event(&mut self, event: Value, buf: &mut BytesMut) -> Result<(), Error> {
         // Serialize
         let len = buf.len();
         let mut payload = buf.split_off(len);
 
-        self.serializer
-            .encode(event, &mut payload)
-            .map_err(|e| anyhow!("unable to serialize event: {e:#}"))?;
+        encode_event(event, &mut payload).context("unable to encode the event")?;
 
         // Add framing
         let bytes = payload.split().freeze();
-        self.framer
+        self.0
             .encode(bytes, &mut payload)
-            .map_err(|e| anyhow!("unable to add framing: {e:#}"))?;
+            .context("unable to add framing")?;
 
         buf.unsplit(payload);
         Ok(())
@@ -160,7 +155,7 @@ pub struct Vector {
     token_flushers_drain: CancellationToken,
     tracker_batcher: TaskTracker,
     tracker_flushers: TaskTracker,
-    tx: mpsc::Sender<Event>,
+    tx: mpsc::Sender<Value>,
     metrics: Metrics,
 }
 
@@ -175,6 +170,7 @@ impl Vector {
 
         // Start batcher
         warn!("Vector: starting batcher");
+        // Allocate an extra 10% to make sure that we don't reallocate when pushing into batch
         let batch_capacity = cli.log_vector_batch + cli.log_vector_batch / 10;
         let token_batcher = CancellationToken::new();
 
@@ -184,7 +180,6 @@ impl Vector {
         let batcher = Batcher {
             rx: rx_event,
             tx: tx_batch,
-            // Allocate an extra 10% to make sure that we don't reallocate when pushing into batch
             batch: BytesMut::with_capacity(batch_capacity),
             batch_capacity,
             batch_size: cli.log_vector_batch,
@@ -241,10 +236,7 @@ impl Vector {
         }
     }
 
-    pub fn send(&self, v: serde_json::Value) {
-        // This never fails with LogNamespace::Vector
-        let event = Event::from_json_value(v, LogNamespace::Vector).unwrap();
-
+    pub fn send(&self, event: Value) {
         // If it fails we'll lose the event, but it's better than to block & eat memory.
         if self.tx.try_send(event).is_err() {
             self.metrics.buffer_drops.inc();
@@ -270,7 +262,7 @@ impl Vector {
 }
 
 struct Batcher {
-    rx: mpsc::Receiver<Event>,
+    rx: mpsc::Receiver<Value>,
     tx: Sender<Bytes>,
     batch: BytesMut,
     batch_capacity: usize,
@@ -288,7 +280,7 @@ impl Display for Batcher {
 }
 
 impl Batcher {
-    fn add_to_batch(&mut self, event: Event) {
+    fn add_to_batch(&mut self, event: Value) {
         if let Err(e) = self.encoder.encode_event(event, &mut self.batch) {
             warn!("{self}: unable to encode event: {e:#}");
             self.metrics.encoding_failures.inc();
@@ -524,7 +516,6 @@ mod test {
     use super::*;
     use async_trait::async_trait;
     use serde_json::json;
-    use vector_lib::config::LogNamespace;
 
     #[derive(Debug)]
     struct TestClient(AtomicU64, AtomicU64);
@@ -569,19 +560,18 @@ mod test {
     #[test]
     fn test_encoder() {
         let mut encoder = EventEncoder::new();
-        let event = Event::from_json_value(
-            json!({
-                "foo": "bar",
-            }),
-            LogNamespace::Vector,
-        )
-        .unwrap();
+        let event = json!({
+            "foo": "bar",
+        });
 
         let mut buf = BytesMut::new();
         assert!(encoder.encode_event(event, &mut buf).is_ok());
         assert_eq!(
-            *buf.freeze(),
-            *b"\0\0\0\x1c\n\x1a\n\x18\n\x0c\n\x03foo\x12\x05\n\x03bar\x1a\x02:\0\"\x04\n\x02:\0"
+            &buf.freeze().to_vec(),
+            &[
+                0, 0, 0, 31, 10, 29, 10, 27, 10, 7, 10, 1, 46, 18, 2, 72, 0, 18, 16, 58, 14, 10,
+                12, 10, 3, 102, 111, 111, 18, 5, 10, 3, 98, 97, 114
+            ],
         );
     }
 
@@ -619,8 +609,8 @@ mod test {
         vector.stop().await;
 
         // 6k sent, buffer 5k => 1k will be dropped
-        assert_eq!(client.0.load(Ordering::SeqCst), 131);
-        assert_eq!(client.1.load(Ordering::SeqCst), 197780); // Uncompressed size
+        assert_eq!(client.0.load(Ordering::SeqCst), 142);
+        assert_eq!(client.1.load(Ordering::SeqCst), 212780); // Uncompressed size
     }
 
     /// Make sure we can drain when the endpoint is down
