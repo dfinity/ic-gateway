@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::{Request, State},
+    extract::{MatchedPath, Request, State},
     middleware::Next,
     response::IntoResponse,
 };
 
 use super::extract_authority;
-use crate::routing::{domain::ResolvesDomain, CanisterId, ErrorCause, RequestCtx};
+use crate::routing::{domain::ResolvesDomain, CanisterId, ErrorCause, RequestCtx, RequestType};
 
 pub async fn middleware(
     State(resolver): State<Arc<dyn ResolvesDomain>>,
@@ -29,13 +29,17 @@ pub async fn middleware(
         request.extensions_mut().insert(CanisterId(v));
     }
 
+    let request_type = RequestType::from(request.extensions().get::<MatchedPath>());
+
     // Inject request context
     // TODO remove Arc?
     let ctx = Arc::new(RequestCtx {
         authority,
         domain: lookup.domain.clone(),
         verify: lookup.verify,
+        request_type,
     });
+
     request.extensions_mut().insert(ctx.clone());
 
     // Execute the request

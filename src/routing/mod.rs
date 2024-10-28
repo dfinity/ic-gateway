@@ -4,11 +4,11 @@ pub mod ic;
 pub mod middleware;
 pub mod proxy;
 
-use std::sync::Arc;
+use std::{str::FromStr, sync::Arc};
 
-use anyhow::Error;
+use anyhow::{Context, Error};
 use axum::{
-    extract::{Host, OriginalUri, Request},
+    extract::{Host, MatchedPath, OriginalUri, Request},
     middleware::{from_fn, from_fn_with_state, FromFnLayer},
     response::{IntoResponse, Redirect},
     routing::{get, post},
@@ -19,15 +19,19 @@ use candid::Principal;
 use domain::{CustomDomainStorage, DomainResolver, ProvidesCustomDomains};
 use fqdn::FQDN;
 use http::{method::Method, uri::PathAndQuery, StatusCode, Uri};
-use ic::route_provider::setup_route_provider;
 use ic_bn_lib::{
     http::{
         cache::{Cache, KeyExtractorUriRange, Opts},
+        shed::{
+            sharded::{ShardedLittleLoadShedderLayer, ShardedOptions, TypeExtractor},
+            system::{SystemInfo, SystemLoadShedderLayer},
+            ShedResponse,
+        },
         Client,
     },
     tasks::TaskManager,
+    types::RequestType as RequestTypeApi,
 };
-use little_loadshedder::{LoadShedLayer, LoadShedResponse};
 use middleware::cache;
 use prometheus::Registry;
 use strum::{Display, IntoStaticStr};
@@ -47,7 +51,7 @@ use self::middleware::denylist;
 use {
     domain::{Domain, ResolvesDomain},
     error_cause::ErrorCause,
-    ic::handler,
+    ic::{handler, route_provider::setup_route_provider},
 };
 
 #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
@@ -59,19 +63,7 @@ impl From<CanisterId> for Principal {
     }
 }
 
-// Type of IC API request
-#[derive(Debug, Clone, Copy, Display, PartialEq, Eq, Hash, IntoStaticStr)]
-#[strum(serialize_all = "snake_case")]
-pub enum RequestTypeApi {
-    Status,
-    Query,
-    Call,
-    SyncCall,
-    ReadState,
-    ReadStateSubnet,
-}
-
-#[derive(Debug, Clone, Copy, Display, PartialEq, Eq, Hash, IntoStaticStr)]
+#[derive(Debug, Clone, Copy, Display, PartialEq, Eq, PartialOrd, Ord, Hash, IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
 pub enum RequestType {
     Http,
@@ -82,17 +74,67 @@ pub enum RequestType {
     Unknown,
 }
 
-#[derive(Clone)]
+// Strum can't handle FromStr for nested types (Api) the way we want
+impl FromStr for RequestType {
+    type Err = ic_bn_lib::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s {
+            "http" => Self::Http,
+            "health" => Self::Health,
+            "registrations" => Self::Registrations,
+            "unknown" => Self::Unknown,
+            _ => Self::Api(RequestTypeApi::from_str(s).context("unable to parse API type")?),
+        })
+    }
+}
+
+// Derive request type from the matched path if there's one
+impl From<Option<&MatchedPath>> for RequestType {
+    fn from(path: Option<&MatchedPath>) -> Self {
+        let Some(path) = path else {
+            return Self::Http;
+        };
+
+        match path.as_str() {
+            "/api/v2/canister/:principal/query" => Self::Api(RequestTypeApi::Query),
+            "/api/v2/canister/:principal/call" => Self::Api(RequestTypeApi::Call),
+            "/api/v3/canister/:principal/call" => Self::Api(RequestTypeApi::SyncCall),
+            "/api/v2/canister/:principal/read_state" => Self::Api(RequestTypeApi::ReadState),
+            "/api/v2/subnet/:principal/read_state" => Self::Api(RequestTypeApi::ReadStateSubnet),
+            "/api/v2/status" => Self::Api(RequestTypeApi::Status),
+            "/health" => Self::Health,
+            "/registrations" | "/registrations/:id" => Self::Registrations,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct RequestCtx {
     // HTTP2 authority or HTTP1 Host header
     pub authority: FQDN,
     pub domain: Domain,
     pub verify: bool,
+    pub request_type: RequestType,
 }
 
 impl RequestCtx {
     fn is_base_domain(&self) -> bool {
         !self.domain.custom && self.authority == self.domain.name
+    }
+}
+
+#[derive(Clone, Debug)]
+struct RequestTypeExtractor;
+impl TypeExtractor for RequestTypeExtractor {
+    type Request = Request;
+    type Type = RequestType;
+
+    fn extract(&self, req: &Self::Request) -> Option<Self::Type> {
+        req.extensions()
+            .get::<Arc<RequestCtx>>()
+            .map(|x| x.request_type)
     }
 }
 
@@ -206,15 +248,55 @@ pub async fn setup_router(
             .map(ConcurrencyLimitLayer::new),
     );
 
-    // Load shedder
-    let load_shedder_mw = option_layer(cli.load.load_shed_ewma_param.map(|x| {
-        ServiceBuilder::new()
-            .layer(MapResponseLayer::new(|resp| match resp {
-                LoadShedResponse::Inner(inner) => inner,
-                LoadShedResponse::Overload => ErrorCause::LoadShed.into_response(),
-            }))
-            .layer(LoadShedLayer::new(x, cli.load.load_shed_target_latency))
-    }));
+    // Load shedders
+
+    // We need to map the generic response of a shedder to an Axum's Response
+    let shed_map_response = MapResponseLayer::new(|resp| match resp {
+        ShedResponse::Inner(inner) => inner,
+        ShedResponse::Overload(_) => ErrorCause::LoadShed.into_response(),
+    });
+
+    let load_shedder_system_mw = option_layer({
+        let opts = &[
+            cli.shed_system.shed_system_cpu,
+            cli.shed_system.shed_system_memory,
+            cli.shed_system.shed_system_load_avg_1,
+            cli.shed_system.shed_system_load_avg_5,
+            cli.shed_system.shed_system_load_avg_15,
+        ];
+
+        if opts.iter().any(|x| x.is_some()) {
+            warn!("System load shedder enabled ({:?})", cli.shed_system);
+
+            Some(
+                ServiceBuilder::new()
+                    .layer(shed_map_response.clone())
+                    .layer(SystemLoadShedderLayer::new(
+                        cli.shed_system.shed_system_ewma,
+                        cli.shed_system.clone().into(),
+                        SystemInfo::new(),
+                    )),
+            )
+        } else {
+            None
+        }
+    });
+
+    let load_shedder_latency_mw =
+        option_layer(if !cli.shed_latency.shed_sharded_latency.is_empty() {
+            warn!("Latency load shedder enabled ({:?})", cli.shed_latency);
+
+            Some(ServiceBuilder::new().layer(shed_map_response).layer(
+                ShardedLittleLoadShedderLayer::new(ShardedOptions {
+                    extractor: RequestTypeExtractor,
+                    ewma_alpha: cli.shed_latency.shed_sharded_ewma,
+                    passthrough_count: cli.shed_latency.shed_sharded_passthrough,
+                    latencies: cli.shed_latency.shed_sharded_latency.clone(),
+                }),
+            ))
+        } else {
+            None
+        });
 
     // Prepare the HTTP->IC library
     let route_provider =
@@ -351,10 +433,11 @@ pub async fn setup_router(
         .layer(from_fn(request_id::middleware))
         .layer(from_fn(headers::middleware))
         .layer(metrics_mw)
+        .layer(load_shedder_system_mw)
+        .layer(from_fn_with_state(domain_resolver, validate::middleware))
         .layer(concurrency_limit_mw)
         .layer(geoip_mw)
-        .layer(load_shedder_mw)
-        .layer(from_fn_with_state(domain_resolver, validate::middleware));
+        .layer(load_shedder_latency_mw);
 
     // Top-level router
     let router = Router::new()
@@ -395,4 +478,52 @@ pub async fn setup_router(
 
     // The layer that's added last is executed first
     Ok(router)
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::str::FromStr;
+
+    #[test]
+    fn test_request_type() {
+        assert_eq!(RequestType::Http, RequestType::from_str("http").unwrap());
+        assert_eq!(
+            RequestType::Health,
+            RequestType::from_str("health").unwrap()
+        );
+        assert_eq!(
+            RequestType::Registrations,
+            RequestType::from_str("registrations").unwrap()
+        );
+        assert_eq!(
+            RequestType::Unknown,
+            RequestType::from_str("unknown").unwrap()
+        );
+
+        assert_eq!(
+            RequestType::Api(RequestTypeApi::Query),
+            RequestType::from_str("query").unwrap()
+        );
+        assert_eq!(
+            RequestType::Api(RequestTypeApi::Call),
+            RequestType::from_str("call").unwrap()
+        );
+        assert_eq!(
+            RequestType::Api(RequestTypeApi::SyncCall),
+            RequestType::from_str("sync_call").unwrap()
+        );
+        assert_eq!(
+            RequestType::Api(RequestTypeApi::Status),
+            RequestType::from_str("status").unwrap()
+        );
+        assert_eq!(
+            RequestType::Api(RequestTypeApi::ReadState),
+            RequestType::from_str("read_state").unwrap()
+        );
+        assert_eq!(
+            RequestType::Api(RequestTypeApi::ReadStateSubnet),
+            RequestType::from_str("read_state_subnet").unwrap()
+        );
+    }
 }
