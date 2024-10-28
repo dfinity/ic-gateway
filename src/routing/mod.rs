@@ -256,14 +256,16 @@ pub async fn setup_router(
         ShedResponse::Overload(_) => ErrorCause::LoadShed.into_response(),
     });
 
-    let load_shedder_system_mw = option_layer(
-        // TODO make nicer?
-        if cli.shed_system.shed_system_cpu.is_some()
-            || cli.shed_system.shed_system_memory.is_some()
-            || cli.shed_system.shed_system_load_avg_1.is_some()
-            || cli.shed_system.shed_system_load_avg_5.is_some()
-            || cli.shed_system.shed_system_load_avg_15.is_some()
-        {
+    let load_shedder_system_mw = option_layer({
+        let opts = &[
+            cli.shed_system.shed_system_cpu,
+            cli.shed_system.shed_system_memory,
+            cli.shed_system.shed_system_load_avg_1,
+            cli.shed_system.shed_system_load_avg_5,
+            cli.shed_system.shed_system_load_avg_15,
+        ];
+
+        if opts.iter().any(|x| x.is_some()) {
             warn!("System load shedder enabled ({:?})", cli.shed_system);
 
             Some(
@@ -277,8 +279,8 @@ pub async fn setup_router(
             )
         } else {
             None
-        },
-    );
+        }
+    });
 
     let load_shedder_latency_mw =
         option_layer(if !cli.shed_latency.shed_sharded_latency.is_empty() {
