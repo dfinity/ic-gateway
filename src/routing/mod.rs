@@ -249,7 +249,7 @@ pub async fn setup_router(
     );
 
     // Load shedders
-    
+
     // We need to map the generic response of a shedder to an Axum's Response
     let shed_map_response = MapResponseLayer::new(|resp| match resp {
         ShedResponse::Inner(inner) => inner,
@@ -284,16 +284,14 @@ pub async fn setup_router(
         option_layer(if !cli.shed_latency.shed_sharded_latency.is_empty() {
             warn!("Latency load shedder enabled ({:?})", cli.shed_latency);
 
-            Some(
-                ServiceBuilder::new()
-                    .layer(shed_map_response)
-                    .layer(ShardedLittleLoadShedderLayer::new(ShardedOptions {
-                        extractor: RequestTypeExtractor,
-                        ewma_alpha: cli.shed_latency.shed_sharded_ewma,
-                        passthrough_count: cli.shed_latency.shed_sharded_passthrough,
-                        latencies: cli.shed_latency.shed_sharded_latency.clone(),
-                    })),
-            )
+            Some(ServiceBuilder::new().layer(shed_map_response).layer(
+                ShardedLittleLoadShedderLayer::new(ShardedOptions {
+                    extractor: RequestTypeExtractor,
+                    ewma_alpha: cli.shed_latency.shed_sharded_ewma,
+                    passthrough_count: cli.shed_latency.shed_sharded_passthrough,
+                    latencies: cli.shed_latency.shed_sharded_latency.clone(),
+                }),
+            ))
         } else {
             None
         });
