@@ -249,6 +249,13 @@ pub async fn setup_router(
     );
 
     // Load shedders
+    
+    // We need to map the generic response of a shedder to an Axum's Response
+    let shed_map_response = MapResponseLayer::new(|resp| match resp {
+        ShedResponse::Inner(inner) => inner,
+        ShedResponse::Overload(_) => ErrorCause::LoadShed.into_response(),
+    });
+
     let load_shedder_system_mw = option_layer(
         // TODO make nicer?
         if cli.shed_system.shed_system_cpu.is_some()
@@ -261,10 +268,7 @@ pub async fn setup_router(
 
             Some(
                 ServiceBuilder::new()
-                    .layer(MapResponseLayer::new(|resp| match resp {
-                        ShedResponse::Inner(inner) => inner,
-                        ShedResponse::Overload(_) => ErrorCause::LoadShed.into_response(),
-                    }))
+                    .layer(shed_map_response.clone())
                     .layer(SystemLoadShedderLayer::new(
                         cli.shed_system.shed_system_ewma,
                         cli.shed_system.clone().into(),
@@ -282,10 +286,7 @@ pub async fn setup_router(
 
             Some(
                 ServiceBuilder::new()
-                    .layer(MapResponseLayer::new(|resp| match resp {
-                        ShedResponse::Inner(inner) => inner,
-                        ShedResponse::Overload(_) => ErrorCause::LoadShed.into_response(),
-                    }))
+                    .layer(shed_map_response)
                     .layer(ShardedLittleLoadShedderLayer::new(ShardedOptions {
                         extractor: RequestTypeExtractor,
                         ewma_alpha: cli.shed_latency.shed_sharded_ewma,
