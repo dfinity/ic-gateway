@@ -9,14 +9,18 @@ use fqdn::FQDN;
 use hickory_resolver::config::CLOUDFLARE_IPS;
 use humantime::parse_duration;
 use ic_bn_lib::{
-    http::{self, client::CloneableDnsResolver},
+    http::{
+        self,
+        client::CloneableDnsResolver,
+        shed::cli::{ShedSharded, ShedSystem},
+    },
     tls::acme,
 };
 use reqwest::Url;
 
 use crate::{
     core::{AUTHOR_NAME, SERVICE_NAME},
-    routing::domain::CanisterAlias,
+    routing::{domain::CanisterAlias, RequestType},
     tls,
 };
 
@@ -74,6 +78,12 @@ pub struct Cli {
 
     #[command(flatten, next_help_heading = "Cache")]
     pub cache: CacheConfig,
+
+    #[command(flatten, next_help_heading = "Shedding System")]
+    pub shed_system: ShedSystem,
+
+    #[command(flatten, next_help_heading = "Shedding Latency")]
+    pub shed_latency: ShedSharded<RequestType>,
 }
 
 #[derive(Args)]
@@ -137,7 +147,7 @@ pub struct HttpServer {
     #[clap(env, long, default_value = "127.0.0.1:8443")]
     pub http_server_listen_tls: SocketAddr,
 
-    /// Backlog of incoming connections to set on the listening socket.
+    /// Backlog of incoming connections to set on the listening socket
     #[clap(env, long, default_value = "2048")]
     pub http_server_backlog: u32,
 
@@ -147,12 +157,35 @@ pub struct HttpServer {
     #[clap(env, long, default_value = "1000")]
     pub http_server_max_requests_per_conn: u64,
 
-    /// For how long to wait for the client to send headers
-    /// Currently applies only to HTTP1 connections.
+    /// Timeout for network read calls.
+    /// If the read call take longer than that - the connection is closed.
+    /// This effectively closes idle HTTP/1.1 connections.
+    #[clap(env, long, default_value = "30s", value_parser = parse_duration)]
+    pub http_server_read_timeout: Duration,
+
+    /// Timeout for network write calls.
+    /// If the write call take longer than that - the connection is closed.
+    #[clap(env, long, default_value = "30s", value_parser = parse_duration)]
+    pub http_server_write_timeout: Duration,
+
+    /// Idle timeout for connections.
+    /// If no requests are executed during this period - the connections is closed.
+    /// Mostly needed for HTTP/2 where the read timeout sometimes cannot kick in
+    /// due to PING frames and other non-request activity.
+    #[clap(env, long, default_value = "60s", value_parser = parse_duration)]
+    pub http_server_idle_timeout: Duration,
+
+    /// TLS handshake timeout
     #[clap(env, long, default_value = "15s", value_parser = parse_duration)]
+    pub http_server_tls_handshake_timeout: Duration,
+
+    /// For how long to wait for the client to send headers.
+    /// Applies only to HTTP1 connections.
+    /// Should be set lower than the global `http_server_read_timeout`.
+    #[clap(env, long, default_value = "10s", value_parser = parse_duration)]
     pub http_server_http1_header_read_timeout: Duration,
 
-    /// For how long to wait for the client to send request body.
+    /// For how long to wait for the client to send full request body.
     #[clap(env, long, default_value = "60s", value_parser = parse_duration)]
     pub http_server_body_read_timeout: Duration,
 
@@ -181,11 +214,11 @@ pub struct HttpServer {
     #[clap(env, long, default_value = "18h", value_parser = parse_duration)]
     pub http_server_tls_session_cache_tti: Duration,
 
-    /// Lifetime of a TLS1.3 ticket, due to key rotation the actual lifetime will be twice than this.
+    /// Lifetime of a TLS1.3 ticket, due to key rotation the actual lifetime will be twice than this
     #[clap(env, long, default_value = "9h", value_parser = parse_duration)]
     pub http_server_tls_ticket_lifetime: Duration,
 
-    /// Option to only serve HTTP instead for testing.
+    /// Option to only serve HTTP instead for testing
     #[clap(env, long)]
     pub http_server_insecure_serve_http_only: bool,
 }
@@ -531,7 +564,7 @@ pub struct CacheConfig {
     #[clap(env, long, default_value = "10MB", value_parser = parse_size_usize)]
     pub cache_max_item_size: usize,
 
-    /// Time-to-live for the cache entries in seconds
+    /// Time-to-live for the cache entries
     #[clap(env, long, default_value = "10s", value_parser = parse_duration)]
     pub cache_ttl: Duration,
 
@@ -567,6 +600,10 @@ impl From<&HttpServer> for http::server::Options {
     fn from(c: &HttpServer) -> Self {
         Self {
             backlog: c.http_server_backlog,
+            read_timeout: Some(c.http_server_read_timeout),
+            write_timeout: Some(c.http_server_write_timeout),
+            idle_timeout: c.http_server_idle_timeout,
+            tls_handshake_timeout: c.http_server_tls_handshake_timeout,
             http1_header_read_timeout: c.http_server_http1_header_read_timeout,
             http2_keepalive_interval: c.http_server_http2_keepalive_interval,
             http2_keepalive_timeout: c.http_server_http2_keepalive_timeout,

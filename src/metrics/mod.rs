@@ -9,7 +9,7 @@ use std::{
 
 use axum::{
     body::Body,
-    extract::{Extension, MatchedPath, Request, State},
+    extract::{Extension, Request, State},
     middleware::Next,
     response::{IntoResponse, Response},
     routing::get,
@@ -40,7 +40,7 @@ use crate::{
         error_cause::ErrorCause,
         ic::{BNRequestMetadata, BNResponseMetadata, IcResponseStatus},
         middleware::{geoip::CountryCode, request_id::RequestId},
-        CanisterId, RequestCtx, RequestType, RequestTypeApi,
+        CanisterId, RequestCtx,
     },
 };
 
@@ -164,20 +164,6 @@ impl HttpMetrics {
     }
 }
 
-fn infer_request_type(path: &str) -> RequestType {
-    match path {
-        "/api/v2/canister/:principal/query" => RequestType::Api(RequestTypeApi::Query),
-        "/api/v2/canister/:principal/call" => RequestType::Api(RequestTypeApi::Call),
-        "/api/v3/canister/:principal/call" => RequestType::Api(RequestTypeApi::SyncCall),
-        "/api/v2/canister/:principal/read_state" => RequestType::Api(RequestTypeApi::ReadState),
-        "/api/v2/subnet/:principal/read_state" => RequestType::Api(RequestTypeApi::ReadStateSubnet),
-        "/api/v2/status" => RequestType::Api(RequestTypeApi::Status),
-        "/health" => RequestType::Health,
-        "/registrations" | "/registrations/:id" => RequestType::Registrations,
-        _ => RequestType::Unknown,
-    }
-}
-
 pub async fn middleware(
     State(state): State<Arc<HttpMetrics>>,
     Extension(conn_info): Extension<Arc<ConnInfo>>,
@@ -271,12 +257,11 @@ pub async fn middleware(
         .unwrap_or_else(|| "none".into());
 
     let cache_status_str: &'static str = cache_status.into();
-    let request_type = response
-        .extensions_mut()
-        .remove::<MatchedPath>()
-        .map_or(RequestType::Http, |x| infer_request_type(x.as_str()));
     // Strum IntoStaticStr doesn't respect to_string macro option, so fall back to allocation for now
-    let request_type = request_type.to_string();
+    let request_type = ctx
+        .as_ref()
+        .map(|x| x.request_type.to_string())
+        .unwrap_or_else(|| "unknown".into());
 
     // By this time the channel should already have the data
     // since the response headers are already received -> request body was for sure read (or an error happened)
