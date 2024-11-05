@@ -2,7 +2,7 @@ use std::sync::{Arc, OnceLock};
 
 use anyhow::{anyhow, Context, Error};
 use axum::Router;
-use ic_bn_lib::{http, tasks::TaskManager, tls::sessions};
+use ic_bn_lib::{http, tasks::TaskManager, tls::prepare_client_config};
 use itertools::Itertools;
 use prometheus::Registry;
 use tokio_util::sync::CancellationToken;
@@ -70,8 +70,13 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     // HTTP client
     let mut http_client_opts: http::client::Options<_> = (&cli.http_client).into();
     http_client_opts.dns_resolver = Some(dns_resolver.clone());
-    let reqwest_client = http::client::new(http_client_opts.clone())?;
-    let http_client = Arc::new(http::ReqwestClient::new(http_client_opts)?);
+    http_client_opts.tls_config = Some(prepare_client_config(&[
+        &rustls::version::TLS13,
+        &rustls::version::TLS12,
+    ]));
+    let http_client = Arc::new(http::ReqwestClient::new(http_client_opts.clone())?);
+    // Bare reqwest client is for now needed for Discovery Library
+    let reqwest_client = http::client::new(http_client_opts)?;
 
     // Event sinks
     let clickhouse = if cli.log.clickhouse.log_clickhouse_url.is_some() {
@@ -96,12 +101,6 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     // Cancelling a token cancels all of its clones too
     let handler_token = token.clone();
     ctrlc::set_handler(move || handler_token.cancel())?;
-
-    // TLS session cache
-    let tls_session_cache = Arc::new(sessions::Storage::new(
-        cli.http_server.http_server_tls_session_cache_size,
-        cli.http_server.http_server_tls_session_cache_tti,
-    ));
 
     // HTTP server metrics
     let http_metrics = http::server::Metrics::new(&registry);
@@ -129,7 +128,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     .await?;
 
     // Set up HTTP router (redirecting to HTTPS or serving all endpoints)
-    let http_router = if !cli.http_server.http_server_insecure_serve_http_only {
+    let http_router = if !cli.listen.listen_insecure_serve_http_only {
         Router::new().fallback(routing::redirect_to_https)
     } else {
         gateway_router.clone()
@@ -137,7 +136,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
 
     // Create HTTP server
     let http_server = Arc::new(http::Server::new(
-        http::server::Addr::Tcp(cli.http_server.http_server_listen_plain),
+        http::server::Addr::Tcp(cli.listen.listen_plain),
         http_router,
         (&cli.http_server).into(),
         http_metrics.clone(),
@@ -146,7 +145,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     tasks.add("http_server", http_server);
 
     // Create HTTPS server
-    if !cli.http_server.http_server_insecure_serve_http_only {
+    if !cli.listen.listen_insecure_serve_http_only {
         // Prepare TLS related stuff
         let rustls_cfg = tls::setup(
             cli,
@@ -154,14 +153,13 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
             domains.clone(),
             Arc::new(dns_resolver),
             issuer_certificate_providers,
-            tls_session_cache.clone(),
             &registry,
         )
         .await
         .context("unable to setup TLS")?;
 
         let https_server = Arc::new(http::Server::new(
-            http::server::Addr::Tcp(cli.http_server.http_server_listen_tls),
+            http::server::Addr::Tcp(cli.listen.listen_tls),
             gateway_router,
             (&cli.http_server).into(),
             http_metrics.clone(),
@@ -172,7 +170,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
 
     // Setup metrics
     if let Some(addr) = cli.metrics.metrics_listen {
-        let router = metrics::setup(&registry, tls_session_cache, &mut tasks);
+        let router = metrics::setup(&registry, &mut tasks);
 
         let srv = Arc::new(http::Server::new(
             http::server::Addr::Tcp(addr),

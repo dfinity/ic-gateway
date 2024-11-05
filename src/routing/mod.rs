@@ -128,8 +128,8 @@ impl RequestCtx {
 #[derive(Clone, Debug)]
 struct RequestTypeExtractor;
 impl TypeExtractor for RequestTypeExtractor {
-    type Request = Request;
     type Type = RequestType;
+    type Request = Request;
 
     fn extract(&self, req: &Self::Request) -> Option<Self::Type> {
         req.extensions()

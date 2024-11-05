@@ -11,9 +11,9 @@ use humantime::parse_duration;
 use ic_bn_lib::{
     http::{
         self,
-        client::CloneableDnsResolver,
         shed::cli::{ShedSharded, ShedSystem},
     },
+    parse_size, parse_size_usize,
     tls::acme,
 };
 use reqwest::Url;
@@ -21,16 +21,7 @@ use reqwest::Url;
 use crate::{
     core::{AUTHOR_NAME, SERVICE_NAME},
     routing::{domain::CanisterAlias, RequestType},
-    tls,
 };
-
-fn parse_size(s: &str) -> Result<u64, parse_size::Error> {
-    parse_size::Config::new().with_binary().parse_size(s)
-}
-
-fn parse_size_usize(s: &str) -> Result<usize, parse_size::Error> {
-    parse_size(s).map(|x| x as usize)
-}
 
 /// Clap does not support prefixes due to macro limitations.
 /// So the names are a bit redundant (e.g. cli.http_client.http_client_...) to
@@ -40,14 +31,17 @@ fn parse_size_usize(s: &str) -> Result<usize, parse_size::Error> {
 #[clap(name = SERVICE_NAME)]
 #[clap(author = AUTHOR_NAME)]
 pub struct Cli {
-    #[command(flatten, next_help_heading = "HTTP Client")]
-    pub http_client: HttpClient,
-
     #[command(flatten, next_help_heading = "DNS Resolver")]
     pub dns: Dns,
 
+    #[command(flatten, next_help_heading = "Listening")]
+    pub listen: Listen,
+
+    #[command(flatten, next_help_heading = "HTTP Client")]
+    pub http_client: http::client::cli::HttpClient,
+
     #[command(flatten, next_help_heading = "HTTP Server")]
-    pub http_server: HttpServer,
+    pub http_server: http::server::cli::HttpServer,
 
     #[command(flatten, next_help_heading = "IC")]
     pub ic: Ic,
@@ -87,38 +81,6 @@ pub struct Cli {
 }
 
 #[derive(Args)]
-pub struct HttpClient {
-    /// Timeout for HTTP connection phase
-    #[clap(env, long, default_value = "5s", value_parser = parse_duration)]
-    pub http_client_timeout_connect: Duration,
-
-    /// Timeout for a single read request
-    #[clap(env, long, default_value = "15s", value_parser = parse_duration)]
-    pub http_client_timeout_read: Duration,
-
-    /// Timeout for the whole HTTP call: this includes connecting, sending request,
-    /// receiving response etc.
-    #[clap(env, long, default_value = "60s", value_parser = parse_duration)]
-    pub http_client_timeout: Duration,
-
-    /// How long to keep idle HTTP connections open
-    #[clap(env, long, default_value = "120s", value_parser = parse_duration)]
-    pub http_client_pool_idle: Duration,
-
-    /// TCP Keepalive interval
-    #[clap(env, long, default_value = "15s", value_parser = parse_duration)]
-    pub http_client_tcp_keepalive: Duration,
-
-    /// HTTP2 Keepalive interval
-    #[clap(env, long, default_value = "10s", value_parser = parse_duration)]
-    pub http_client_http2_keepalive: Duration,
-
-    /// HTTP2 Keepalive timeout
-    #[clap(env, long, default_value = "5s", value_parser = parse_duration)]
-    pub http_client_http2_keepalive_timeout: Duration,
-}
-
-#[derive(Args)]
 pub struct Dns {
     /// List of DNS servers to use
     #[clap(env, long, value_delimiter = ',', default_values_t = CLOUDFLARE_IPS)]
@@ -138,89 +100,18 @@ pub struct Dns {
 }
 
 #[derive(Args)]
-pub struct HttpServer {
+pub struct Listen {
     /// Where to listen for HTTP
     #[clap(env, long, default_value = "127.0.0.1:8080")]
-    pub http_server_listen_plain: SocketAddr,
+    pub listen_plain: SocketAddr,
 
     /// Where to listen for HTTPS
     #[clap(env, long, default_value = "127.0.0.1:8443")]
-    pub http_server_listen_tls: SocketAddr,
-
-    /// Backlog of incoming connections to set on the listening socket
-    #[clap(env, long, default_value = "2048")]
-    pub http_server_backlog: u32,
-
-    /// Maximum number of HTTP requests to serve over a single connection.
-    /// After this number is reached the connection is gracefully closed.
-    /// The default is consistent with nginx's `keepalive_requests` parameter.
-    #[clap(env, long, default_value = "1000")]
-    pub http_server_max_requests_per_conn: u64,
-
-    /// Timeout for network read calls.
-    /// If the read call take longer than that - the connection is closed.
-    /// This effectively closes idle HTTP/1.1 connections.
-    #[clap(env, long, default_value = "30s", value_parser = parse_duration)]
-    pub http_server_read_timeout: Duration,
-
-    /// Timeout for network write calls.
-    /// If the write call take longer than that - the connection is closed.
-    #[clap(env, long, default_value = "30s", value_parser = parse_duration)]
-    pub http_server_write_timeout: Duration,
-
-    /// Idle timeout for connections.
-    /// If no requests are executed during this period - the connections is closed.
-    /// Mostly needed for HTTP/2 where the read timeout sometimes cannot kick in
-    /// due to PING frames and other non-request activity.
-    #[clap(env, long, default_value = "60s", value_parser = parse_duration)]
-    pub http_server_idle_timeout: Duration,
-
-    /// TLS handshake timeout
-    #[clap(env, long, default_value = "15s", value_parser = parse_duration)]
-    pub http_server_tls_handshake_timeout: Duration,
-
-    /// For how long to wait for the client to send headers.
-    /// Applies only to HTTP1 connections.
-    /// Should be set lower than the global `http_server_read_timeout`.
-    #[clap(env, long, default_value = "10s", value_parser = parse_duration)]
-    pub http_server_http1_header_read_timeout: Duration,
-
-    /// For how long to wait for the client to send full request body.
-    #[clap(env, long, default_value = "60s", value_parser = parse_duration)]
-    pub http_server_body_read_timeout: Duration,
-
-    /// Maximum number of HTTP2 streams that the client is allowed to create in a single connection
-    #[clap(env, long, default_value = "128")]
-    pub http_server_http2_max_streams: u32,
-
-    /// Keepalive interval for HTTP2 connections
-    #[clap(env, long, default_value = "20s", value_parser = parse_duration)]
-    pub http_server_http2_keepalive_interval: Duration,
-
-    /// Keepalive timeout for HTTP2 connections
-    #[clap(env, long, default_value = "10s", value_parser = parse_duration)]
-    pub http_server_http2_keepalive_timeout: Duration,
-
-    /// How long to wait for the existing connections to finish before shutting down.
-    /// Also applies to the recycling of connections with `http_server_max_requests_per_conn` option.
-    #[clap(env, long, default_value = "60s", value_parser = parse_duration)]
-    pub http_server_grace_period: Duration,
-
-    /// Maximum size of cache to store TLS sessions in memory
-    #[clap(env, long, default_value = "256MB", value_parser = parse_size)]
-    pub http_server_tls_session_cache_size: u64,
-
-    /// Maximum time that a TLS session key can stay in cache without being requested (Time-to-Idle)
-    #[clap(env, long, default_value = "18h", value_parser = parse_duration)]
-    pub http_server_tls_session_cache_tti: Duration,
-
-    /// Lifetime of a TLS1.3 ticket, due to key rotation the actual lifetime will be twice than this
-    #[clap(env, long, default_value = "9h", value_parser = parse_duration)]
-    pub http_server_tls_ticket_lifetime: Duration,
+    pub listen_tls: SocketAddr,
 
     /// Option to only serve HTTP instead for testing
     #[clap(env, long)]
-    pub http_server_insecure_serve_http_only: bool,
+    pub listen_insecure_serve_http_only: bool,
 }
 
 #[derive(Args)]
@@ -514,18 +405,6 @@ pub struct Vector {
 
 #[derive(Args)]
 pub struct Load {
-    /// Exponential Weighted Moving Average parameter for load shedding algorithm.
-    /// Setting this value enables load shedding.
-    /// Value of 0.1 means that the next measurement would account for 10% of moving average.
-    /// Should be in range 0..1.
-    #[clap(env, long)]
-    pub load_shed_ewma_param: Option<f64>,
-
-    /// Target latency for load shedding algorithm in milliseconds.
-    /// It tries to keep the request latency less than this.
-    #[clap(env, long, default_value = "1500ms", value_parser = parse_duration)]
-    pub load_shed_target_latency: Duration,
-
     /// Maximum number of concurrent requests to process.
     /// If more are coming in - they will be throttled.
     #[clap(env, long)]
@@ -592,43 +471,6 @@ impl From<&Dns> for http::dns::Options {
             servers: c.dns_servers.clone(),
             tls_name: c.dns_tls_name.clone(),
             cache_size: c.dns_cache_size,
-        }
-    }
-}
-
-impl From<&HttpServer> for http::server::Options {
-    fn from(c: &HttpServer) -> Self {
-        Self {
-            backlog: c.http_server_backlog,
-            read_timeout: Some(c.http_server_read_timeout),
-            write_timeout: Some(c.http_server_write_timeout),
-            idle_timeout: c.http_server_idle_timeout,
-            tls_handshake_timeout: c.http_server_tls_handshake_timeout,
-            http1_header_read_timeout: c.http_server_http1_header_read_timeout,
-            http2_keepalive_interval: c.http_server_http2_keepalive_interval,
-            http2_keepalive_timeout: c.http_server_http2_keepalive_timeout,
-            http2_max_streams: c.http_server_http2_max_streams,
-            grace_period: c.http_server_grace_period,
-            max_requests_per_conn: Some(c.http_server_max_requests_per_conn),
-        }
-    }
-}
-
-impl<R: CloneableDnsResolver> From<&HttpClient> for http::client::Options<R> {
-    fn from(c: &HttpClient) -> Self {
-        Self {
-            timeout_connect: c.http_client_timeout_connect,
-            timeout_read: c.http_client_timeout_read,
-            timeout: c.http_client_timeout,
-            pool_idle_timeout: Some(c.http_client_pool_idle),
-            pool_idle_max: None,
-            tcp_keepalive: Some(c.http_client_tcp_keepalive),
-            http2_keepalive: Some(c.http_client_http2_keepalive),
-            http2_keepalive_timeout: c.http_client_http2_keepalive_timeout,
-            http2_keepalive_idle: false,
-            user_agent: crate::core::SERVICE_NAME.into(),
-            tls_config: Some(tls::prepare_client_config()),
-            dns_resolver: None,
         }
     }
 }

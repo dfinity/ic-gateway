@@ -8,7 +8,7 @@ use arc_swap::ArcSwap;
 use axum::{async_trait, extract::State, response::IntoResponse};
 use bytes::{BufMut, Bytes, BytesMut};
 use http::header::CONTENT_TYPE;
-use ic_bn_lib::{tasks::Run, tls::sessions};
+use ic_bn_lib::tasks::Run;
 use prometheus::{register_int_gauge_with_registry, Encoder, IntGauge, Registry, TextEncoder};
 use tikv_jemalloc_ctl::{epoch, stats};
 use tokio::select;
@@ -33,23 +33,16 @@ impl MetricsCache {
 pub struct MetricsRunner {
     metrics_cache: Arc<MetricsCache>,
     registry: Registry,
-    tls_session_cache: Arc<sessions::Storage>,
     encoder: TextEncoder,
 
     // Metrics
     mem_allocated: IntGauge,
     mem_resident: IntGauge,
-    tls_session_cache_count: IntGauge,
-    tls_session_cache_size: IntGauge,
 }
 
 // Snapshots & encodes the metrics for the handler to export
 impl MetricsRunner {
-    pub fn new(
-        metrics_cache: Arc<MetricsCache>,
-        registry: &Registry,
-        tls_session_cache: Arc<sessions::Storage>,
-    ) -> Self {
+    pub fn new(metrics_cache: Arc<MetricsCache>, registry: &Registry) -> Self {
         let mem_allocated = register_int_gauge_with_registry!(
             format!("memory_allocated"),
             format!("Allocated memory in bytes"),
@@ -64,29 +57,12 @@ impl MetricsRunner {
         )
         .unwrap();
 
-        let tls_session_cache_count = register_int_gauge_with_registry!(
-            format!("tls_session_cache_count"),
-            format!("Number of TLS sessions in the cache"),
-            registry
-        )
-        .unwrap();
-
-        let tls_session_cache_size = register_int_gauge_with_registry!(
-            format!("tls_session_cache_size"),
-            format!("Size of TLS sessions in the cache"),
-            registry
-        )
-        .unwrap();
-
         Self {
             metrics_cache,
             registry: registry.clone(),
-            tls_session_cache,
             encoder: TextEncoder::new(),
             mem_allocated,
             mem_resident,
-            tls_session_cache_count,
-            tls_session_cache_size,
         }
     }
 }
@@ -99,11 +75,6 @@ impl MetricsRunner {
             .set(stats::allocated::read().unwrap() as i64);
         self.mem_resident
             .set(stats::resident::read().unwrap() as i64);
-
-        // Record TLS session stats
-        let stats = self.tls_session_cache.stats();
-        self.tls_session_cache_count.set(stats.entries as i64);
-        self.tls_session_cache_size.set(stats.size as i64);
 
         // Get a snapshot of metrics
         let metric_families = self.registry.gather();
