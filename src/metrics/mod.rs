@@ -24,7 +24,6 @@ use ic_bn_lib::{
         server::{ConnInfo, TlsInfo},
     },
     tasks::TaskManager,
-    tls::sessions,
 };
 use prometheus::{
     register_histogram_vec_with_registry, register_int_counter_vec_with_registry, HistogramVec,
@@ -55,17 +54,9 @@ pub const HTTP_DURATION_BUCKETS: &[f64] = &[0.05, 0.2, 1.0, 2.0];
 pub const HTTP_REQUEST_SIZE_BUCKETS: &[f64] = &[128.0, KB, 2.0 * KB, 4.0 * KB, 8.0 * KB];
 pub const HTTP_RESPONSE_SIZE_BUCKETS: &[f64] = &[1.0 * KB, 8.0 * KB, 64.0 * KB, 256.0 * KB];
 
-pub fn setup(
-    registry: &Registry,
-    tls_session_cache: Arc<sessions::Storage>,
-    tasks: &mut TaskManager,
-) -> Router {
+pub fn setup(registry: &Registry, tasks: &mut TaskManager) -> Router {
     let cache = Arc::new(runner::MetricsCache::new());
-    let runner = Arc::new(runner::MetricsRunner::new(
-        cache.clone(),
-        registry,
-        tls_session_cache,
-    ));
+    let runner = Arc::new(runner::MetricsRunner::new(cache.clone(), registry));
     tasks.add("metrics_runner", runner);
 
     Router::new()

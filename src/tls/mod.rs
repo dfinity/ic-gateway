@@ -3,13 +3,14 @@ pub mod resolver;
 
 use std::{fs, sync::Arc};
 
-use anyhow::{anyhow, Context, Error};
+use anyhow::{anyhow, bail, Context, Error};
 use async_trait::async_trait;
 use fqdn::FQDN;
 use ic_bn_lib::{
-    http::{dns::Resolves, ALPN_ACME, ALPN_H1, ALPN_H2},
+    http::{dns::Resolves, ALPN_ACME},
     tasks::{Run, TaskManager},
     tls::{
+        self,
         acme::{
             self,
             dns::{AcmeDns, DnsBackend, DnsManager, TokenManagerDns},
@@ -21,12 +22,7 @@ use ic_bn_lib::{
 };
 use ocsp_stapler::Stapler;
 use prometheus::Registry;
-use rustls::{
-    client::{ClientConfig, ClientSessionMemoryCache, Resumption},
-    server::{ResolvesServerCert as ResolvesServerCertRustls, ServerConfig, StoresServerSessions},
-    version::{TLS12, TLS13},
-};
-use rustls_platform_verifier::Verifier;
+use rustls::server::{ResolvesServerCert as ResolvesServerCertRustls, ServerConfig};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
@@ -49,33 +45,6 @@ impl Run for OcspStaplerWrapper {
         self.0.stop().await;
         Ok(())
     }
-}
-
-pub fn prepare_client_config() -> ClientConfig {
-    // Use a custom certificate verifier from rustls project that is more secure.
-    // It also checks OCSP revocation, though OCSP support for Linux platform for now seems be no-op.
-    // https://github.com/rustls/rustls-platform-verifier/issues/99
-
-    // new_with_extra_roots() method isn't available on MacOS, see
-    // https://github.com/rustls/rustls-platform-verifier/issues/58
-    #[cfg(not(target_os = "macos"))]
-    let verifier = Arc::new(Verifier::new_with_extra_roots(
-        webpki_roots::TLS_SERVER_ROOTS.to_vec(),
-    ));
-    #[cfg(target_os = "macos")]
-    let verifier = Arc::new(Verifier::new());
-
-    let mut cfg = ClientConfig::builder_with_protocol_versions(&[&TLS13, &TLS12])
-        .dangerous() // Nothing really dangerous here
-        .with_custom_certificate_verifier(verifier)
-        .with_no_client_auth();
-
-    // Session resumption
-    let store = ClientSessionMemoryCache::new(2048);
-    cfg.resumption = Resumption::store(Arc::new(store));
-    cfg.alpn_protocols = vec![ALPN_H2.to_vec(), ALPN_H1.to_vec()];
-
-    cfg
 }
 
 async fn setup_acme(
@@ -137,7 +106,6 @@ pub async fn setup(
     domains: Vec<FQDN>,
     dns_resolver: Arc<dyn Resolves>,
     custom_domain_providers: Vec<Arc<dyn ProvidesCertificates>>,
-    tls_session_storage: Arc<dyn StoresServerSessions + Send + Sync>,
     registry: &Registry,
 ) -> Result<ServerConfig, Error> {
     // Prepare certificate storage
@@ -164,9 +132,7 @@ pub async fn setup(
     };
 
     if acme_resolver.is_none() && cert_providers.is_empty() {
-        return Err(anyhow!(
-            "No ACME or certificate providers specified - HTTPS cannot be used"
-        ));
+        bail!("No ACME or certificate providers specified - HTTPS cannot be used");
     }
 
     // Create certificate aggregator that combines all providers
@@ -197,21 +163,15 @@ pub async fn setup(
             stapler
         };
 
-    let alpn = if cli.acme.acme_challenge == Some(Challenge::Alpn) {
+    let mut tls_opts: tls::Options = (&cli.http_server).into();
+    tls_opts.tls_versions = vec![&rustls::version::TLS13, &rustls::version::TLS12];
+    tls_opts.additional_alpn = if cli.acme.acme_challenge == Some(Challenge::Alpn) {
         vec![ALPN_ACME.to_vec()]
     } else {
         vec![vec![]]
     };
 
     // Generate Rustls config
-    let config = prepare_server_config(
-        certificate_resolver,
-        tls_session_storage,
-        &alpn,
-        cli.http_server.http_server_tls_ticket_lifetime,
-        &[&rustls::version::TLS13, &rustls::version::TLS12],
-        registry,
-    );
-
+    let config = prepare_server_config(tls_opts, certificate_resolver, registry);
     Ok(config)
 }
