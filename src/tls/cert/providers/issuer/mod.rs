@@ -12,7 +12,6 @@ use async_trait::async_trait;
 use candid::Principal;
 use fqdn::FQDN;
 use ic_bn_lib::{http, tasks::Run};
-use mockall::automock;
 use prometheus::{
     register_histogram_vec_with_registry, register_int_gauge_vec_with_registry, HistogramVec,
     IntGaugeVec, Registry,
@@ -25,6 +24,9 @@ use tracing::{info, warn};
 
 use crate::routing::domain::{CustomDomain, ProvidesCustomDomains};
 use verify::{Parser, Verifier, Verify, VerifyError};
+
+#[cfg(test)]
+use mockall::automock;
 
 use super::{Pem, ProvidesCertificates};
 
@@ -94,7 +96,7 @@ impl std::fmt::Display for Package {
     }
 }
 
-#[automock]
+#[cfg_attr(test, automock)]
 #[async_trait]
 pub trait Import: Sync + Send {
     async fn import(&self) -> Result<Vec<Package>, Error>;
