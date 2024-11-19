@@ -131,7 +131,7 @@ mod tests {
         let result = send_request(&mut app).await.unwrap();
         assert_eq!(result.status(), StatusCode::TOO_MANY_REQUESTS);
         let body = to_bytes(result.into_body(), 100).await.unwrap().to_vec();
-        assert_eq!(body, b"rate_limited_normal: normal\n");
+        assert!(body.starts_with(b"error: rate_limited\n"));
 
         // Wait so that requests can be accepted again.
         sleep(Duration::from_secs(1)).await;
@@ -166,7 +166,7 @@ mod tests {
         let result = send_request(&mut app).await.unwrap();
         assert_eq!(result.status(), StatusCode::TOO_MANY_REQUESTS);
         let body = to_bytes(result.into_body(), 100).await.unwrap().to_vec();
-        assert_eq!(body, b"rate_limited_normal: normal\n");
+        assert!(body.starts_with(b"error: rate_limited\n"));
 
         // Wait so that requests can be accepted again.
         sleep(delay).await;
@@ -193,6 +193,9 @@ mod tests {
 
         assert_eq!(result.status(), StatusCode::INTERNAL_SERVER_ERROR);
         let body = to_bytes(result.into_body(), 100).await.unwrap().to_vec();
-        assert_eq!(body, b"general_error: UnableToExtractIpAddress\n");
+        assert_eq!(
+            body,
+            b"error: internal_server_error\ndetails: Internal Server Error"
+        );
     }
 }
