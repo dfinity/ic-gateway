@@ -152,7 +152,7 @@ pub async fn redirect_to_https(
             .authority(host)
             .path_and_query(pq)
             .build()
-            .map_err(|_| ErrorCause::MalformedRequest("incorrect url".into()))?
+            .map_err(|_| ErrorCause::MalformedRequest("Incorrect URL".into()))?
             .to_string(),
     ))
 }
