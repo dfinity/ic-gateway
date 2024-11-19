@@ -3,12 +3,12 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use candid::Principal;
 use ic_agent::agent::http_transport::reqwest_transport::reqwest::Client as AgentClient;
-use ic_agent::agent::http_transport::{
+use ic_agent::agent::route_provider::{
     dynamic_routing::{
         dynamic_route_provider::DynamicRouteProviderBuilder, node::Node,
         snapshot::latency_based_routing::LatencyRoutingSnapshot,
     },
-    route_provider::{RoundRobinRouteProvider, RouteProvider},
+    RoundRobinRouteProvider, RouteProvider,
 };
 use tracing::info;
 use url::Url;

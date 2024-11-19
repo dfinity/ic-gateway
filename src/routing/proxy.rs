@@ -10,7 +10,7 @@ use axum::{
 use candid::Principal;
 use derive_new::new;
 use http::header::{CONTENT_TYPE, X_CONTENT_TYPE_OPTIONS, X_FRAME_OPTIONS};
-use ic_agent::agent::http_transport::route_provider::RouteProvider;
+use ic_agent::agent::route_provider::RouteProvider;
 use ic_bn_lib::http::{
     headers::{CONTENT_TYPE_CBOR, X_CONTENT_TYPE_OPTIONS_NO_SNIFF, X_FRAME_OPTIONS_DENY},
     proxy::proxy,

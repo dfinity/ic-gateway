@@ -1,11 +1,8 @@
 use async_trait::async_trait;
 use candid::Principal;
 use ic_agent::{
-    agent::http_transport::{
-        dynamic_routing::{
-            dynamic_route_provider::DynamicRouteProviderError, node::Node, nodes_fetch::Fetch,
-        },
-        ReqwestTransport,
+    agent::route_provider::dynamic_routing::{
+        dynamic_route_provider::DynamicRouteProviderError, node::Node, nodes_fetch::Fetch,
     },
     Agent,
 };
@@ -39,23 +36,20 @@ impl NodesFetcher {
 #[async_trait]
 impl Fetch for NodesFetcher {
     async fn fetch(&self, url: Url) -> Result<Vec<Node>, DynamicRouteProviderError> {
-        let transport = ReqwestTransport::create_with_client(url, self.http_client.clone())
-            .map_err(|err| {
-                DynamicRouteProviderError::NodesFetchError(format!(
-                    "Failed to build transport: {err}"
-                ))
-            })?;
         let agent = Agent::builder()
-            .with_transport(transport)
+            .with_http_client(self.http_client.clone())
+            .with_url(url)
             .build()
             .map_err(|err| {
                 DynamicRouteProviderError::NodesFetchError(format!(
                     "Failed to build the agent: {err}"
                 ))
             })?;
+
         if let Some(key) = self.root_key.clone() {
             agent.set_root_key(key);
         }
+
         let api_bns = agent
             .fetch_api_boundary_nodes_by_subnet_id(self.subnet_id)
             .await
@@ -64,6 +58,7 @@ impl Fetch for NodesFetcher {
                     "Failed to fetch API nodes: {err}"
                 ))
             })?;
+
         // If some API BNs have invalid domain names, they are discarded.
         let nodes = api_bns
             .iter()

@@ -44,9 +44,12 @@ http-body = "1.0.1"
 http-body-util = "0.1.2"
 humantime = "2.1.0"
 hyper-util = "0.1.10"
-ic-agent = { version = "0.37.1", features = ["reqwest"] }
+ic-agent = { version = "0.39.1", features = [
+    "ring",
+    "_internal_dynamic-routing",
+] }
 ic-bn-lib = { git = "https://github.com/dfinity/ic-bn-lib", rev = "526d34d15cfbf369d8baf2dae9932aa18d570a1d" }
-ic-http-gateway = { git = "https://github.com/dfinity/http-gateway", tag = "0.1.0-b0" }
+ic-http-gateway = { git = "https://github.com/dfinity/http-gateway", tag = "0.1.0-b2" }
 itertools = "0.13.0"
 lazy_static = "1.5.0"
 maxminddb = "0.24.0"
@@ -113,8 +116,3 @@ panic = "abort"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tokio_unstable)'] }
-
-[patch.crates-io]
-ic-agent = { package = "ic-agent", git = "https://github.com/dfinity/agent-rs", branch = "dynamic_route", features = [
-    "reqwest",
-] }

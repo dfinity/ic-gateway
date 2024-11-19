@@ -13,7 +13,7 @@ use ic_http_gateway::{CanisterRequest, HttpGatewayClient, HttpGatewayRequestArgs
 use crate::routing::{
     error_cause::ErrorCause,
     ic::{
-        transport::{Context, CONTEXT},
+        http_service::{Context, CONTEXT},
         IcResponseStatus,
     },
     middleware::request_id::RequestId,

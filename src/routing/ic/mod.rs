@@ -3,16 +3,16 @@
 
 pub mod handler;
 pub mod health_check;
+pub mod http_service;
 pub mod nodes_fetcher;
 pub mod route_provider;
-pub mod transport;
 
 use std::{fs, sync::Arc};
 
 use anyhow::{Context, Error};
 use http::{header::HeaderName, HeaderMap};
 use http_body_util::Either;
-use ic_agent::agent::http_transport::route_provider::RouteProvider;
+use ic_agent::agent::route_provider::RouteProvider;
 use ic_bn_lib::http::{
     headers::{
         X_IC_CACHE_BYPASS_REASON, X_IC_CACHE_STATUS, X_IC_CANISTER_ID_CBOR, X_IC_ERROR_CAUSE,
@@ -24,6 +24,8 @@ use ic_bn_lib::http::{
 use ic_http_gateway::{HttpGatewayClient, HttpGatewayResponse, HttpGatewayResponseMetadata};
 
 use crate::Cli;
+
+const MAX_RESPONSE_SIZE: usize = 3 * 1_048_576;
 
 /// Metadata about the request to a Boundary Node (ic-boundary)
 #[derive(Clone, Default)]
@@ -99,14 +101,13 @@ pub fn setup(
     http_client: Arc<dyn HttpClient>,
     route_provider: Arc<dyn RouteProvider>,
 ) -> Result<HttpGatewayClient, Error> {
-    let transport = transport::ReqwestTransport::create_with_client_route(
-        route_provider,
-        http_client,
-        cli.ic.ic_max_request_retries,
-    );
+    let http_service = Arc::new(http_service::AgentHttpService::new(http_client));
 
     let agent = ic_agent::Agent::builder()
-        .with_transport(transport)
+        .with_arc_http_middleware(http_service)
+        .with_max_response_body_size(MAX_RESPONSE_SIZE)
+        .with_max_tcp_error_retries(3)
+        .with_arc_route_provider(route_provider)
         .with_verify_query_signatures(cli.ic.ic_enable_replica_signed_queries)
         .build()?;
 
