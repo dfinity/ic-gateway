@@ -1,6 +1,8 @@
 use anyhow::Context;
-use mockall::automock;
 use x509_parser::pem::parse_x509_pem;
+
+#[cfg(test)]
+use mockall::automock;
 
 use super::Package;
 
@@ -16,7 +18,7 @@ pub enum ParseError {
     TooManyCommonNames(usize),
 }
 
-#[automock]
+#[cfg_attr(test, automock)]
 pub trait Parse: Sync + Send {
     fn parse(&self, data: &[u8]) -> Result<String, ParseError>;
 }
@@ -58,7 +60,7 @@ pub enum VerifyError {
     CommonNameMismatch(String, String),
 }
 
-#[automock]
+#[cfg_attr(test, automock)]
 pub trait Verify: Sync + Send {
     fn verify(&self, pkg: &Package) -> Result<(), VerifyError>;
 }

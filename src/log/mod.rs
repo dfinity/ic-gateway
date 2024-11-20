@@ -123,7 +123,7 @@ pub fn setup_logging(cli: &Log) -> Result<(), Error> {
         None
     };
 
-    #[cfg(tokio_unstable)]
+    #[cfg(all(tokio_unstable, feature = "tokio_console"))]
     let tokio_console_layer = if cli.log_tokio_console {
         Some(console_subscriber::spawn())
     } else {

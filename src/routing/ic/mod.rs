@@ -3,16 +3,16 @@
 
 pub mod handler;
 pub mod health_check;
+pub mod http_service;
 pub mod nodes_fetcher;
 pub mod route_provider;
-pub mod transport;
 
 use std::{fs, sync::Arc};
 
 use anyhow::{Context, Error};
 use http::{header::HeaderName, HeaderMap};
 use http_body_util::Either;
-use ic_agent::agent::http_transport::route_provider::RouteProvider;
+use ic_agent::agent::route_provider::RouteProvider;
 use ic_bn_lib::http::{
     headers::{
         X_IC_CACHE_BYPASS_REASON, X_IC_CACHE_STATUS, X_IC_CANISTER_ID_CBOR, X_IC_ERROR_CAUSE,
@@ -21,7 +21,9 @@ use ic_bn_lib::http::{
     },
     Client as HttpClient,
 };
-use ic_http_gateway::{HttpGatewayClient, HttpGatewayResponse, HttpGatewayResponseMetadata};
+use ic_http_gateway::{
+    HttpGatewayClient, HttpGatewayClientBuilder, HttpGatewayResponse, HttpGatewayResponseMetadata,
+};
 
 use crate::Cli;
 
@@ -99,25 +101,29 @@ pub fn setup(
     http_client: Arc<dyn HttpClient>,
     route_provider: Arc<dyn RouteProvider>,
 ) -> Result<HttpGatewayClient, Error> {
-    let transport = transport::ReqwestTransport::create_with_client_route(
-        route_provider,
+    let http_service = Arc::new(http_service::AgentHttpService::new(
         http_client,
-        cli.ic.ic_max_request_retries,
-    );
+        cli.ic.ic_request_retry_interval,
+    ));
 
     let agent = ic_agent::Agent::builder()
-        .with_transport(transport)
+        .with_arc_http_middleware(http_service)
+        .with_max_response_body_size(cli.ic.ic_response_max_size)
+        .with_max_tcp_error_retries(cli.ic.ic_request_retries)
+        .with_arc_route_provider(route_provider)
         .with_verify_query_signatures(cli.ic.ic_enable_replica_signed_queries)
-        .build()?;
+        .build()
+        .context("unable to build Agent")?;
 
     if let Some(v) = &cli.ic.ic_root_key {
         let key = fs::read(v).context("unable to read IC root key")?;
         agent.set_root_key(key);
     }
 
-    let client = ic_http_gateway::HttpGatewayClientBuilder::new()
+    let client = HttpGatewayClientBuilder::new()
         .with_agent(agent)
-        .build()?;
+        .build()
+        .context("unable to build HTTP gateway client")?;
 
     Ok(client)
 }

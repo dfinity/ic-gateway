@@ -26,7 +26,7 @@ clickhouse = { version = "0.13.1", features = [
     "inserter",
     "rustls-tls",
 ] }
-console-subscriber = "0.4.1"
+console-subscriber = { version = "0.4.1", optional = true }
 ctrlc = { version = "3.4.5", features = ["termination"] }
 derive-new = "0.7.0"
 fqdn = "0.4.1"
@@ -44,16 +44,17 @@ http-body = "1.0.1"
 http-body-util = "0.1.2"
 humantime = "2.1.0"
 hyper-util = "0.1.10"
-ic-agent = { version = "0.37.1", features = ["reqwest"] }
+ic-agent = { version = "0.39.1", features = [
+    "ring",
+    "_internal_dynamic-routing",
+] }
 ic-bn-lib = { git = "https://github.com/dfinity/ic-bn-lib", rev = "526d34d15cfbf369d8baf2dae9932aa18d570a1d" }
-ic-http-gateway = { git = "https://github.com/dfinity/http-gateway", tag = "0.1.0-b0" }
+ic-http-gateway = { git = "https://github.com/dfinity/http-gateway", tag = "0.1.0-b2" }
 itertools = "0.13.0"
 lazy_static = "1.5.0"
 maxminddb = "0.24.0"
-mockall = "0.13.0"
 moka = { version = "0.12.8", features = ["sync", "future"] }
 ocsp-stapler = "0.4.1"
-once_cell = "1.20.2"
 prometheus = "0.13.4"
 rand = "0.8.5"
 regex = "1.11.1"
@@ -98,7 +99,11 @@ webpki-roots = "0.26.6"
 x509-parser = "0.16.0"
 zstd = "0.13.2"
 
+[features]
+tokio_console = ["console-subscriber"]
+
 [dev-dependencies]
+mockall = "0.13.0"
 hex-literal = "0.4.1"
 hyper = "1.5.0"
 criterion = { version = "0.5.1", features = ["async_tokio"] }
@@ -113,8 +118,3 @@ panic = "abort"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tokio_unstable)'] }
-
-[patch.crates-io]
-ic-agent = { package = "ic-agent", git = "https://github.com/dfinity/agent-rs", branch = "dynamic_route", features = [
-    "reqwest",
-] }

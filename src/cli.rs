@@ -129,9 +129,24 @@ pub struct Ic {
     #[clap(env, long)]
     pub ic_root_key: Option<PathBuf>,
 
-    /// Maximum number of request retries for connection failures.
+    /// Maximum number of request retries for connection failures and HTTP code 429.
+    /// First attempt is not counted.
     #[clap(env, long, default_value = "5")]
-    pub ic_max_request_retries: u32,
+    pub ic_request_retries: usize,
+
+    /// How long to wait between retries.
+    /// With each retry this duration will be doubled.
+    /// E.g. first delay 25ms, next 50ms and so on.
+    #[clap(env, long, default_value = "25ms", value_parser = parse_duration)]
+    pub ic_request_retry_interval: Duration,
+
+    /// Max request body size to allow from the client
+    #[clap(env, long, default_value = "10MB", value_parser = parse_size_usize)]
+    pub ic_request_max_size: usize,
+
+    /// Max response size to allow from the IC
+    #[clap(env, long, default_value = "3MB", value_parser = parse_size_usize)]
+    pub ic_response_max_size: usize,
 
     /// Disable response verification for the IC requests.
     #[clap(env, long)]
@@ -300,7 +315,7 @@ pub struct Log {
 
     /// Enables the Tokio console.
     /// It's listening on 127.0.0.1:6669
-    #[cfg(tokio_unstable)]
+    #[cfg(all(tokio_unstable, feature = "tokio_console"))]
     #[clap(env, long)]
     pub log_tokio_console: bool,
 
