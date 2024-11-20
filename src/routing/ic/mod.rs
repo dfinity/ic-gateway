@@ -21,11 +21,11 @@ use ic_bn_lib::http::{
     },
     Client as HttpClient,
 };
-use ic_http_gateway::{HttpGatewayClient, HttpGatewayResponse, HttpGatewayResponseMetadata};
+use ic_http_gateway::{
+    HttpGatewayClient, HttpGatewayClientBuilder, HttpGatewayResponse, HttpGatewayResponseMetadata,
+};
 
 use crate::Cli;
-
-const MAX_RESPONSE_SIZE: usize = 3 * 1_048_576;
 
 /// Metadata about the request to a Boundary Node (ic-boundary)
 #[derive(Clone, Default)]
@@ -101,24 +101,29 @@ pub fn setup(
     http_client: Arc<dyn HttpClient>,
     route_provider: Arc<dyn RouteProvider>,
 ) -> Result<HttpGatewayClient, Error> {
-    let http_service = Arc::new(http_service::AgentHttpService::new(http_client));
+    let http_service = Arc::new(http_service::AgentHttpService::new(
+        http_client,
+        cli.ic.ic_request_retry_interval,
+    ));
 
     let agent = ic_agent::Agent::builder()
         .with_arc_http_middleware(http_service)
-        .with_max_response_body_size(MAX_RESPONSE_SIZE)
-        .with_max_tcp_error_retries(3)
+        .with_max_response_body_size(cli.ic.ic_response_max_size)
+        .with_max_tcp_error_retries(cli.ic.ic_request_retries)
         .with_arc_route_provider(route_provider)
         .with_verify_query_signatures(cli.ic.ic_enable_replica_signed_queries)
-        .build()?;
+        .build()
+        .context("unable to build Agent")?;
 
     if let Some(v) = &cli.ic.ic_root_key {
         let key = fs::read(v).context("unable to read IC root key")?;
         agent.set_root_key(key);
     }
 
-    let client = ic_http_gateway::HttpGatewayClientBuilder::new()
+    let client = HttpGatewayClientBuilder::new()
         .with_agent(agent)
-        .build()?;
+        .build()
+        .context("unable to build HTTP gateway client")?;
 
     Ok(client)
 }

@@ -308,6 +308,7 @@ pub async fn setup_router(
         client,
         !cli.ic.ic_unsafe_disable_response_verification,
         cli.http_server.http_server_body_read_timeout,
+        cli.ic.ic_request_max_size,
     ));
     let state_api = Arc::new(proxy::ApiProxyState::new(
         http_client.clone(),

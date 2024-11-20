@@ -1,6 +1,7 @@
 use std::{cell::RefCell, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
+use http::StatusCode;
 use ic_agent::{agent::HttpService, AgentError};
 use ic_bn_lib::http::Client as HttpClient;
 use reqwest::{
@@ -33,6 +34,7 @@ task_local! {
 #[derive(Debug, derive_new::new)]
 pub struct AgentHttpService {
     client: Arc<dyn HttpClient>,
+    retry_interval: Duration,
 }
 
 impl AgentHttpService {
@@ -45,10 +47,8 @@ impl AgentHttpService {
             ctx.hostname = Some(request.url().authority().to_string());
 
             for (k, v) in &ctx.headers_out {
-                request.headers_mut().append(k, v.clone());
+                request.headers_mut().insert(k, v.clone());
             }
-
-            ctx.headers_out.clear();
         });
 
         let response = self.client.execute(request).await?;
@@ -60,7 +60,6 @@ impl AgentHttpService {
         if !read_state {
             let _ = CONTEXT.try_with(|x| {
                 let mut ctx = x.borrow_mut();
-                ctx.headers_in.clear();
 
                 for (k, v) in response.headers() {
                     ctx.headers_in.insert(k, v.clone());
@@ -80,25 +79,32 @@ impl HttpService for AgentHttpService {
         max_retries: usize,
     ) -> Result<Response, AgentError> {
         let mut retry = 0;
+        let mut interval = self.retry_interval;
 
         loop {
+            // TODO should we retry on Agent's request generation failure?
             let request = req()?;
 
             match self.execute(request).await {
-                Ok(v) => return Ok(v),
+                Ok(v) => {
+                    // Retry only on 429 for now
+                    if v.status() != StatusCode::TOO_MANY_REQUESTS || retry >= max_retries {
+                        return Ok(v);
+                    }
+                }
 
                 Err(e) => {
-                    retry += 1;
-
-                    // Don't retry on any errors except connect
+                    // Don't retry on any errors except connect for now
                     if !e.is_connect() || retry >= max_retries {
                         return Err(AgentError::TransportError(e));
                     }
-
-                    // Just linearly sleep a bit before retrying
-                    tokio::time::sleep(Duration::from_millis(50)).await;
                 }
             }
+
+            // Wait & backoff
+            tokio::time::sleep(interval).await;
+            retry += 1;
+            interval *= 2;
         }
     }
 }

@@ -22,13 +22,12 @@ use crate::routing::{
 
 use super::{BNRequestMetadata, BNResponseMetadata};
 
-const MAX_REQUEST_BODY_SIZE: usize = 10 * 1_048_576;
-
 #[derive(derive_new::new)]
 pub struct HandlerState {
     client: HttpGatewayClient,
     verify_response: bool,
     body_read_timeout: Duration,
+    request_max_size: usize,
 }
 
 // Main HTTP->IC request handler
@@ -46,7 +45,7 @@ pub async fn handler(
 
     let (parts, body) = request.into_parts();
 
-    let body = buffer_body(body, MAX_REQUEST_BODY_SIZE, state.body_read_timeout).await;
+    let body = buffer_body(body, state.request_max_size, state.body_read_timeout).await;
     let body = match body {
         Ok(v) => v,
         Err(e) => {
