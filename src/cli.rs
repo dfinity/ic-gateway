@@ -129,7 +129,7 @@ pub struct Ic {
     #[clap(env, long)]
     pub ic_root_key: Option<PathBuf>,
 
-    /// Maximum number of request retries for connection failures.
+    /// Maximum number of request retries for connection failures and HTTP code 429.
     /// First attempt is not counted.
     #[clap(env, long, default_value = "5")]
     pub ic_request_retries: usize,
