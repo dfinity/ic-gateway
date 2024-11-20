@@ -88,7 +88,8 @@ impl HttpService for AgentHttpService {
             match self.execute(request).await {
                 Ok(v) => {
                     // Retry only on 429 for now
-                    if v.status() != StatusCode::TOO_MANY_REQUESTS || retry >= max_retries {
+                    let should_retry = v.status() == StatusCode::TOO_MANY_REQUESTS && retry < max_retries;
+                    if !should_retry {
                         return Ok(v);
                     }
                 }
