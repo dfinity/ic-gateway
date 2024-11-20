@@ -2560,7 +2560,6 @@ dependencies = [
  "mockall",
  "moka",
  "ocsp-stapler",
- "once_cell",
  "prometheus",
  "rand",
  "regex",

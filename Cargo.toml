@@ -26,7 +26,7 @@ clickhouse = { version = "0.13.1", features = [
     "inserter",
     "rustls-tls",
 ] }
-console-subscriber = "0.4.1"
+console-subscriber = { version = "0.4.1", optional = true }
 ctrlc = { version = "3.4.5", features = ["termination"] }
 derive-new = "0.7.0"
 fqdn = "0.4.1"
@@ -55,7 +55,6 @@ lazy_static = "1.5.0"
 maxminddb = "0.24.0"
 moka = { version = "0.12.8", features = ["sync", "future"] }
 ocsp-stapler = "0.4.1"
-once_cell = "1.20.2"
 prometheus = "0.13.4"
 rand = "0.8.5"
 regex = "1.11.1"
@@ -99,6 +98,9 @@ uuid = { version = "1.11.0", features = ["v7"] }
 webpki-roots = "0.26.6"
 x509-parser = "0.16.0"
 zstd = "0.13.2"
+
+[features]
+tokio_console = ["console-subscriber"]
 
 [dev-dependencies]
 mockall = "0.13.0"
