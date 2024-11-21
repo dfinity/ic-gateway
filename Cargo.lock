@@ -2572,7 +2572,7 @@ dependencies = [
  "strum",
  "strum_macros",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.3",
  "tikv-jemalloc-ctl",
  "tikv-jemallocator",
  "time",
