@@ -2572,7 +2572,7 @@ dependencies = [
  "strum",
  "strum_macros",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.3",
  "tikv-jemalloc-ctl",
  "tikv-jemallocator",
  "time",
@@ -2612,7 +2612,7 @@ dependencies = [
 [[package]]
 name = "ic-http-gateway"
 version = "0.0.0"
-source = "git+https://github.com/dfinity/http-gateway?tag=0.1.0-b2#2c5366bfd9036712c5043de8c15528743004e37a"
+source = "git+https://github.com/dfinity/http-gateway?tag=0.1.0-b3#192559e062cfa90d5dbb4df03198f66a80f31046"
 dependencies = [
  "bytes",
  "candid",
