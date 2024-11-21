@@ -59,7 +59,7 @@ pub async fn handler(
     };
 
     let args = HttpGatewayRequestArgs {
-        canister_request: CanisterRequest::from_parts(parts, body.to_vec()),
+        canister_request: CanisterRequest::from_parts(parts, body),
         canister_id,
     };
 
