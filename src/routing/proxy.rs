@@ -48,12 +48,12 @@ pub async fn api_proxy(
     let url = state
         .route_provider
         .route()
-        .map_err(|e| ErrorCause::Other(format!("unable to obtain route: {e:#}")))?;
+        .map_err(|e| ErrorCause::Other(format!("Unable to obtain route: {e:#}")))?;
 
     // Append the query URL to the IC url
     let url = url
         .join(original_uri.path())
-        .map_err(|e| ErrorCause::MalformedRequest(format!("incorrect URL: {e:#}")))?;
+        .map_err(|e| ErrorCause::MalformedRequest(format!("Incorrect URL: {e:#}")))?;
 
     // Proxy the request
     let mut response = proxy(url, request, &state.http_client)
@@ -111,7 +111,7 @@ pub async fn issuer_proxy(
     let url = state.issuers[next]
         .clone()
         .join(original_uri.path())
-        .map_err(|_| ErrorCause::MalformedRequest("unable to parse path as URL part".into()))?;
+        .map_err(|_| ErrorCause::Other("Unable to parse path as URL part".into()))?;
 
     let mut response = proxy(url, request, &state.http_client)
         .await

@@ -1,14 +1,11 @@
-use std::{
-    error::Error as StdError,
-    fmt::{self},
-};
+use std::error::Error as StdError;
 
 use axum::response::{IntoResponse, Response};
 use hickory_resolver::error::ResolveError;
 use http::{header::CONTENT_TYPE, StatusCode};
 use ic_agent::AgentError;
 use ic_bn_lib::http::{headers::CONTENT_TYPE_HTML, Error as IcBnError};
-use strum_macros::{Display, IntoStaticStr};
+use strum::{Display, IntoStaticStr};
 
 // Process error chain trying to find given error type
 pub fn error_infer<E: StdError + Send + Sync + 'static>(error: &anyhow::Error) -> Option<&E> {
@@ -28,7 +25,8 @@ pub enum RateLimitCause {
 
 // Categorized possible causes for request processing failures
 // Not using Error as inner type since it's not cloneable
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Display, IntoStaticStr)]
+#[strum(serialize_all = "snake_case")]
 pub enum ErrorCause {
     ClientBodyTooLarge,
     ClientBodyTimeout,
@@ -50,38 +48,13 @@ pub enum ErrorCause {
     BackendBodyError(String),
     BackendTLSErrorOther(String),
     BackendTLSErrorCert(String),
+    #[strum(serialize = "rate_limited_{0}")]
     RateLimited(RateLimitCause),
+    #[strum(serialize = "internal_server_error")]
     Other(String),
 }
 
 impl ErrorCause {
-    pub const fn status_code(&self) -> StatusCode {
-        match self {
-            Self::Other(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::ClientBodyTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
-            Self::ClientBodyTimeout => StatusCode::REQUEST_TIMEOUT,
-            Self::ClientBodyError(_) => StatusCode::BAD_REQUEST,
-            Self::LoadShed => StatusCode::TOO_MANY_REQUESTS,
-            Self::IncorrectPrincipal => StatusCode::BAD_REQUEST,
-            Self::MalformedRequest(_) => StatusCode::BAD_REQUEST,
-            Self::NoAuthority => StatusCode::BAD_REQUEST,
-            Self::UnknownDomain => StatusCode::BAD_REQUEST,
-            Self::CanisterIdNotFound => StatusCode::BAD_REQUEST,
-            Self::AgentError(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::DomainCanisterMismatch => StatusCode::FORBIDDEN,
-            Self::Denylisted => StatusCode::UNAVAILABLE_FOR_LEGAL_REASONS,
-            Self::BackendError(_) => StatusCode::SERVICE_UNAVAILABLE,
-            Self::BackendErrorDNS(_) => StatusCode::SERVICE_UNAVAILABLE,
-            Self::BackendErrorConnect => StatusCode::SERVICE_UNAVAILABLE,
-            Self::BackendTimeout => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::BackendBodyTimeout => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::BackendBodyError(_) => StatusCode::SERVICE_UNAVAILABLE,
-            Self::BackendTLSErrorOther(_) => StatusCode::SERVICE_UNAVAILABLE,
-            Self::BackendTLSErrorCert(_) => StatusCode::SERVICE_UNAVAILABLE,
-            Self::RateLimited(_) => StatusCode::TOO_MANY_REQUESTS,
-        }
-    }
-
     pub fn details(&self) -> Option<String> {
         match self {
             Self::Other(x) => Some(x.clone()),
@@ -95,13 +68,6 @@ impl ErrorCause {
             Self::BackendTLSErrorCert(x) => Some(x.clone()),
             Self::AgentError(x) => Some(x.clone()),
             Self::RateLimited(x) => Some(x.to_string()),
-            _ => None,
-        }
-    }
-
-    pub const fn html(&self) -> Option<&str> {
-        match self {
-            Self::Denylisted => Some(include_str!("error_pages/451.html")),
             _ => None,
         }
     }
@@ -125,33 +91,31 @@ impl ErrorCause {
             _ => Self::Other(e.to_string()),
         }
     }
-}
 
-impl fmt::Display for ErrorCause {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    pub fn to_client_facing_error(&self) -> ErrorClientFacing {
         match self {
-            Self::Other(_) => write!(f, "general_error"),
-            Self::ClientBodyTooLarge => write!(f, "client_body_too_large"),
-            Self::ClientBodyTimeout => write!(f, "client_body_timeout"),
-            Self::ClientBodyError(_) => write!(f, "client_body_error"),
-            Self::LoadShed => write!(f, "load_shed"),
-            Self::IncorrectPrincipal => write!(f, "incorrect_principal"),
-            Self::MalformedRequest(_) => write!(f, "malformed_request"),
-            Self::UnknownDomain => write!(f, "unknown_domain"),
-            Self::CanisterIdNotFound => write!(f, "canister_id_not_found"),
-            Self::DomainCanisterMismatch => write!(f, "domain_canister_mismatch"),
-            Self::Denylisted => write!(f, "denylisted"),
-            Self::NoAuthority => write!(f, "no_authority"),
-            Self::AgentError(_) => write!(f, "agent_error"),
-            Self::BackendError(_) => write!(f, "backend_error"),
-            Self::BackendErrorDNS(_) => write!(f, "backend_error_dns"),
-            Self::BackendErrorConnect => write!(f, "backend_error_connect"),
-            Self::BackendTimeout => write!(f, "backend_timeout"),
-            Self::BackendBodyTimeout => write!(f, "backend_body_timeout"),
-            Self::BackendBodyError(_) => write!(f, "backend_body_error"),
-            Self::BackendTLSErrorOther(_) => write!(f, "backend_tls_error"),
-            Self::BackendTLSErrorCert(_) => write!(f, "backend_tls_error_cert"),
-            Self::RateLimited(x) => write!(f, "rate_limited_{x}"),
+            Self::Other(_) => ErrorClientFacing::Other,
+            Self::ClientBodyTooLarge => ErrorClientFacing::PayloadTooLarge,
+            Self::ClientBodyTimeout => ErrorClientFacing::BodyTimedOut,
+            Self::ClientBodyError(x) => ErrorClientFacing::MalformedRequest(x.clone()),
+            Self::LoadShed => ErrorClientFacing::LoadShed,
+            Self::IncorrectPrincipal => ErrorClientFacing::IncorrectPrincipal,
+            Self::MalformedRequest(x) => ErrorClientFacing::MalformedRequest(x.clone()),
+            Self::UnknownDomain => ErrorClientFacing::UnknownDomain,
+            Self::CanisterIdNotFound => ErrorClientFacing::CanisterIdNotFound,
+            Self::DomainCanisterMismatch => ErrorClientFacing::DomainCanisterMismatch,
+            Self::Denylisted => ErrorClientFacing::Denylisted,
+            Self::NoAuthority => ErrorClientFacing::NoAuthority,
+            Self::AgentError(_) => ErrorClientFacing::UpstreamError,
+            Self::BackendError(_) => ErrorClientFacing::UpstreamError,
+            Self::BackendErrorDNS(_) => ErrorClientFacing::UpstreamError,
+            Self::BackendErrorConnect => ErrorClientFacing::UpstreamError,
+            Self::BackendTimeout => ErrorClientFacing::UpstreamError,
+            Self::BackendBodyTimeout => ErrorClientFacing::UpstreamError,
+            Self::BackendBodyError(_) => ErrorClientFacing::UpstreamError,
+            Self::BackendTLSErrorOther(_) => ErrorClientFacing::UpstreamError,
+            Self::BackendTLSErrorCert(_) => ErrorClientFacing::UpstreamError,
+            Self::RateLimited(_) => ErrorClientFacing::RateLimited,
         }
     }
 }
@@ -159,20 +123,8 @@ impl fmt::Display for ErrorCause {
 // Creates the response from ErrorCause and injects itself into extensions to be visible by middleware
 impl IntoResponse for ErrorCause {
     fn into_response(self) -> Response {
-        // Return the HTML reply if it exists, otherwise textual
-        let body = self.html().map_or_else(
-            || {
-                self.details()
-                    .map_or_else(|| self.to_string(), |x| format!("{self}: {x}\n"))
-            },
-            |x| format!("{x}\n"),
-        );
-
-        let mut resp = (self.status_code(), body).into_response();
-        if self.html().is_some() {
-            resp.headers_mut().insert(CONTENT_TYPE, CONTENT_TYPE_HTML);
-        }
-
+        let client_facing_error = self.to_client_facing_error();
+        let mut resp = client_facing_error.into_response();
         resp.extensions_mut().insert(self);
         resp
     }
@@ -231,6 +183,89 @@ impl From<anyhow::Error> for ErrorCause {
         }
 
         Self::Other(e.to_string())
+    }
+}
+
+#[derive(Debug, Clone, Display, IntoStaticStr)]
+#[strum(serialize_all = "snake_case")]
+pub enum ErrorClientFacing {
+    BodyTimedOut,
+    CanisterIdNotFound,
+    Denylisted,
+    DomainCanisterMismatch,
+    IncorrectPrincipal,
+    LoadShed,
+    MalformedRequest(String),
+    NoAuthority,
+    #[strum(serialize = "internal_server_error")]
+    Other,
+    PayloadTooLarge,
+    RateLimited,
+    UnknownDomain,
+    UpstreamError,
+}
+
+impl ErrorClientFacing {
+    pub const fn status_code(&self) -> StatusCode {
+        match self {
+            Self::BodyTimedOut => StatusCode::REQUEST_TIMEOUT,
+            Self::CanisterIdNotFound => StatusCode::BAD_REQUEST,
+            Self::Denylisted => StatusCode::UNAVAILABLE_FOR_LEGAL_REASONS,
+            Self::DomainCanisterMismatch => StatusCode::BAD_REQUEST,
+            Self::IncorrectPrincipal => StatusCode::BAD_REQUEST,
+            Self::LoadShed => StatusCode::TOO_MANY_REQUESTS,
+            Self::MalformedRequest(_) => StatusCode::BAD_REQUEST,
+            Self::NoAuthority => StatusCode::BAD_REQUEST,
+            Self::Other => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::PayloadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
+            Self::RateLimited => StatusCode::TOO_MANY_REQUESTS,
+            Self::UnknownDomain => StatusCode::BAD_REQUEST,
+            Self::UpstreamError => StatusCode::SERVICE_UNAVAILABLE,
+        }
+    }
+
+    pub fn details(&self) -> String {
+        match self {
+            Self::BodyTimedOut => "Reading the request body timed out due to data arriving too slowly.".to_string(),
+            Self::CanisterIdNotFound => "The canister ID could not be resolved from the provided authority.".to_string(),
+            Self::Denylisted => "Access to this resource is denied due to a violation of the code of conduct.".to_string(),
+            Self::DomainCanisterMismatch => "Access to the canister is forbidden through the current gateway domain. Try accessing it through an allowed gateway domain.".to_string(),
+            Self::IncorrectPrincipal => "The principal in the request is incorrectly formatted.".to_string(),
+            Self::LoadShed => "The HTTP gateway is temporarily unable to handle the request due to high load. Please try again later.".to_string(),
+            Self::MalformedRequest(x) => x.to_string(),
+            Self::NoAuthority => "The request is missing the required authority information (e.g., Host header).".to_string(),
+            Self::Other => "Internal Server Error".to_string(),
+            Self::PayloadTooLarge => "The payload is too large.".to_string(),
+            Self::RateLimited => "Rate limit exceeded. Please slow down requests and try again later.".to_string(),
+            Self::UnknownDomain => "The requested domain is not served by this HTTP gateway.".to_string(),
+            Self::UpstreamError => "The HTTP gateway is temporarily unable to process the request. Please try again later.".to_string(),
+        }
+    }
+
+    pub const fn html(&self) -> Option<&str> {
+        match self {
+            Self::Denylisted => Some(include_str!("error_pages/451.html")),
+            _ => None,
+        }
+    }
+}
+
+// Creates the response from ErrorCause and injects itself into extensions to be visible by middleware
+impl IntoResponse for ErrorClientFacing {
+    fn into_response(self) -> Response {
+        let error_cause = self.to_string();
+
+        // Return the HTML reply if it exists, otherwise textual
+        let body = self.html().map_or_else(
+            || format!("error: {}\ndetails: {}", error_cause, self.details()),
+            |x| format!("{x}\n"),
+        );
+
+        let mut resp = (self.status_code(), body).into_response();
+        if self.html().is_some() {
+            resp.headers_mut().insert(CONTENT_TYPE, CONTENT_TYPE_HTML);
+        }
+        resp
     }
 }
 
