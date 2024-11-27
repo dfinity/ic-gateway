@@ -10,8 +10,8 @@ anyhow = "1.0.93"
 arc-swap = "1.7.1"
 async-channel = "2.3.1"
 async-trait = "0.1.83"
-axum = "0.7.7"
-axum-extra = "0.9.4"
+axum = "0.7.9"
+axum-extra = "0.9.6"
 backoff = { version = "0.4.0", features = ["tokio"] }
 base64 = "0.22.1"
 bytes = "1.8.0"
@@ -48,7 +48,7 @@ ic-agent = { version = "0.39.1", features = [
     "ring",
     "_internal_dynamic-routing",
 ] }
-ic-bn-lib = { git = "https://github.com/dfinity/ic-bn-lib", rev = "2496803db52d8182f578f098a3ffe4fcb9573fcd" }
+ic-bn-lib = { git = "https://github.com/dfinity/ic-bn-lib", rev = "da94b46792f6e82cd106a15d920d449d7d9edf92" }
 ic-http-gateway = { git = "https://github.com/dfinity/http-gateway", tag = "0.1.0-b3" }
 itertools = "0.13.0"
 lazy_static = "1.5.0"
@@ -68,7 +68,7 @@ reqwest = { version = "0.12.9", default-features = false, features = [
     "json",
     "stream",
 ] }
-rustls = { version = "0.23.16", features = ["brotli"] }
+rustls = { version = "0.23.18", features = ["brotli"] }
 rustls-platform-verifier = "0.4.0"
 serde = "1.0.214"
 serde_cbor = "0.11.2"
