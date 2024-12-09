@@ -1,11 +1,20 @@
 use std::error::Error as StdError;
 
+use crate::routing::RequestType;
 use axum::response::{IntoResponse, Response};
 use hickory_resolver::error::ResolveError;
 use http::{header::CONTENT_TYPE, StatusCode};
 use ic_agent::AgentError;
 use ic_bn_lib::http::{headers::CONTENT_TYPE_HTML, Error as IcBnError};
+use ic_http_gateway::HttpGatewayError;
 use strum::{Display, IntoStaticStr};
+use tokio::task_local;
+
+task_local! {
+    pub static ERROR_CONTEXT: RequestType;
+}
+
+const ERROR_PAGE_TEMPLATE: &str = include_str!("error_pages/template.html");
 
 // Process error chain trying to find given error type
 pub fn error_infer<E: StdError + Send + Sync + 'static>(error: &anyhow::Error) -> Option<&E> {
@@ -52,6 +61,7 @@ pub enum ErrorCause {
     RateLimited(RateLimitCause),
     #[strum(serialize = "internal_server_error")]
     Other(String),
+    HttpGatewayError(HttpGatewayError),
 }
 
 impl ErrorCause {
@@ -68,6 +78,7 @@ impl ErrorCause {
             Self::BackendTLSErrorCert(x) => Some(x.clone()),
             Self::AgentError(x) => Some(x.clone()),
             Self::RateLimited(x) => Some(x.to_string()),
+            Self::HttpGatewayError(x) => Some(x.to_string()),
             _ => None,
         }
     }
@@ -116,6 +127,26 @@ impl ErrorCause {
             Self::BackendTLSErrorOther(_) => ErrorClientFacing::UpstreamError,
             Self::BackendTLSErrorCert(_) => ErrorClientFacing::UpstreamError,
             Self::RateLimited(_) => ErrorClientFacing::RateLimited,
+            Self::HttpGatewayError(x) => match x {
+                HttpGatewayError::AgentError(y) => {
+                    let error_string = y.to_string();
+                    if error_string.contains("no_healthy_nodes") {
+                        return ErrorClientFacing::SubnetUnavailable;
+                    } else if error_string.contains("canister_not_found") {
+                        return ErrorClientFacing::CanisterIdNotFound;
+                    }
+                    ErrorClientFacing::UpstreamError
+                }
+                HttpGatewayError::HttpError(y) => {
+                    if y.contains("no_healthy_nodes") {
+                        return ErrorClientFacing::SubnetUnavailable;
+                    } else if y.contains("canister_not_found") {
+                        return ErrorClientFacing::CanisterIdNotFound;
+                    }
+                    ErrorClientFacing::UpstreamError
+                }
+                _ => ErrorClientFacing::UpstreamError,
+            },
         }
     }
 }
@@ -201,6 +232,7 @@ pub enum ErrorClientFacing {
     Other,
     PayloadTooLarge,
     RateLimited,
+    SubnetUnavailable,
     UnknownDomain,
     UpstreamError,
 }
@@ -219,6 +251,7 @@ impl ErrorClientFacing {
             Self::Other => StatusCode::INTERNAL_SERVER_ERROR,
             Self::PayloadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
             Self::RateLimited => StatusCode::TOO_MANY_REQUESTS,
+            Self::SubnetUnavailable => StatusCode::SERVICE_UNAVAILABLE,
             Self::UnknownDomain => StatusCode::BAD_REQUEST,
             Self::UpstreamError => StatusCode::SERVICE_UNAVAILABLE,
         }
@@ -237,32 +270,37 @@ impl ErrorClientFacing {
             Self::Other => "Internal Server Error".to_string(),
             Self::PayloadTooLarge => "The payload is too large.".to_string(),
             Self::RateLimited => "Rate limit exceeded. Please slow down requests and try again later.".to_string(),
+            Self::SubnetUnavailable => "The subnet is temporarily unavailable. This may be due to an ongoing upgrade of the replica software. Please try again later.".to_string(),
             Self::UnknownDomain => "The requested domain is not served by this HTTP gateway.".to_string(),
             Self::UpstreamError => "The HTTP gateway is temporarily unable to process the request. Please try again later.".to_string(),
         }
     }
 
-    pub const fn html(&self) -> Option<&str> {
+    pub fn html(&self) -> String {
         match self {
-            Self::Denylisted => Some(include_str!("error_pages/451.html")),
-            _ => None,
+            Self::Denylisted => include_str!("error_pages/451.html").to_string(),
+            _ => {
+                let template = ERROR_PAGE_TEMPLATE;
+                let template = template.replace("{status_code}", self.status_code().as_str());
+                let template = template.replace("{reason}", self.to_string().as_str());
+                let template = template.replace("{details}", self.details().as_str());
+                template
+            }
         }
     }
 }
 
-// Creates the response from ErrorCause and injects itself into extensions to be visible by middleware
+// Creates the response from ErrorClientFacing
 impl IntoResponse for ErrorClientFacing {
     fn into_response(self) -> Response {
-        let error_cause = self.to_string();
-
-        // Return the HTML reply if it exists, otherwise textual
-        let body = self.html().map_or_else(
-            || format!("error: {}\ndetails: {}", error_cause, self.details()),
-            |x| format!("{x}\n"),
-        );
+        // Return an HTML error page if it was an HTTP request
+        let body = match ERROR_CONTEXT.get() {
+            RequestType::Http => format!("{}\n", self.html()),
+            _ => format!("error: {}\ndetails: {}", self.to_string(), self.details()),
+        };
 
         let mut resp = (self.status_code(), body).into_response();
-        if self.html().is_some() {
+        if ERROR_CONTEXT.get() == RequestType::Http {
             resp.headers_mut().insert(CONTENT_TYPE, CONTENT_TYPE_HTML);
         }
         resp
@@ -272,6 +310,8 @@ impl IntoResponse for ErrorClientFacing {
 #[cfg(test)]
 mod test {
     use super::*;
+    use ic_agent::{agent_error::HttpErrorPayload, AgentError};
+    use std::sync::Arc;
 
     #[test]
     fn test_error_cause() {
@@ -293,6 +333,50 @@ mod test {
         assert!(matches!(
             ErrorCause::from(err),
             ErrorCause::BackendTLSErrorOther(_)
+        ));
+
+        // test that no_healthy_nodes from upstream is mapped to ErrorClientFacing::NoHealthyNodes
+        let err_payload = HttpErrorPayload {
+            status: 503,
+            content_type: Some("text/plain".to_string()),
+            content: "error: no_healthy_nodes\ndetails: There are currently no healthy replica nodes available to handle the request. This may be due to an ongoing upgrade of the replica software in the subnet. Please try again later.".as_bytes().to_vec(),
+        };
+        let err: HttpGatewayError =
+            HttpGatewayError::AgentError(Arc::new(AgentError::HttpError(err_payload)));
+        let err_cause = ErrorCause::HttpGatewayError(err);
+        let err_client_facing = err_cause.to_client_facing_error();
+        assert!(matches!(
+            err_client_facing,
+            ErrorClientFacing::SubnetUnavailable
+        ));
+
+        // test that canister_not_found from upstream is mapped to ErrorClientFacing::CanisterIdNotFound
+        let err_payload = HttpErrorPayload {
+            status: 400,
+            content_type: Some("text/plain".to_string()),
+            content: "error: canister_not_found\ndetails: The specified canister does not exist."
+                .as_bytes()
+                .to_vec(),
+        };
+        let err: HttpGatewayError =
+            HttpGatewayError::AgentError(Arc::new(AgentError::HttpError(err_payload)));
+        let err_cause = ErrorCause::HttpGatewayError(err);
+        let err_client_facing = err_cause.to_client_facing_error();
+        assert!(matches!(
+            err_client_facing,
+            ErrorClientFacing::CanisterIdNotFound
+        ));
+
+        // test that canister_not_found from upstream is mapped to ErrorClientFacing::CanisterIdNotFound
+        let err: HttpGatewayError = HttpGatewayError::HeaderValueParsingError {
+            header_name: "Test".to_string(),
+            header_value: "Test".to_string(),
+        };
+        let err_cause = ErrorCause::HttpGatewayError(err);
+        let err_client_facing = err_cause.to_client_facing_error();
+        assert!(matches!(
+            err_client_facing,
+            ErrorClientFacing::UpstreamError
         ));
     }
 }

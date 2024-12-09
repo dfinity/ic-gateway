@@ -7,7 +7,10 @@ use axum::{
 };
 
 use super::extract_authority;
-use crate::routing::{domain::ResolvesDomain, CanisterId, ErrorCause, RequestCtx, RequestType};
+use crate::routing::{
+    domain::ResolvesDomain, error_cause::ERROR_CONTEXT, CanisterId, ErrorCause, RequestCtx,
+    RequestType,
+};
 
 pub async fn middleware(
     State(resolver): State<Arc<dyn ResolvesDomain>>,
@@ -42,14 +45,21 @@ pub async fn middleware(
 
     request.extensions_mut().insert(ctx.clone());
 
-    // Execute the request
-    let mut response = next.run(request).await;
+    // Set error context
+    let response = ERROR_CONTEXT
+        .scope(request_type, async move {
+            // Execute the request
+            let mut response = next.run(request).await;
 
-    // Inject the same into the response
-    response.extensions_mut().insert(ctx);
-    if let Some(v) = lookup.canister_id {
-        response.extensions_mut().insert(CanisterId(v));
-    }
+            // Inject the same into the response
+            response.extensions_mut().insert(ctx);
+            if let Some(v) = lookup.canister_id {
+                response.extensions_mut().insert(CanisterId(v));
+            }
+
+            response
+        })
+        .await;
 
     Ok(response)
 }
