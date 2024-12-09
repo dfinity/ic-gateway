@@ -1,11 +1,19 @@
 use std::error::Error as StdError;
 
+use crate::routing::RequestType;
 use axum::response::{IntoResponse, Response};
 use hickory_resolver::error::ResolveError;
 use http::{header::CONTENT_TYPE, StatusCode};
 use ic_agent::AgentError;
 use ic_bn_lib::http::{headers::CONTENT_TYPE_HTML, Error as IcBnError};
 use strum::{Display, IntoStaticStr};
+use tokio::task_local;
+
+task_local! {
+    pub static ERROR_CONTEXT: RequestType;
+}
+
+const ERROR_PAGE_TEMPLATE: &str = include_str!("error_pages/template.html");
 
 // Process error chain trying to find given error type
 pub fn error_infer<E: StdError + Send + Sync + 'static>(error: &anyhow::Error) -> Option<&E> {
@@ -242,27 +250,31 @@ impl ErrorClientFacing {
         }
     }
 
-    pub const fn html(&self) -> Option<&str> {
+    pub fn html(&self) -> String {
         match self {
-            Self::Denylisted => Some(include_str!("error_pages/451.html")),
-            _ => None,
+            Self::Denylisted => include_str!("error_pages/451.html").to_string(),
+            _ => {
+                let template = ERROR_PAGE_TEMPLATE;
+                let template = template.replace("{status_code}", self.status_code().as_str());
+                let template = template.replace("{reason}", self.to_string().as_str());
+                let template = template.replace("{details}", self.details().as_str());
+                template
+            }
         }
     }
 }
 
-// Creates the response from ErrorCause and injects itself into extensions to be visible by middleware
+// Creates the response from ErrorClientFacing
 impl IntoResponse for ErrorClientFacing {
     fn into_response(self) -> Response {
-        let error_cause = self.to_string();
-
-        // Return the HTML reply if it exists, otherwise textual
-        let body = self.html().map_or_else(
-            || format!("error: {}\ndetails: {}", error_cause, self.details()),
-            |x| format!("{x}\n"),
-        );
+        // Return an HTML error page if it was an HTTP request
+        let body = match ERROR_CONTEXT.get() {
+            RequestType::Http => format!("{}\n", self.html()),
+            _ => format!("error: {}\ndetails: {}", self.to_string(), self.details()),
+        };
 
         let mut resp = (self.status_code(), body).into_response();
-        if self.html().is_some() {
+        if ERROR_CONTEXT.get() == RequestType::Http {
             resp.headers_mut().insert(CONTENT_TYPE, CONTENT_TYPE_HTML);
         }
         resp
