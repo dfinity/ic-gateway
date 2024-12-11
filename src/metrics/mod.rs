@@ -57,7 +57,7 @@ pub const HTTP_RESPONSE_SIZE_BUCKETS: &[f64] = &[1.0 * KB, 8.0 * KB, 64.0 * KB, 
 pub fn setup(registry: &Registry, tasks: &mut TaskManager) -> Router {
     let cache = Arc::new(runner::MetricsCache::new());
     let runner = Arc::new(runner::MetricsRunner::new(cache.clone(), registry));
-    tasks.add("metrics_runner", runner);
+    tasks.add_interval("metrics_runner", runner, Duration::from_secs(5));
 
     Router::new()
         .route("/metrics", get(runner::handler))

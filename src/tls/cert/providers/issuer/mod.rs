@@ -18,7 +18,6 @@ use prometheus::{
 };
 use reqwest::{Method, Request, StatusCode, Url};
 use serde::Deserialize;
-use tokio::select;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
@@ -105,7 +104,6 @@ pub trait Import: Sync + Send {
 pub struct CertificatesImporter {
     http_client: Arc<dyn http::Client>,
     exporter_url: Url,
-    poll_interval: Duration,
     snapshot: ArcSwapOption<Vec<Package>>,
     verifier: Verifier<Parser>,
     metrics: Metrics,
@@ -121,7 +119,6 @@ impl CertificatesImporter {
     pub fn new(
         http_client: Arc<dyn http::Client>,
         mut exporter_url: Url,
-        poll_interval: Duration,
         metrics: Metrics,
     ) -> Self {
         exporter_url.set_path("");
@@ -130,7 +127,6 @@ impl CertificatesImporter {
         Self {
             http_client,
             exporter_url,
-            poll_interval,
             snapshot: ArcSwapOption::empty(),
             verifier: Verifier(Parser),
             metrics,
@@ -255,26 +251,10 @@ impl Import for CertificatesImporter {
 
 #[async_trait]
 impl Run for CertificatesImporter {
-    async fn run(&self, token: CancellationToken) -> Result<(), anyhow::Error> {
-        let mut interval = tokio::time::interval(self.poll_interval);
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-
-        loop {
-            select! {
-                biased;
-
-                () = token.cancelled() => {
-                    warn!("{self:?}: exiting");
-                    return Ok(());
-                },
-
-                _ = interval.tick() => {
-                    if let Err(e) = self.refresh().await {
-                        warn!("{self:?}: unable to refresh certificates: {e:#}");
-                    };
-                }
-            }
-        }
+    async fn run(&self, _: CancellationToken) -> Result<(), anyhow::Error> {
+        self.refresh()
+            .await
+            .context("unable to refresh certificates")
     }
 }
 
@@ -284,14 +264,29 @@ mod tests {
 
     use anyhow::Error as AnyhowError;
     use axum::http::Response;
-    use ic_bn_lib::http::client::MockClient;
-    use mockall::predicate;
+    use ic_bn_lib::http::client::Client;
+    use mockall::{mock, predicate};
     use reqwest::Body;
-    use std::{str::FromStr, sync::Arc};
+    use std::{fmt, str::FromStr, sync::Arc};
+
+    mock! {
+        pub HttpClient {}
+
+        impl Client for HttpClient {
+            fn execute<'life0,'async_trait>(&'life0 self,req:reqwest::Request) -> ::core::pin::Pin<Box<dyn ::core::future::Future<Output = Result<reqwest::Response,reqwest::Error> > + ::core::marker::Send+'async_trait> >where 'life0:'async_trait,Self:'async_trait;
+        }
+
+        impl fmt::Debug for HttpClient {
+            fn fmt<'a>(&self, f: &mut fmt::Formatter<'a>) -> fmt::Result {
+                write!(f, "MockHttpClient")
+            }
+        }
+    }
 
     #[tokio::test]
     async fn import_ok() -> Result<(), AnyhowError> {
-        let mut http_client = MockClient::new();
+        let mut http_client = MockHttpClient::new();
+
         http_client
             .expect_execute()
             .times(1)
@@ -300,9 +295,10 @@ mod tests {
                     && req.url().to_string().eq("http://foo/certificates")
             }))
             .returning(|_| {
-                Ok(Response::builder()
-                    .body(Body::from(
-                        r#"[
+                Box::pin(async {
+                    Ok(Response::builder()
+                        .body(Body::from(
+                            r#"[
                 {
                     "name": "name",
                     "canister": "aaaaa-aa",
@@ -312,15 +308,15 @@ mod tests {
                     ]
                 }
             ]"#,
-                    ))
-                    .unwrap()
-                    .into())
+                        ))
+                        .unwrap()
+                        .into())
+                })
             });
 
         let importer = CertificatesImporter::new(
             Arc::new(http_client),
             Url::from_str("http://foo")?,
-            Duration::ZERO,
             Metrics::new(&Registry::new()),
         );
 

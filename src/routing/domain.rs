@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, str::FromStr, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, str::FromStr, sync::Arc};
 
 use anyhow::{anyhow, Context, Error};
 use arc_swap::ArcSwapOption;
@@ -7,9 +7,7 @@ use candid::Principal;
 use derive_new::new;
 use fqdn::{fqdn, Fqdn, FQDN};
 use ic_bn_lib::tasks::Run;
-use tokio::select;
 use tokio_util::sync::CancellationToken;
-use tracing::warn;
 
 #[macro_export]
 macro_rules! principal {
@@ -91,7 +89,6 @@ struct CustomDomainStorageInner(BTreeMap<FQDN, DomainLookup>);
 #[derive(new)]
 pub struct CustomDomainStorage {
     providers: Vec<Arc<dyn ProvidesCustomDomains>>,
-    poll_interval: Duration,
     #[new(default)]
     inner: ArcSwapOption<CustomDomainStorageInner>,
 }
@@ -128,26 +125,10 @@ impl CustomDomainStorage {
 
 #[async_trait]
 impl Run for CustomDomainStorage {
-    async fn run(&self, token: CancellationToken) -> Result<(), Error> {
-        let mut interval = tokio::time::interval(self.poll_interval);
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-
-        loop {
-            select! {
-                biased;
-
-                () = token.cancelled() => {
-                    warn!("CustomDomainStorage: exiting");
-                    return Ok(());
-                },
-
-                _ = interval.tick() => {
-                    if let Err(e) = self.refresh().await {
-                        warn!("CustomDomainStorage: unable to refresh: {e:#}");
-                    }
-                }
-            }
-        }
+    async fn run(&self, _: CancellationToken) -> Result<(), Error> {
+        self.refresh()
+            .await
+            .context("unable to refresh custom domains")
     }
 }
 
@@ -354,7 +335,7 @@ mod test {
         });
 
         let custom_domain_storage =
-            CustomDomainStorage::new(vec![Arc::new(custom_domain_provider)], Duration::ZERO);
+            CustomDomainStorage::new(vec![Arc::new(custom_domain_provider)]);
         custom_domain_storage.refresh().await?;
 
         let resolver = DomainResolver::new(
