@@ -4,7 +4,7 @@ pub mod ic;
 pub mod middleware;
 pub mod proxy;
 
-use std::{str::FromStr, sync::Arc};
+use std::{str::FromStr, sync::Arc, time::Duration};
 
 use anyhow::{Context, Error};
 use axum::{
@@ -168,11 +168,12 @@ pub async fn setup_router(
     clickhouse: Option<Arc<Clickhouse>>,
     vector: Option<Arc<Vector>>,
 ) -> Result<Router, Error> {
-    let custom_domain_storage = Arc::new(CustomDomainStorage::new(
-        custom_domain_providers,
+    let custom_domain_storage = Arc::new(CustomDomainStorage::new(custom_domain_providers));
+    tasks.add_interval(
+        "custom_domain_storage",
+        custom_domain_storage.clone(),
         cli.cert.cert_provider_poll_interval,
-    ));
-    tasks.add("custom_domain_storage", custom_domain_storage.clone());
+    );
 
     // Prepare domain resolver to resolve domains & infer canister_id from requests
     let mut domains_base = cli.domain.domain.clone();
@@ -201,18 +202,24 @@ pub async fn setup_router(
     // Denylist
     let denylist_mw =
         if cli.policy.policy_denylist_seed.is_some() || cli.policy.policy_denylist_url.is_some() {
-            Some(from_fn_with_state(
-                denylist::DenylistState::new(
-                    cli.policy.policy_denylist_url.clone(),
-                    cli.policy.policy_denylist_seed.clone(),
-                    cli.policy.policy_denylist_allowlist.clone(),
+            let state = denylist::DenylistState::new(
+                cli.policy.policy_denylist_url.clone(),
+                cli.policy.policy_denylist_seed.clone(),
+                cli.policy.policy_denylist_allowlist.clone(),
+                http_client.clone(),
+                registry,
+            )?;
+
+            // Only run periodic job if an URL was given
+            if cli.policy.policy_denylist_url.is_some() {
+                tasks.add_interval(
+                    "denylist_updater",
+                    Arc::new(state.clone()),
                     cli.policy.policy_denylist_poll_interval,
-                    tasks,
-                    http_client.clone(),
-                    registry,
-                )?,
-                denylist::middleware,
-            ))
+                );
+            }
+
+            Some(from_fn_with_state(state, denylist::middleware))
         } else {
             warn!("Running without denylist: neither a seed nor a URL has been specified.");
             None
@@ -367,10 +374,10 @@ pub async fn setup_router(
         };
 
         let cache = Arc::new(Cache::new(opts, KeyExtractorUriRange, registry)?);
-        tasks.add("cache", cache.clone());
+        tasks.add_interval("cache", cache.clone(), Duration::from_secs(5));
         Some(from_fn_with_state(cache, cache::middleware))
     } else {
-        warn!("Running without HTTP cache.");
+        warn!("Running without HTTP cache");
         None
     });
 

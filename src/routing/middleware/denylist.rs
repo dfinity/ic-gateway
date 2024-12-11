@@ -1,14 +1,17 @@
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{path::PathBuf, sync::Arc};
 
 use anyhow::{Context, Error};
+use async_trait::async_trait;
 use axum::{
     extract::{Extension, Request, State},
     middleware::Next,
     response::Response,
 };
-use ic_bn_lib::{http::Client, tasks::TaskManager};
-use prometheus::Registry;
+use ic_bn_lib::{http::Client, tasks::Run};
+use prometheus::{register_int_counter_vec_with_registry, IntCounterVec, Registry};
 use reqwest::Url;
+use tokio_util::sync::CancellationToken;
+use tracing::{info, warn};
 
 use crate::{
     policy::denylist::Denylist,
@@ -16,7 +19,26 @@ use crate::{
 };
 
 #[derive(Clone)]
-pub struct DenylistState(Arc<Denylist>);
+pub struct MetricParams {
+    pub updates: IntCounterVec,
+}
+
+impl MetricParams {
+    pub fn new(registry: &Registry) -> Self {
+        Self {
+            updates: register_int_counter_vec_with_registry!(
+                format!("denylist_updates"),
+                format!("Counts denylist updates and results"),
+                &["result"],
+                registry
+            )
+            .unwrap(),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct DenylistState(Arc<Denylist>, MetricParams);
 
 #[allow(clippy::type_complexity)]
 impl DenylistState {
@@ -24,28 +46,36 @@ impl DenylistState {
         denylist_url: Option<Url>,
         denylist_seed: Option<PathBuf>,
         allowlist: Option<PathBuf>,
-        poll_interval: Duration,
-        tasks: &mut TaskManager,
         http_client: Arc<dyn Client>,
         registry: &Registry,
     ) -> Result<Self, Error> {
         let denylist = Arc::new(
-            Denylist::init(
-                denylist_url.clone(),
-                allowlist,
-                denylist_seed,
-                http_client,
-                poll_interval,
-                registry,
-            )
-            .context("unable to init denylist")?,
+            Denylist::init(denylist_url, allowlist, denylist_seed, http_client)
+                .context("unable to init denylist")?,
         );
 
-        // Only run if a URL was given
-        if denylist_url.is_some() {
-            tasks.add("denylist_updater", denylist.clone());
-        }
-        Ok(Self(denylist))
+        Ok(Self(denylist, MetricParams::new(registry)))
+    }
+}
+
+#[async_trait]
+impl Run for DenylistState {
+    async fn run(&self, _: CancellationToken) -> Result<(), Error> {
+        let res = self.0.update().await;
+
+        let lbl = match &res {
+            Err(e) => {
+                warn!("Denylist update failed: {e:#}");
+                "fail"
+            }
+            Ok(v) => {
+                info!("Denylist updated: {} canisters", v);
+                "ok"
+            }
+        };
+
+        self.1.updates.with_label_values(&[lbl]).inc();
+        res.map(|_| ())
     }
 }
 

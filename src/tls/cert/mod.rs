@@ -1,7 +1,7 @@
 pub mod providers;
 pub mod storage;
 
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use anyhow::{anyhow, Error};
 use async_trait::async_trait;
@@ -10,7 +10,7 @@ use ic_bn_lib::{
     tls::{extract_sans_der, pem_convert_to_rustls},
 };
 use rustls::sign::CertifiedKey;
-use tokio::{select, sync::Mutex};
+use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 
@@ -79,14 +79,12 @@ pub struct Aggregator {
     storage: Arc<dyn StoresCertificates<Arc<CertifiedKey>>>,
     // Mutex here only to make it Sync
     snapshot: Mutex<AggregatorSnapshot>,
-    poll_interval: Duration,
 }
 
 impl Aggregator {
     pub fn new(
         providers: Vec<Arc<dyn ProvidesCertificates>>,
         storage: Arc<dyn StoresCertificates<Arc<CertifiedKey>>>,
-        poll_interval: Duration,
     ) -> Self {
         let snapshot = AggregatorSnapshot {
             pem: vec![None; providers.len()],
@@ -97,7 +95,6 @@ impl Aggregator {
             providers,
             storage,
             snapshot: Mutex::new(snapshot),
-            poll_interval,
         }
     }
 }
@@ -168,24 +165,9 @@ impl Aggregator {
 
 #[async_trait]
 impl Run for Aggregator {
-    async fn run(&self, token: CancellationToken) -> Result<(), Error> {
-        let mut interval = tokio::time::interval(self.poll_interval);
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-
-        loop {
-            select! {
-                biased;
-
-                () = token.cancelled() => {
-                    warn!("CertAggregator: exiting");
-                    return Ok(());
-                },
-
-                _ = interval.tick() => {
-                    self.refresh().await;
-                }
-            }
-        }
+    async fn run(&self, _: CancellationToken) -> Result<(), Error> {
+        self.refresh().await;
+        Ok(())
     }
 }
 
@@ -345,11 +327,7 @@ pub mod test {
             None,
             storage::Metrics::new(&Registry::new()),
         ));
-        let aggregator = Aggregator::new(
-            vec![Arc::new(prov1), Arc::new(prov2)],
-            storage,
-            Duration::from_secs(1),
-        );
+        let aggregator = Aggregator::new(vec![Arc::new(prov1), Arc::new(prov2)], storage);
         aggregator.refresh().await;
 
         let certs = aggregator.snapshot.lock().await.clone().flatten();

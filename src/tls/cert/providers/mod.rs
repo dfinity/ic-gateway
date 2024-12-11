@@ -42,13 +42,16 @@ pub fn setup_issuer_providers(
         let issuer = Arc::new(Issuer::new(
             http_client.clone(),
             v.clone(),
-            cli.cert.cert_provider_issuer_poll_interval,
             issuer_metrics.clone(),
         ));
 
         cert_providers.push(issuer.clone());
         custom_domain_providers.push(issuer.clone());
-        tasks.add(&format!("{issuer:?}"), issuer);
+        tasks.add_interval(
+            &format!("{issuer:?}"),
+            issuer,
+            cli.cert.cert_provider_issuer_poll_interval,
+        );
     }
 
     (cert_providers, custom_domain_providers)

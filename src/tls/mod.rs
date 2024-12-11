@@ -1,7 +1,7 @@
 pub mod cert;
 pub mod resolver;
 
-use std::{fs, sync::Arc};
+use std::{fs, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, bail, Context, Error};
 use async_trait::async_trait;
@@ -90,7 +90,11 @@ async fn setup_acme(
                 .await
                 .context("unable to create ACME client")?;
             let acme_dns = Arc::new(AcmeDns::new(acme_client, domains, cli.acme.acme_wildcard));
-            tasks.add("acme_dns_runner", acme_dns.clone());
+            tasks.add_interval(
+                "acme_dns_runner",
+                acme_dns.clone(),
+                Duration::from_secs(600),
+            );
 
             acme_dns
         }
@@ -136,12 +140,12 @@ pub async fn setup(
     }
 
     // Create certificate aggregator that combines all providers
-    let cert_aggregator = Arc::new(Aggregator::new(
-        cert_providers,
-        cert_storage.clone(),
+    let cert_aggregator = Arc::new(Aggregator::new(cert_providers, cert_storage.clone()));
+    tasks.add_interval(
+        "cert_aggregator",
+        cert_aggregator,
         cli.cert.cert_provider_poll_interval,
-    ));
-    tasks.add("cert_aggregator", cert_aggregator);
+    );
 
     // Set up certificate resolver
     let certificate_resolver = Arc::new(AggregatingResolver::new(

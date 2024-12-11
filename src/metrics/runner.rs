@@ -1,7 +1,4 @@
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{sync::Arc, time::Instant};
 
 use anyhow::Error;
 use arc_swap::ArcSwap;
@@ -11,7 +8,6 @@ use http::header::CONTENT_TYPE;
 use ic_bn_lib::tasks::Run;
 use prometheus::{register_int_gauge_with_registry, Encoder, IntGauge, Registry, TextEncoder};
 use tikv_jemalloc_ctl::{epoch, stats};
-use tokio::select;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 
@@ -94,30 +90,15 @@ impl MetricsRunner {
 
 #[async_trait]
 impl Run for MetricsRunner {
-    async fn run(&self, token: CancellationToken) -> Result<(), Error> {
-        let mut interval = tokio::time::interval(Duration::from_secs(5));
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-
-        warn!("MetricsRunner: started");
-        loop {
-            select! {
-                biased;
-
-                () = token.cancelled() => {
-                    warn!("MetricsRunner: exited");
-                    return Ok(());
-                }
-
-                _ = interval.tick() => {
-                    let start = Instant::now();
-                    if let Err(e) = self.update().await {
-                        warn!("Unable to update metrics: {e:#}");
-                    } else {
-                        debug!("Metrics updated in {}ms", start.elapsed().as_millis());
-                    }
-                }
-            }
+    async fn run(&self, _: CancellationToken) -> Result<(), Error> {
+        let start = Instant::now();
+        if let Err(e) = self.update().await {
+            warn!("Unable to update metrics: {e:#}");
+        } else {
+            debug!("Metrics updated in {}ms", start.elapsed().as_millis());
         }
+
+        Ok(())
     }
 }
 

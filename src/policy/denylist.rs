@@ -1,17 +1,13 @@
-use std::{fs, path::PathBuf, sync::Arc, time::Duration};
+use std::{fs, path::PathBuf, sync::Arc};
 
 use ahash::{AHashMap, AHashSet};
 use anyhow::{anyhow, Context, Error};
 use arc_swap::ArcSwapOption;
-use async_trait::async_trait;
 use candid::Principal;
-use ic_bn_lib::{http::Client, tasks::Run};
-use prometheus::{register_int_counter_vec_with_registry, IntCounterVec, Registry};
+use ic_bn_lib::http::Client;
 use serde::Deserialize;
 use serde_json as json;
-use tokio::select;
-use tokio_util::sync::CancellationToken;
-use tracing::{info, warn};
+use tracing::warn;
 use url::Url;
 
 use super::load_principal_list;
@@ -22,8 +18,6 @@ pub struct Denylist {
     http_client: Arc<dyn Client>,
     inner: ArcSwapOption<AHashMap<Principal, Vec<String>>>,
     allowlist: AHashSet<Principal>,
-    update_interval: Duration,
-    metrics: MetricParams,
 }
 
 impl Denylist {
@@ -31,18 +25,12 @@ impl Denylist {
         url: Option<Url>,
         allowlist: AHashSet<Principal>,
         http_client: Arc<dyn Client>,
-        update_interval: Duration,
-        registry: &Registry,
     ) -> Self {
-        let metrics = MetricParams::new(registry);
-
         Self {
             url,
             http_client,
             inner: ArcSwapOption::empty(),
             allowlist,
-            update_interval,
-            metrics,
         }
     }
 
@@ -51,8 +39,6 @@ impl Denylist {
         allowlist: Option<PathBuf>,
         seed: Option<PathBuf>,
         http_client: Arc<dyn Client>,
-        update_interval: Duration,
-        registry: &Registry,
     ) -> Result<Self, Error> {
         let allowlist = if let Some(v) = allowlist {
             let r = load_principal_list(&v).context("unable to read allowlist")?;
@@ -62,7 +48,7 @@ impl Denylist {
             AHashSet::new()
         };
 
-        let denylist = Self::new(url, allowlist, http_client, update_interval, registry);
+        let denylist = Self::new(url, allowlist, http_client);
 
         if let Some(v) = seed {
             let seed = fs::read(v).context("unable to read seed")?;
@@ -156,66 +142,6 @@ impl Denylist {
     }
 }
 
-#[async_trait]
-impl Run for Denylist {
-    async fn run(&self, token: CancellationToken) -> Result<(), Error> {
-        warn!(
-            "Denylist updater started with {}s interval",
-            self.update_interval.as_secs()
-        );
-
-        let mut interval = tokio::time::interval(self.update_interval);
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-
-        loop {
-            select! {
-                biased;
-
-                () = token.cancelled() => {
-                    warn!("Denylist updater stopped");
-                    return Ok(());
-                }
-
-                _ = interval.tick() => {
-                    let res = self.update().await;
-
-                    let lbl = match res {
-                        Err(e) => {
-                            warn!("Denylist update failed: {e:#}");
-                            "fail"
-                        }
-                        Ok(v) => {
-                            info!("Denylist updated: {} canisters", v);
-                            "ok"
-                        }
-                    };
-
-                    self.metrics.updates.with_label_values(&[lbl]).inc();
-                }
-            }
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct MetricParams {
-    pub updates: IntCounterVec,
-}
-
-impl MetricParams {
-    pub fn new(registry: &Registry) -> Self {
-        Self {
-            updates: register_int_counter_vec_with_registry!(
-                format!("denylist_updates"),
-                format!("Counts denylist updates and results"),
-                &["result"],
-                registry
-            )
-            .unwrap(),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -259,14 +185,10 @@ mod tests {
         let client =
             Arc::new(TestClient(reqwest::ClientBuilder::new().build()?)) as Arc<dyn Client>;
 
-        let registry = Registry::new();
-
         let denylist = Denylist::new(
             Some(Url::parse(&server.url_str("/denylist.json")).unwrap()),
             AHashSet::from([Principal::from_text("g3wsl-eqaaa-aaaan-aaaaa-cai").unwrap()]),
             client,
-            Duration::ZERO,
-            &registry,
         );
         denylist.update().await?;
 
@@ -336,13 +258,10 @@ mod tests {
 
         let client =
             Arc::new(TestClient(reqwest::ClientBuilder::new().build()?)) as Arc<dyn Client>;
-        let registry = Registry::new();
         let denylist = Denylist::new(
             Some(Url::parse(&server.url_str("/denylist.json")).unwrap()),
             AHashSet::new(),
             client,
-            Duration::ZERO,
-            &registry,
         );
         assert!(denylist.update().await.is_err());
 
