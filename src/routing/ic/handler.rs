@@ -96,7 +96,12 @@ pub async fn handler(
 
     let ic_status = IcResponseStatus::from(&resp);
 
-    // Convert it into Axum response
+    // Check if an error occured in the HTTP gateway library
+    if let Some(e) = resp.metadata.internal_error {
+        return Err(ErrorCause::HttpGatewayError(e));
+    }
+
+    // Convert the HTTP gateway library response into an Axum response
     let mut response = resp.canister_response.into_response();
     response.extensions_mut().insert(ic_status);
     response.extensions_mut().insert(bn_req_meta);
