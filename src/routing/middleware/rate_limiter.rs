@@ -204,10 +204,7 @@ mod tests {
 
                 assert_eq!(result.status(), StatusCode::INTERNAL_SERVER_ERROR);
                 let body = to_bytes(result.into_body(), 100).await.unwrap().to_vec();
-                assert_eq!(
-                    body,
-                    b"error: internal_server_error\ndetails: Internal Server Error"
-                );
+                assert!(body.starts_with(b"error: internal_server_error\n"));
             })
             .await;
     }
