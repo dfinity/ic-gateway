@@ -282,7 +282,8 @@ impl ErrorClientFacing {
             _ => {
                 let template = ERROR_PAGE_TEMPLATE;
                 let template = template.replace("{status_code}", self.status_code().as_str());
-                let template = template.replace("{reason}", self.to_string().as_str());
+                let template =
+                    template.replace("{reason}", self.to_string().replace("_", " ").as_str());
                 let template = template.replace("{details}", self.details().as_str());
                 template
             }
@@ -293,14 +294,16 @@ impl ErrorClientFacing {
 // Creates the response from ErrorClientFacing
 impl IntoResponse for ErrorClientFacing {
     fn into_response(self) -> Response {
+        let error_context = ERROR_CONTEXT.get();
+
         // Return an HTML error page if it was an HTTP request
-        let body = match ERROR_CONTEXT.get() {
+        let body = match error_context {
             RequestType::Http => format!("{}\n", self.html()),
             _ => format!("error: {}\ndetails: {}", self.to_string(), self.details()),
         };
 
         let mut resp = (self.status_code(), body).into_response();
-        if ERROR_CONTEXT.get() == RequestType::Http {
+        if error_context == RequestType::Http {
             resp.headers_mut().insert(CONTENT_TYPE, CONTENT_TYPE_HTML);
         }
         resp
