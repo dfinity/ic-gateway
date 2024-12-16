@@ -121,6 +121,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         Arc::new(routing::custom_domains::GenericProvider::new(
             http_client.clone(),
             x.clone(),
+            cli.domain.domain_custom_provider_timeout,
         )) as Arc<dyn ProvidesCustomDomains>
     }));
 

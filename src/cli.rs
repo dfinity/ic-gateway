@@ -222,6 +222,10 @@ pub struct Domain {
     /// How frequently to poll custom domain providers for updates
     #[clap(env, long, default_value = "30s", value_parser = parse_duration)]
     pub domain_custom_provider_poll_interval: Duration,
+
+    /// Timeout for the outgoing HTTP calls made to fetch custom domains
+    #[clap(env, long, default_value = "30s", value_parser = parse_duration)]
+    pub domain_custom_provider_timeout: Duration,
 }
 
 #[derive(Args)]

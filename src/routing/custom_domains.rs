@@ -17,13 +17,14 @@ use crate::routing::domain::{CustomDomain, ProvidesCustomDomains};
 pub struct GenericProvider {
     http_client: Arc<dyn http::Client>,
     url: Url,
+    timeout: Duration,
 }
 
 #[async_trait]
 impl ProvidesCustomDomains for GenericProvider {
     async fn get_custom_domains(&self) -> Result<Vec<CustomDomain>, Error> {
         let mut req = Request::new(Method::GET, self.url.clone());
-        *req.timeout_mut() = Some(Duration::from_secs(30));
+        *req.timeout_mut() = Some(self.timeout);
 
         let response = self
             .http_client
@@ -83,19 +84,29 @@ mod test {
     }
 
     #[derive(Debug)]
-    struct MockClientBad;
+    struct MockClientBadDomain;
 
     #[async_trait]
-    impl http::Client for MockClientBad {
+    impl http::Client for MockClientBadDomain {
         async fn execute(&self, _: reqwest::Request) -> Result<reqwest::Response, reqwest::Error> {
             Ok(HttpResponse::new(json!({"foo.bar!!!!": "aaaaa-aa"}).to_string()).into())
+        }
+    }
+
+    #[derive(Debug)]
+    struct MockClientBadCanister;
+
+    #[async_trait]
+    impl http::Client for MockClientBadCanister {
+        async fn execute(&self, _: reqwest::Request) -> Result<reqwest::Response, reqwest::Error> {
+            Ok(HttpResponse::new(json!({"foo.bar": "aaaaa-aa!!!"}).to_string()).into())
         }
     }
 
     #[tokio::test]
     async fn test_provider() {
         let cli = Arc::new(MockClient);
-        let prov = GenericProvider::new(cli, "http://foo".try_into().unwrap());
+        let prov = GenericProvider::new(cli, "http://foo".try_into().unwrap(), Duration::ZERO);
 
         let domains: Vec<CustomDomain> = prov
             .get_custom_domains()
@@ -119,8 +130,12 @@ mod test {
             ]
         );
 
-        let cli = Arc::new(MockClientBad);
-        let prov = GenericProvider::new(cli, "http://foo".try_into().unwrap());
+        let cli = Arc::new(MockClientBadDomain);
+        let prov = GenericProvider::new(cli, "http://foo".try_into().unwrap(), Duration::ZERO);
+        assert!(prov.get_custom_domains().await.is_err());
+
+        let cli = Arc::new(MockClientBadCanister);
+        let prov = GenericProvider::new(cli, "http://foo".try_into().unwrap(), Duration::ZERO);
         assert!(prov.get_custom_domains().await.is_err());
     }
 }
