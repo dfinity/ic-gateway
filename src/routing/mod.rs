@@ -1,3 +1,4 @@
+pub mod custom_domains;
 pub mod domain;
 pub mod error_cause;
 pub mod ic;
@@ -172,7 +173,7 @@ pub async fn setup_router(
     tasks.add_interval(
         "custom_domain_storage",
         custom_domain_storage.clone(),
-        cli.cert.cert_provider_poll_interval,
+        cli.domain.domain_custom_provider_poll_interval,
     );
 
     // Prepare domain resolver to resolve domains & infer canister_id from requests

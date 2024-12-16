@@ -198,7 +198,9 @@ pub struct Domain {
     #[clap(env, long, value_delimiter = ',')]
     pub domain_api: Vec<FQDN>,
 
-    /// List of domains that we serve system subnets from. This enables domain-canister matching for these domains & adds them to the list of served domains above, do not list them there separately.
+    /// List of domains that we serve system subnets from.
+    /// This enables domain-canister matching for these domains & adds them to the
+    /// list of served domains above, do not list them there separately.
     /// Requires --domain-app.
     #[clap(env, long, requires = "domain_app", value_delimiter = ',')]
     pub domain_system: Vec<FQDN>,
@@ -211,6 +213,15 @@ pub struct Domain {
     /// List of canister aliases in format '<alias>:<canister_id>'
     #[clap(env, long, value_delimiter = ',')]
     pub domain_canister_alias: Vec<CanisterAlias>,
+
+    /// List of generic custom domain provider URLs.
+    /// Expects a JSON object in form '{"domain.bar": "aaaaa-aa"}'
+    #[clap(env, long, value_delimiter = ',')]
+    pub domain_custom_provider: Vec<Url>,
+
+    /// How frequently to poll custom domain providers for updates
+    #[clap(env, long, default_value = "30s", value_parser = parse_duration)]
+    pub domain_custom_provider_poll_interval: Duration,
 }
 
 #[derive(Args)]

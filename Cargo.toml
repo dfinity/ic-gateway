@@ -29,7 +29,7 @@ clickhouse = { version = "0.13.1", features = [
 console-subscriber = { version = "0.4.1", optional = true }
 ctrlc = { version = "3.4.5", features = ["termination"] }
 derive-new = "0.7.0"
-fqdn = "0.4.1"
+fqdn = { version = "0.4.1", features = ["serde"] }
 futures = "0.3.31"
 futures-util = "0.3.31"
 governor = "0.6.0" # must match tower-governor deps

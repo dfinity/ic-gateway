@@ -11,7 +11,7 @@ use tracing::warn;
 use crate::{
     cli::Cli,
     metrics,
-    routing::{self},
+    routing::{self, domain::ProvidesCustomDomains},
     tls,
 };
 
@@ -105,8 +105,8 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     // HTTP server metrics
     let http_metrics = http::server::Metrics::new(&registry);
 
-    // Custom domains
-    let (issuer_certificate_providers, issuer_custom_domain_providers) =
+    // Custom domains from issuers
+    let (issuer_certificate_providers, mut custom_domain_providers) =
         tls::cert::providers::setup_issuer_providers(
             cli,
             &mut tasks,
@@ -114,10 +114,20 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
             &registry,
         );
 
+    // Load generic custom domain providers
+    custom_domain_providers.extend(cli.domain.domain_custom_provider.iter().map(|x| {
+        warn!("Adding custom domain provider: {x}");
+
+        Arc::new(routing::custom_domains::GenericProvider::new(
+            http_client.clone(),
+            x.clone(),
+        )) as Arc<dyn ProvidesCustomDomains>
+    }));
+
     // Create gateway router to serve all endpoints
     let gateway_router = routing::setup_router(
         cli,
-        issuer_custom_domain_providers,
+        custom_domain_providers,
         &mut tasks,
         http_client.clone(),
         reqwest_client,

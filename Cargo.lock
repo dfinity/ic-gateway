@@ -1696,6 +1696,9 @@ name = "fqdn"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7722a38bde19627699ee91aca8b0fca068945ee28ea8489c7cb29ec25172d055"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "fragile"
