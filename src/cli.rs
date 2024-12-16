@@ -215,7 +215,7 @@ pub struct Domain {
     pub domain_canister_alias: Vec<CanisterAlias>,
 
     /// List of generic custom domain provider URLs.
-    /// Expects a JSON object in form '{"domain.bar": "aaaaa-aa"}'
+    /// Expects a JSON object in form '{"domain.bar": "aaaaa-aa"}' in response to a GET request.
     #[clap(env, long, value_delimiter = ',')]
     pub domain_custom_provider: Vec<Url>,
 
