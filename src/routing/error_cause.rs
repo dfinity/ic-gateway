@@ -299,7 +299,7 @@ impl IntoResponse for ErrorClientFacing {
         // Return an HTML error page if it was an HTTP request
         let body = match error_context {
             RequestType::Http => format!("{}\n", self.html()),
-            _ => format!("error: {}\ndetails: {}", self.to_string(), self.details()),
+            _ => format!("error: {}\ndetails: {}", self, self.details()),
         };
 
         let mut resp = (self.status_code(), body).into_response();

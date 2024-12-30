@@ -61,7 +61,7 @@ impl Fetch for NodesFetcher {
 
         // If some API BNs have invalid domain names, they are discarded.
         let nodes = api_bns
-            .iter()
+            .into_iter()
             .filter_map(|api_node| api_node.try_into().ok())
             .collect();
         return Ok(nodes);
