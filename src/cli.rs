@@ -418,12 +418,14 @@ pub struct Vector {
     #[clap(env, long, default_value = "8")]
     pub log_vector_flushers: usize,
 
-    /// Vector HTTP request timeout for a batch flush
+    /// Vector HTTP request timeout for a batch flush.
+    /// With each retry it will be linearly increased until it reaches 10x.
+    /// E.g. for 30s the timeouts will be 30s/1m/1m30s/.../5m
     #[clap(env, long, default_value = "30s", value_parser = parse_duration)]
     pub log_vector_timeout: Duration,
 
     /// Vector HTTP request retry interval
-    /// With each retry it will be linearly increased until it reaches 5x
+    /// With each retry it will be linearly increased until it reaches 5x.
     /// E.g. for 2s the retry intervals will be 2s/4s/6s/8s/10s/10s/10s...
     #[clap(env, long, default_value = "2s", value_parser = parse_duration)]
     pub log_vector_retry_interval: Duration,

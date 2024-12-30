@@ -105,6 +105,6 @@ impl Run for MetricsRunner {
 pub async fn handler(State(state): State<Arc<MetricsCache>>) -> impl IntoResponse {
     (
         [(CONTENT_TYPE, PROMETHEUS_CONTENT_TYPE)],
-        state.buffer.load_full().as_ref().clone(),
+        state.buffer.load().as_ref().clone(),
     )
 }

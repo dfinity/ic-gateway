@@ -380,7 +380,7 @@ impl Display for Flusher {
 
 impl Flusher {
     // Sends the given body to Vector
-    async fn send(&self, body: Bytes) -> Result<(), Error> {
+    async fn send(&self, body: Bytes, timeout: Duration) -> Result<(), Error> {
         let mut request = Request::new(Method::POST, self.url.clone());
         request
             .headers_mut()
@@ -397,7 +397,7 @@ impl Flusher {
         }
 
         *request.body_mut() = Some(body.into());
-        *request.timeout_mut() = Some(self.timeout);
+        *request.timeout_mut() = Some(timeout);
 
         let response = self
             .client
@@ -422,6 +422,7 @@ impl Flusher {
         // Retry
         let mut interval = self.retry_interval;
         let mut retries = 1;
+        let mut timeout = self.timeout;
 
         loop {
             let start = Instant::now();
@@ -432,8 +433,9 @@ impl Flusher {
             );
 
             // Bytes is cheap to clone
-            if let Err(e) = self.send(batch.clone()).await {
+            if let Err(e) = self.send(batch.clone(), timeout).await {
                 self.metrics.batch_flushes.with_label_values(&["no"]).inc();
+
                 warn!(
                     "{self}: unable to send (try {}, retry interval {}s): {e:#}",
                     retries,
@@ -448,16 +450,23 @@ impl Flusher {
                 return Ok(());
             }
 
-            // Back off a bit until some limit
+            // Back off until some limit
             interval = (interval + self.retry_interval).min(self.retry_interval * 5);
+            timeout = (timeout + self.timeout).min(self.timeout * 10);
 
             self.metrics.batch_flush_retries.inc();
             retries += 1;
 
-            // Limit the retry count if we're draining.
-            // Otherwise we wouldn't be able to stop with dead endpoint.
-            if self.token_drain.is_cancelled() && retries > 5 {
-                break;
+            // Limit the retry count and reset the interval/timeout if we're draining.
+            // Otherwise we wouldn't be able to stop with a dead endpoint.
+            if self.token_drain.is_cancelled() {
+                warn!("{self}: draining...");
+                interval = self.retry_interval;
+                timeout = self.timeout;
+
+                if retries > 3 {
+                    break;
+                }
             }
 
             sleep(interval).await;

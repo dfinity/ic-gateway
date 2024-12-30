@@ -48,7 +48,7 @@ pub async fn setup_route_provider(
             let subnet_id = Principal::from_text(MAINNET_ROOT_SUBNET_ID).unwrap();
             let fetcher = NodesFetcher::new(reqwest_client, subnet_id, None);
             let route_provider =
-                DynamicRouteProviderBuilder::new(snapshot, api_seed_nodes, tmp_client)
+                DynamicRouteProviderBuilder::new(snapshot, api_seed_nodes, Arc::new(tmp_client))
                     .with_checker(Arc::new(checker))
                     .with_fetcher(Arc::new(fetcher))
                     .build()
