@@ -457,11 +457,12 @@ impl Flusher {
             self.metrics.batch_flush_retries.inc();
             retries += 1;
 
-            // Limit the retry count and reset the interval if we're draining.
+            // Limit the retry count and reset the interval/timeout if we're draining.
             // Otherwise we wouldn't be able to stop with a dead endpoint.
             if self.token_drain.is_cancelled() {
                 warn!("{self}: draining...");
                 interval = self.retry_interval;
+                timeout = self.timeout;
 
                 if retries > 3 {
                     break;
