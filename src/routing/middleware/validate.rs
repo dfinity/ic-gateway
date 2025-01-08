@@ -1,16 +1,13 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::{MatchedPath, Request, State},
+    extract::{Request, State},
     middleware::Next,
     response::IntoResponse,
 };
 
 use super::extract_authority;
-use crate::routing::{
-    domain::ResolvesDomain, error_cause::ERROR_CONTEXT, CanisterId, ErrorCause, RequestCtx,
-    RequestType,
-};
+use crate::routing::{domain::ResolvesDomain, CanisterId, ErrorCause, RequestCtx, RequestType};
 
 pub async fn middleware(
     State(resolver): State<Arc<dyn ResolvesDomain>>,
@@ -32,7 +29,8 @@ pub async fn middleware(
         request.extensions_mut().insert(CanisterId(v));
     }
 
-    let request_type = RequestType::from(request.extensions().get::<MatchedPath>());
+    // Always provided by the preceding middleware so should be safe
+    let request_type = request.extensions().get::<RequestType>().copied().unwrap();
 
     // Inject request context
     // TODO remove Arc?
@@ -45,21 +43,13 @@ pub async fn middleware(
 
     request.extensions_mut().insert(ctx.clone());
 
-    // Set error context
-    let response = ERROR_CONTEXT
-        .scope(request_type, async move {
-            // Execute the request
-            let mut response = next.run(request).await;
+    let mut response = next.run(request).await;
 
-            // Inject the same into the response
-            response.extensions_mut().insert(ctx);
-            if let Some(v) = lookup.canister_id {
-                response.extensions_mut().insert(CanisterId(v));
-            }
-
-            response
-        })
-        .await;
+    // Inject the same into the response
+    response.extensions_mut().insert(ctx);
+    if let Some(v) = lookup.canister_id {
+        response.extensions_mut().insert(CanisterId(v));
+    }
 
     Ok(response)
 }
