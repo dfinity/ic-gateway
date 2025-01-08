@@ -43,7 +43,7 @@ use crate::{
     cli::Cli,
     metrics::{self, clickhouse::Clickhouse, Vector},
     routing::middleware::{
-        canister_match, cors, geoip, headers, rate_limiter, request_id, validate,
+        canister_match, cors, geoip, headers, rate_limiter, request_id, request_type, validate,
     },
 };
 
@@ -441,6 +441,7 @@ pub async fn setup_router(
     let common_layers = ServiceBuilder::new()
         .layer(from_fn(request_id::middleware))
         .layer(from_fn(headers::middleware))
+        .layer(from_fn(request_type::middleware))
         .layer(metrics_mw)
         .layer(load_shedder_system_mw)
         .layer(from_fn_with_state(domain_resolver, validate::middleware))
