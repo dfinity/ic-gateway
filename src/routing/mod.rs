@@ -393,12 +393,14 @@ pub async fn setup_router(
             .get(handler::handler)
             .put(handler::handler)
             .delete(handler::handler)
+            .patch(handler::handler)
             .layer(cors::layer(&[
                 Method::HEAD,
                 Method::GET,
                 Method::POST,
                 Method::PUT,
                 Method::DELETE,
+                Method::PATCH,
             ]))
             .layer(http_layers)
             .with_state(state_handler),
