@@ -64,7 +64,9 @@ impl From<CanisterId> for Principal {
     }
 }
 
-#[derive(Debug, Clone, Copy, Display, PartialEq, Eq, PartialOrd, Ord, Hash, IntoStaticStr)]
+#[derive(
+    Debug, Default, Clone, Copy, Display, PartialEq, Eq, PartialOrd, Ord, Hash, IntoStaticStr,
+)]
 #[strum(serialize_all = "snake_case")]
 pub enum RequestType {
     Http,
@@ -72,6 +74,7 @@ pub enum RequestType {
     Registrations,
     #[strum(to_string = "{0}")]
     Api(RequestTypeApi),
+    #[default]
     Unknown,
 }
 
