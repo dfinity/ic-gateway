@@ -294,16 +294,16 @@ impl ErrorClientFacing {
 // Creates the response from ErrorClientFacing
 impl IntoResponse for ErrorClientFacing {
     fn into_response(self) -> Response {
-        let error_context = ERROR_CONTEXT.get();
+        let request_type = ERROR_CONTEXT.try_with(|x| *x).unwrap_or_default();
 
         // Return an HTML error page if it was an HTTP request
-        let body = match error_context {
+        let body = match request_type {
             RequestType::Http => format!("{}\n", self.html()),
             _ => format!("error: {}\ndetails: {}", self, self.details()),
         };
 
         let mut resp = (self.status_code(), body).into_response();
-        if error_context == RequestType::Http {
+        if request_type == RequestType::Http {
             resp.headers_mut().insert(CONTENT_TYPE, CONTENT_TYPE_HTML);
         }
         resp
