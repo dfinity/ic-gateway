@@ -128,27 +128,30 @@ impl ErrorCause {
             Self::BackendTLSErrorOther(_) => ErrorClientFacing::UpstreamError,
             Self::BackendTLSErrorCert(_) => ErrorClientFacing::UpstreamError,
             Self::RateLimited(_) => ErrorClientFacing::RateLimited,
-            Self::HttpGatewayError(x) => match x {
-                HttpGatewayError::AgentError(y) => {
-                    match y.as_ref() {
-                        AgentError::CertifiedReject(z) | AgentError::UncertifiedReject(z) => {
-                            match z.reject_code {
+            Self::HttpGatewayError(http_gateway_error) => match http_gateway_error {
+                HttpGatewayError::AgentError(agent_error) => {
+                    match agent_error.as_ref() {
+                        AgentError::CertifiedReject(reject_response) | AgentError::UncertifiedReject(reject_response) => {
+                            match reject_response.reject_code {
                                 RejectCode::CanisterError => ErrorClientFacing::CanisterError(
                                     "The canister encountered an error while processing the request.<br />This issue may be due to resource limitations, configuration problems, or an internal failure.".to_string(),
                                 ),
-                                RejectCode::SysTransient if z.reject_message.contains("frozen") => ErrorClientFacing::CanisterError(
+                                RejectCode::SysTransient if reject_response.reject_message.contains("frozen") => ErrorClientFacing::CanisterError(
                                     "The canister is temporarily unable to process the request due to insufficient funds.".to_string(),
                                 ),
                                 _ => ErrorClientFacing::UpstreamError,
                             }
                         },
-                        _ => {
-                            let error_string = y.to_string();
+                        AgentError::HttpError(http_error_payload) => {
+                            let error_string = String::from_utf8_lossy(&http_error_payload.content);
                             if error_string.contains("no_healthy_nodes") {
                                 return ErrorClientFacing::SubnetUnavailable;
                             } else if error_string.contains("canister_not_found") {
                                 return ErrorClientFacing::CanisterIdNotFound;
                             }
+                            ErrorClientFacing::UpstreamError
+                        },
+                        _ => {
                             ErrorClientFacing::UpstreamError
                         }
                     }
