@@ -7,6 +7,7 @@ use http::{header::CONTENT_TYPE, StatusCode};
 use ic_agent::AgentError;
 use ic_bn_lib::http::{headers::CONTENT_TYPE_HTML, Error as IcBnError};
 use ic_http_gateway::HttpGatewayError;
+use ic_transport_types::RejectCode;
 use strum::{Display, IntoStaticStr};
 use tokio::task_local;
 
@@ -129,13 +130,26 @@ impl ErrorCause {
             Self::RateLimited(_) => ErrorClientFacing::RateLimited,
             Self::HttpGatewayError(x) => match x {
                 HttpGatewayError::AgentError(y) => {
-                    let error_string = y.to_string();
-                    if error_string.contains("no_healthy_nodes") {
-                        return ErrorClientFacing::SubnetUnavailable;
-                    } else if error_string.contains("canister_not_found") {
-                        return ErrorClientFacing::CanisterIdNotFound;
+                    match y.as_ref() {
+                        AgentError::CertifiedReject(z) | AgentError::UncertifiedReject(z) => {
+                            if z.reject_code == RejectCode::CanisterError {
+                                return ErrorClientFacing::CanisterError("The canister encountered an error while processing the request.<br />This issue may be due to resource limitations, configuration problems, or an internal failure.".to_string())
+                            }
+                            else if z.reject_code == RejectCode::SysTransient && z.reject_message.contains("frozen") {
+                                return ErrorClientFacing::CanisterError("The canister is temporarily unable to process the request due to insufficient funds.".to_string())
+                            };
+                            ErrorClientFacing::UpstreamError
+                        },
+                        _ => {
+                            let error_string = y.to_string();
+                            if error_string.contains("no_healthy_nodes") {
+                                return ErrorClientFacing::SubnetUnavailable;
+                            } else if error_string.contains("canister_not_found") {
+                                return ErrorClientFacing::CanisterIdNotFound;
+                            }
+                            ErrorClientFacing::UpstreamError
+                        }
                     }
-                    ErrorClientFacing::UpstreamError
                 }
                 HttpGatewayError::HttpError(y) => {
                     if y.contains("no_healthy_nodes") {
@@ -144,6 +158,9 @@ impl ErrorCause {
                         return ErrorClientFacing::CanisterIdNotFound;
                     }
                     ErrorClientFacing::UpstreamError
+                }
+                HttpGatewayError::ResponseVerificationError(_) => {
+                    ErrorClientFacing::CanisterError("The response from the canister failed verification and cannot be trusted.<br />If you understand the risks, you can retry using the raw domain to bypass certification.".to_string())
                 }
                 _ => ErrorClientFacing::UpstreamError,
             },
@@ -222,6 +239,7 @@ impl From<anyhow::Error> for ErrorCause {
 pub enum ErrorClientFacing {
     BodyTimedOut,
     CanisterIdNotFound,
+    CanisterError(String),
     Denylisted,
     DomainCanisterMismatch,
     IncorrectPrincipal,
@@ -241,6 +259,7 @@ impl ErrorClientFacing {
     pub const fn status_code(&self) -> StatusCode {
         match self {
             Self::BodyTimedOut => StatusCode::REQUEST_TIMEOUT,
+            Self::CanisterError(_) => StatusCode::BAD_GATEWAY,
             Self::CanisterIdNotFound => StatusCode::BAD_REQUEST,
             Self::Denylisted => StatusCode::UNAVAILABLE_FOR_LEGAL_REASONS,
             Self::DomainCanisterMismatch => StatusCode::BAD_REQUEST,
@@ -260,6 +279,7 @@ impl ErrorClientFacing {
     pub fn details(&self) -> String {
         match self {
             Self::BodyTimedOut => "Reading the request body timed out due to data arriving too slowly.".to_string(),
+            Self::CanisterError(x) => x.to_string(),
             Self::CanisterIdNotFound => "The canister ID could not be resolved from the provided authority.".to_string(),
             Self::Denylisted => "Access to this resource is denied due to a violation of the code of conduct.".to_string(),
             Self::DomainCanisterMismatch => "Access to the canister is forbidden through the current gateway domain. Try accessing it through an allowed gateway domain.".to_string(),

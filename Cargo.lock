@@ -2571,6 +2571,7 @@ dependencies = [
  "ic-agent",
  "ic-bn-lib",
  "ic-http-gateway",
+ "ic-transport-types",
  "itertools 0.13.0",
  "lazy_static",
  "maxminddb",
@@ -2678,9 +2679,9 @@ dependencies = [
 
 [[package]]
 name = "ic-transport-types"
-version = "0.39.2"
+version = "0.39.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "21e2418868dd5857d2a5bac3f1cb6de1aecf2316d380997ef842aec3d8a79d4e"
+checksum = "979ee7bee5a67150a4c090fb012c93c294a528b4a867bad9a15cc6d01cb4227f"
 dependencies = [
  "candid",
  "hex",

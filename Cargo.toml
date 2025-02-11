@@ -50,6 +50,7 @@ ic-agent = { version = "0.39.1", features = [
 ] }
 ic-bn-lib = { git = "https://github.com/dfinity/ic-bn-lib", rev = "1e733b13ad9458a792012e7824d458570569cb6e" }
 ic-http-gateway = { git = "https://github.com/dfinity/http-gateway", tag = "0.1.0-b3" }
+ic-transport-types = "0.39.3"
 itertools = "0.13.0"
 lazy_static = "1.5.0"
 maxminddb = "0.24.0"
