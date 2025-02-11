@@ -132,13 +132,15 @@ impl ErrorCause {
                 HttpGatewayError::AgentError(y) => {
                     match y.as_ref() {
                         AgentError::CertifiedReject(z) | AgentError::UncertifiedReject(z) => {
-                            if z.reject_code == RejectCode::CanisterError {
-                                return ErrorClientFacing::CanisterError("The canister encountered an error while processing the request.<br />This issue may be due to resource limitations, configuration problems, or an internal failure.".to_string())
+                            match z.reject_code {
+                                RejectCode::CanisterError => ErrorClientFacing::CanisterError(
+                                    "The canister encountered an error while processing the request.<br />This issue may be due to resource limitations, configuration problems, or an internal failure.".to_string(),
+                                ),
+                                RejectCode::SysTransient if z.reject_message.contains("frozen") => ErrorClientFacing::CanisterError(
+                                    "The canister is temporarily unable to process the request due to insufficient funds.".to_string(),
+                                ),
+                                _ => ErrorClientFacing::UpstreamError,
                             }
-                            else if z.reject_code == RejectCode::SysTransient && z.reject_message.contains("frozen") {
-                                return ErrorClientFacing::CanisterError("The canister is temporarily unable to process the request due to insufficient funds.".to_string())
-                            };
-                            ErrorClientFacing::UpstreamError
                         },
                         _ => {
                             let error_string = y.to_string();
@@ -150,14 +152,6 @@ impl ErrorCause {
                             ErrorClientFacing::UpstreamError
                         }
                     }
-                }
-                HttpGatewayError::HttpError(y) => {
-                    if y.contains("no_healthy_nodes") {
-                        return ErrorClientFacing::SubnetUnavailable;
-                    } else if y.contains("canister_not_found") {
-                        return ErrorClientFacing::CanisterIdNotFound;
-                    }
-                    ErrorClientFacing::UpstreamError
                 }
                 HttpGatewayError::ResponseVerificationError(_) => {
                     ErrorClientFacing::CanisterError("The response from the canister failed verification and cannot be trusted.<br />If you understand the risks, you can retry using the raw domain to bypass certification.".to_string())
@@ -290,7 +284,7 @@ impl ErrorClientFacing {
             Self::Other => "Internal Server Error".to_string(),
             Self::PayloadTooLarge => "The payload is too large.".to_string(),
             Self::RateLimited => "Rate limit exceeded. Please slow down requests and try again later.".to_string(),
-            Self::SubnetUnavailable => "The subnet is temporarily unavailable. This may be due to an ongoing upgrade of the replica software. Please try again later.".to_string(),
+            Self::SubnetUnavailable => "The subnet is temporarily unavailable due to maintenance or an ongoing upgrade. Please try again later.".to_string(),
             Self::UnknownDomain => "The requested domain is not served by this HTTP gateway.".to_string(),
             Self::UpstreamError => "The HTTP gateway is temporarily unable to process the request. Please try again later.".to_string(),
         }
