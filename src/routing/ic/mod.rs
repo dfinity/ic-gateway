@@ -4,6 +4,7 @@
 pub mod handler;
 pub mod health_check;
 pub mod http_service;
+pub mod latency_based_routing;
 pub mod nodes_fetcher;
 pub mod route_provider;
 

@@ -4,15 +4,13 @@ use anyhow::anyhow;
 use candid::Principal;
 use ic_agent::agent::http_transport::reqwest_transport::reqwest::Client as AgentClient;
 use ic_agent::agent::route_provider::{
-    dynamic_routing::{
-        dynamic_route_provider::DynamicRouteProviderBuilder, node::Node,
-        snapshot::latency_based_routing::LatencyRoutingSnapshot,
-    },
+    dynamic_routing::{dynamic_route_provider::DynamicRouteProviderBuilder, node::Node},
     RoundRobinRouteProvider, RouteProvider,
 };
 use tracing::info;
 use url::Url;
 
+use crate::routing::ic::latency_based_routing::LatencyRoutingSnapshot;
 use crate::routing::ic::{
     health_check::{HealthChecker, CHECK_TIMEOUT},
     nodes_fetcher::{NodesFetcher, MAINNET_ROOT_SUBNET_ID},
@@ -39,7 +37,7 @@ pub async fn setup_route_provider(
         }
 
         let route_provider = {
-            let snapshot = LatencyRoutingSnapshot::new();
+            let snapshot = LatencyRoutingSnapshot::new().set_k_top_nodes(4);
             // This temporary client is only needed for the instantiation. It is later overridden by the checker/fetcher accepting the reqwest_client.
             let tmp_client = AgentClient::builder()
                 .build()
