@@ -20,6 +20,7 @@ use candid::Principal;
 use domain::{CustomDomainStorage, DomainResolver, ProvidesCustomDomains};
 use fqdn::FQDN;
 use http::{method::Method, uri::PathAndQuery, StatusCode, Uri};
+use ic::route_provider::ApiBoundaryNodesStats;
 use ic_bn_lib::{
     http::{
         cache::{Cache, KeyExtractorUriRange, Opts},
@@ -313,6 +314,12 @@ pub async fn setup_router(
     let route_provider =
         setup_route_provider(&cli.ic.ic_url, cli.ic.ic_use_discovery, reqwest_client).await?;
     let client = ic::setup(cli, http_client.clone(), route_provider.clone())?;
+
+    tasks.add_interval(
+        "api_boundary_nodes_stats",
+        Arc::new(ApiBoundaryNodesStats::new(route_provider.clone(), registry)),
+        cli.misc.api_boundary_nodes_stats_refresh_interval,
+    );
 
     // Prepare the states
     let state_handler = Arc::new(handler::HandlerState::new(
