@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::anyhow;
+use axum::async_trait;
 use candid::Principal;
 use ic_agent::agent::http_transport::reqwest_transport::reqwest::Client as AgentClient;
 use ic_agent::agent::route_provider::{
@@ -10,7 +11,10 @@ use ic_agent::agent::route_provider::{
     },
     RoundRobinRouteProvider, RouteProvider,
 };
-use tracing::info;
+use ic_bn_lib::tasks::Run;
+use prometheus::{register_int_gauge_with_registry, IntGauge, Registry};
+use tokio_util::sync::CancellationToken;
+use tracing::{info, warn};
 use url::Url;
 
 use crate::routing::ic::{
@@ -64,4 +68,56 @@ pub async fn setup_route_provider(
     };
 
     Ok(route_provider)
+}
+
+struct ApiBoundaryNodesMetrics {
+    total_nodes: IntGauge,
+    healthy_nodes: IntGauge,
+}
+
+pub struct ApiBoundaryNodesStats {
+    _route_provider: Arc<dyn RouteProvider>,
+    metrics: ApiBoundaryNodesMetrics,
+}
+
+impl ApiBoundaryNodesMetrics {
+    fn new(registry: &Registry) -> Self {
+        Self {
+            total_nodes: register_int_gauge_with_registry!(
+                format!("total_api_boundary_nodes"),
+                format!(
+                    "Total number of existing API boundary nodes (both healthy and unhealthy)."
+                ),
+                registry
+            )
+            .unwrap(),
+
+            healthy_nodes: register_int_gauge_with_registry!(
+                format!("healthy_api_boundary_nodes"),
+                format!("Number of currently healthy API boundary nodes"),
+                registry,
+            )
+            .unwrap(),
+        }
+    }
+}
+
+impl ApiBoundaryNodesStats {
+    pub fn new(route_provider: Arc<dyn RouteProvider>, registry: &Registry) -> Self {
+        Self {
+            _route_provider: route_provider,
+            metrics: ApiBoundaryNodesMetrics::new(registry),
+        }
+    }
+}
+
+#[async_trait]
+impl Run for ApiBoundaryNodesStats {
+    async fn run(&self, _: CancellationToken) -> Result<(), anyhow::Error> {
+        self.metrics.total_nodes.set(1_i64);
+        self.metrics.healthy_nodes.set(1_i64);
+        // TODO: remove this line
+        warn!("Running the ApiBoundaryNodesStats");
+        Ok(())
+    }
 }
