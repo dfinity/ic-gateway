@@ -4,8 +4,8 @@ use std::time::Duration;
 
 use http::{
     header::{
-        ACCEPT_RANGES, CACHE_CONTROL, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, COOKIE, DNT,
-        IF_MODIFIED_SINCE, IF_NONE_MATCH, RANGE, USER_AGENT,
+        HeaderName, ACCEPT_RANGES, CACHE_CONTROL, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE,
+        COOKIE, DNT, IF_MODIFIED_SINCE, IF_NONE_MATCH, RANGE, USER_AGENT,
     },
     Method,
 };
@@ -13,6 +13,9 @@ use ic_bn_lib::http::headers::{X_IC_CANISTER_ID, X_REQUESTED_WITH, X_REQUEST_ID}
 use tower_http::cors::{Any, CorsLayer};
 
 const MINUTE: Duration = Duration::from_secs(60);
+
+const X_OC_JWT: HeaderName = HeaderName::from_static("x-oc-jwt");
+const X_OC_API_KEY: HeaderName = HeaderName::from_static("x-oc-api-key");
 
 /*
 add_header "Access-Control-Allow-Origin" "*" always;
@@ -44,6 +47,34 @@ pub fn layer(methods: &[Method]) -> CorsLayer {
             COOKIE,
             X_REQUESTED_WITH,
             X_IC_CANISTER_ID,
+        ])
+        .max_age(10 * MINUTE)
+}
+
+pub fn http_gw_layer(methods: &[Method]) -> CorsLayer {
+    CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(methods.to_vec())
+        .expose_headers([
+            ACCEPT_RANGES,
+            CONTENT_LENGTH,
+            CONTENT_RANGE,
+            X_REQUEST_ID,
+            X_IC_CANISTER_ID,
+        ])
+        .allow_headers([
+            USER_AGENT,
+            DNT,
+            IF_NONE_MATCH,
+            IF_MODIFIED_SINCE,
+            CACHE_CONTROL,
+            CONTENT_TYPE,
+            RANGE,
+            COOKIE,
+            X_REQUESTED_WITH,
+            X_IC_CANISTER_ID,
+            X_OC_JWT,
+            X_OC_API_KEY,
         ])
         .max_age(10 * MINUTE)
 }
