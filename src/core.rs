@@ -11,7 +11,7 @@ use tracing::warn;
 use crate::{
     cli::Cli,
     metrics,
-    routing::{self, domain::ProvidesCustomDomains},
+    routing::{self, domain::ProvidesCustomDomains, ic::route_provider::setup_route_provider},
     tls,
 };
 
@@ -125,18 +125,20 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         )) as Arc<dyn ProvidesCustomDomains>
     }));
 
+    let route_provider =
+        setup_route_provider(&cli.ic.ic_url, cli.ic.ic_use_discovery, reqwest_client).await?;
+
     // Create gateway router to serve all endpoints
     let gateway_router = routing::setup_router(
         cli,
         custom_domain_providers,
         &mut tasks,
         http_client.clone(),
-        reqwest_client,
+        route_provider,
         &registry,
         clickhouse.clone(),
         vector.clone(),
-    )
-    .await?;
+    )?;
 
     // Set up HTTP router (redirecting to HTTPS or serving all endpoints)
     let http_router = if !cli.listen.listen_insecure_serve_http_only {
