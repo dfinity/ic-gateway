@@ -33,7 +33,7 @@ fqdn = { version = "0.4.1", features = ["serde"] }
 futures = "0.3.31"
 futures-util = "0.3.31"
 governor = "0.6.0" # must match tower-governor deps
-hickory-resolver = { version = "0.24.3", features = [
+hickory-resolver = { version = "0.24.1", features = [
     "dns-over-https-rustls",
     "webpki-roots",
     "dnssec-ring",
