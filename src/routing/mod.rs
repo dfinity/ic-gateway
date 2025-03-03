@@ -163,7 +163,8 @@ pub async fn redirect_to_https(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub async fn setup_router(
+#[allow(clippy::cognitive_complexity)]
+pub fn setup_router(
     cli: &Cli,
     custom_domain_providers: Vec<Arc<dyn ProvidesCustomDomains>>,
     tasks: &mut TaskManager,
@@ -544,8 +545,8 @@ mod test {
         );
     }
 
-    #[tokio::test]
-    async fn test_setup_router() {
+    #[test]
+    fn test_setup_router() {
         let args = vec!["", "--domain", "ic0.app"];
         let cli = Cli::parse_from(args);
 
@@ -576,7 +577,6 @@ mod test {
             None,
             None,
         )
-        .await
         .unwrap();
     }
 }

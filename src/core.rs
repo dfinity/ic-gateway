@@ -138,8 +138,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         &registry,
         clickhouse.clone(),
         vector.clone(),
-    )
-    .await?;
+    )?;
 
     // Set up HTTP router (redirecting to HTTPS or serving all endpoints)
     let http_router = if !cli.listen.listen_insecure_serve_http_only {
