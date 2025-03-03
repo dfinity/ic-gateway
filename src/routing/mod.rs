@@ -20,6 +20,7 @@ use candid::Principal;
 use domain::{CustomDomainStorage, DomainResolver, ProvidesCustomDomains};
 use fqdn::FQDN;
 use http::{method::Method, uri::PathAndQuery, StatusCode, Uri};
+use ic_agent::agent::route_provider::RouteProvider;
 use ic_bn_lib::{
     http::{
         cache::{Cache, KeyExtractorUriRange, Opts},
@@ -37,7 +38,7 @@ use middleware::cache;
 use prometheus::Registry;
 use strum::{Display, IntoStaticStr};
 use tower::{limit::ConcurrencyLimitLayer, util::MapResponseLayer, ServiceBuilder, ServiceExt};
-use tracing::warn;
+use tracing::{debug, warn};
 
 use crate::{
     cli::Cli,
@@ -52,7 +53,7 @@ use self::middleware::denylist;
 use {
     domain::{Domain, ResolvesDomain},
     error_cause::ErrorCause,
-    ic::{handler, route_provider::setup_route_provider},
+    ic::handler,
 };
 
 #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
@@ -167,7 +168,7 @@ pub async fn setup_router(
     custom_domain_providers: Vec<Arc<dyn ProvidesCustomDomains>>,
     tasks: &mut TaskManager,
     http_client: Arc<dyn Client>,
-    reqwest_client: reqwest::Client,
+    route_provider: Arc<dyn RouteProvider>,
     registry: &Registry,
     clickhouse: Option<Arc<Clickhouse>>,
     vector: Option<Arc<Vector>>,
@@ -225,7 +226,7 @@ pub async fn setup_router(
 
             Some(from_fn_with_state(state, denylist::middleware))
         } else {
-            warn!("Running without denylist: neither a seed nor a URL has been specified.");
+            debug!("Running without denylist: neither a seed nor a URL has been specified.");
             None
         };
 
@@ -237,7 +238,7 @@ pub async fn setup_router(
             canister_match::middleware,
         ))
     } else {
-        warn!("Running without domain-canister matching.");
+        debug!("Running without domain-canister matching.");
         None
     };
 
@@ -310,8 +311,6 @@ pub async fn setup_router(
         });
 
     // Prepare the HTTP->IC library
-    let route_provider =
-        setup_route_provider(&cli.ic.ic_url, cli.ic.ic_use_discovery, reqwest_client).await?;
     let client = ic::setup(cli, http_client.clone(), route_provider.clone())?;
 
     // Prepare the states
@@ -498,6 +497,9 @@ pub async fn setup_router(
 #[cfg(test)]
 mod test {
     use super::*;
+    use clap::Parser;
+    use ic_agent::agent::route_provider::RoundRobinRouteProvider;
+    use ic_bn_lib::tls::prepare_client_config;
     use std::str::FromStr;
 
     #[test]
@@ -540,5 +542,41 @@ mod test {
             RequestType::Api(RequestTypeApi::ReadStateSubnet),
             RequestType::from_str("read_state_subnet").unwrap()
         );
+    }
+
+    #[tokio::test]
+    async fn test_setup_router() {
+        let args = vec!["", "--domain", "ic0.app"];
+        let cli = Cli::parse_from(args);
+
+        rustls::crypto::aws_lc_rs::default_provider()
+            .install_default()
+            .unwrap();
+
+        let mut http_client_opts: ic_bn_lib::http::client::Options<ic_bn_lib::http::dns::Resolver> =
+            (&cli.http_client).into();
+        http_client_opts.tls_config = Some(prepare_client_config(&[
+            &rustls::version::TLS13,
+            &rustls::version::TLS12,
+        ]));
+        let http_client =
+            Arc::new(ic_bn_lib::http::ReqwestClient::new(http_client_opts.clone()).unwrap());
+
+        let route_provider = RoundRobinRouteProvider::new(vec!["https://icp-api.io"]).unwrap();
+
+        let mut tasks = TaskManager::new();
+
+        let _ = setup_router(
+            &cli,
+            vec![],
+            &mut tasks,
+            http_client,
+            Arc::new(route_provider),
+            &Registry::new(),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
     }
 }
