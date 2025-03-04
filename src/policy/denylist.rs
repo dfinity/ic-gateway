@@ -82,7 +82,7 @@ impl Denylist {
 
         // If there's no country code info -> then we don't block by default
         // TODO discuss
-        country_code.map_or(false, |code| entry.iter().any(|x| *x == code.0))
+        country_code.is_some_and(|code| entry.iter().any(|x| *x == code.0))
     }
 
     pub async fn update(&self) -> Result<usize, Error> {

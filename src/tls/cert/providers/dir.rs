@@ -38,7 +38,7 @@ impl ProvidesCertificates for Provider {
             if !v
                 .path()
                 .extension()
-                .map_or(false, |x| x.eq_ignore_ascii_case("pem"))
+                .is_some_and(|x| x.eq_ignore_ascii_case("pem"))
             {
                 continue;
             }

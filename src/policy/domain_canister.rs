@@ -29,8 +29,7 @@ pub const SYSTEM_SUBNETS: [(Principal, Principal); 5] = [
 pub fn is_system_subnet(canister_id: Principal) -> bool {
     SYSTEM_SUBNETS
         .iter()
-        .map(|x| canister_id >= x.0 && canister_id <= x.1)
-        .any(|x| x)
+        .any(|x| canister_id >= x.0 && canister_id <= x.1)
 }
 
 // Things needed to verify domain-canister match
