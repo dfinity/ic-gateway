@@ -24,7 +24,8 @@ clickhouse = { version = "0.13.1", features = [
     "uuid",
     "time",
     "inserter",
-    "rustls-tls",
+    "rustls-tls-ring",
+    "rustls-tls-webpki-roots",
 ] }
 console-subscriber = { version = "0.4.1", optional = true }
 ctrlc = { version = "3.4.5", features = ["termination"] }
@@ -69,7 +70,11 @@ reqwest = { version = "0.12.9", default-features = false, features = [
     "json",
     "stream",
 ] }
-rustls = { version = "0.23.18", features = ["brotli"] }
+rustls = { version = "0.23.18", default-features = false, features = [
+    "ring",
+    "std",
+    "brotli",
+] }
 rustls-platform-verifier = "0.4.0"
 serde = "1.0.214"
 serde_cbor = "0.11.2"

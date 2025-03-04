@@ -550,7 +550,7 @@ mod test {
         let args = vec!["", "--domain", "ic0.app"];
         let cli = Cli::parse_from(args);
 
-        rustls::crypto::aws_lc_rs::default_provider()
+        rustls::crypto::ring::default_provider()
             .install_default()
             .unwrap();
 
