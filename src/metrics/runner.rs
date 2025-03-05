@@ -2,7 +2,8 @@ use std::{sync::Arc, time::Instant};
 
 use anyhow::Error;
 use arc_swap::ArcSwap;
-use axum::{async_trait, extract::State, response::IntoResponse};
+use async_trait::async_trait;
+use axum::{extract::State, response::IntoResponse};
 use bytes::{BufMut, Bytes, BytesMut};
 use http::header::CONTENT_TYPE;
 use ic_bn_lib::tasks::Run;

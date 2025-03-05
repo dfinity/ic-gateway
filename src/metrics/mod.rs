@@ -158,11 +158,12 @@ impl HttpMetrics {
 pub async fn middleware(
     State(state): State<Arc<HttpMetrics>>,
     Extension(conn_info): Extension<Arc<ConnInfo>>,
-    tls_info: Option<Extension<Arc<TlsInfo>>>,
     Extension(request_id): Extension<RequestId>,
     request: Request,
     next: Next,
 ) -> impl IntoResponse {
+    let tls_info = request.extensions().get::<Arc<TlsInfo>>().cloned();
+
     // Prepare to execute the request and count its body size
     let (parts, body) = request.into_parts();
     let (body, rx) = CountingBody::new(body);

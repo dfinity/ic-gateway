@@ -31,16 +31,18 @@ pub struct HandlerState {
 }
 
 // Main HTTP->IC request handler
+//#[axum::debug_handler]
 pub async fn handler(
     State(state): State<Arc<HandlerState>>,
-    canister_id: Option<Extension<CanisterId>>,
     Extension(conn_info): Extension<Arc<ConnInfo>>,
     Extension(request_id): Extension<RequestId>,
     Extension(ctx): Extension<Arc<RequestCtx>>,
     request: Request,
 ) -> Result<Response, ErrorCause> {
-    let canister_id = canister_id
-        .map(|x| (x.0).0)
+    let canister_id = request
+        .extensions()
+        .get::<CanisterId>()
+        .map(|x| x.0)
         .ok_or(ErrorCause::CanisterIdNotFound)?;
 
     let (parts, body) = request.into_parts();

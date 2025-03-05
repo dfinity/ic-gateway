@@ -3,7 +3,7 @@ use std::{path::PathBuf, sync::Arc};
 use anyhow::{Context, Error};
 use async_trait::async_trait;
 use axum::{
-    extract::{Extension, Request, State},
+    extract::{Request, State},
     middleware::Next,
     response::Response,
 };
@@ -81,14 +81,15 @@ impl Run for DenylistState {
 
 pub async fn middleware(
     State(state): State<DenylistState>,
-    country_code: Option<Extension<CountryCode>>,
-    canister_id: Option<Extension<CanisterId>>,
     request: Request,
     next: Next,
 ) -> Result<Response, ErrorCause> {
+    let country_code = request.extensions().get::<CountryCode>().cloned();
+    let canister_id = request.extensions().get::<CanisterId>().copied();
+
     // Check denylisting if configured
     if let Some(v) = canister_id {
-        if state.0.is_blocked(v.0.into(), country_code.map(|x| x.0)) {
+        if state.0.is_blocked(v.0, country_code) {
             return Err(ErrorCause::Denylisted);
         }
     }
