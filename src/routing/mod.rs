@@ -9,13 +9,13 @@ use std::{str::FromStr, sync::Arc, time::Duration};
 
 use anyhow::{Context, Error};
 use axum::{
-    extract::{Host, MatchedPath, OriginalUri, Request},
+    extract::{MatchedPath, OriginalUri, Request},
     middleware::{from_fn, from_fn_with_state, FromFnLayer},
     response::{IntoResponse, Redirect},
     routing::{get, post},
     Extension, Router,
 };
-use axum_extra::middleware::option_layer;
+use axum_extra::{extract::Host, middleware::option_layer};
 use candid::Principal;
 use domain::{CustomDomainStorage, DomainResolver, ProvidesCustomDomains};
 use fqdn::FQDN;
@@ -102,14 +102,14 @@ impl From<Option<&MatchedPath>> for RequestType {
         };
 
         match path.as_str() {
-            "/api/v2/canister/:principal/query" => Self::Api(RequestTypeApi::Query),
-            "/api/v2/canister/:principal/call" => Self::Api(RequestTypeApi::Call),
-            "/api/v3/canister/:principal/call" => Self::Api(RequestTypeApi::SyncCall),
-            "/api/v2/canister/:principal/read_state" => Self::Api(RequestTypeApi::ReadState),
-            "/api/v2/subnet/:principal/read_state" => Self::Api(RequestTypeApi::ReadStateSubnet),
+            "/api/v2/canister/{principal}/query" => Self::Api(RequestTypeApi::Query),
+            "/api/v2/canister/{principal}/call" => Self::Api(RequestTypeApi::Call),
+            "/api/v3/canister/{principal}/call" => Self::Api(RequestTypeApi::SyncCall),
+            "/api/v2/canister/{principal}/read_state" => Self::Api(RequestTypeApi::ReadState),
+            "/api/v2/subnet/{principal}/read_state" => Self::Api(RequestTypeApi::ReadStateSubnet),
             "/api/v2/status" => Self::Api(RequestTypeApi::Status),
             "/health" => Self::Health,
-            "/registrations" | "/registrations/:id" => Self::Registrations,
+            "/registrations" | "/registrations/{id}" => Self::Registrations,
             _ => Self::Unknown,
         }
     }
@@ -244,15 +244,13 @@ pub fn setup_router(
     };
 
     // Metrics
-    let metrics_mw = from_fn_with_state(
-        Arc::new(metrics::HttpMetrics::new(
-            registry,
-            cli.log.log_requests,
-            clickhouse,
-            vector,
-        )),
-        metrics::middleware,
-    );
+    let metrics_state = Arc::new(metrics::HttpMetrics::new(
+        registry,
+        cli.log.log_requests,
+        clickhouse,
+        vector,
+    ));
+    let metrics_mw = from_fn_with_state(metrics_state, metrics::middleware);
 
     // Concurrency
     let concurrency_limit_mw = option_layer(
@@ -333,19 +331,19 @@ pub fn setup_router(
     // IC API proxy routers
     let router_api_v2 = Router::new()
         .route(
-            "/canister/:principal/query",
+            "/canister/{principal}/query",
             post(proxy::api_proxy).layer(cors_post.clone()),
         )
         .route(
-            "/canister/:principal/call",
+            "/canister/{principal}/call",
             post(proxy::api_proxy).layer(cors_post.clone()),
         )
         .route(
-            "/canister/:principal/read_state",
+            "/canister/{principal}/read_state",
             post(proxy::api_proxy).layer(cors_post.clone()),
         )
         .route(
-            "/subnet/:principal/read_state",
+            "/subnet/{principal}/read_state",
             post(proxy::api_proxy).layer(cors_post.clone()),
         )
         .route("/status", get(proxy::api_proxy).layer(cors_get.clone()))
@@ -354,7 +352,7 @@ pub fn setup_router(
 
     let router_api_v3 = Router::new()
         .route(
-            "/canister/:principal/call",
+            "/canister/{principal}/call",
             post(proxy::api_proxy).layer(cors_post.clone()),
         )
         .fallback(|| async { (StatusCode::NOT_FOUND, "") })
@@ -421,7 +419,7 @@ pub fn setup_router(
 
         let router = Router::new()
             .route(
-                "/registrations/:id",
+                "/registrations/{id}",
                 get(proxy::issuer_proxy)
                     .put(proxy::issuer_proxy)
                     .delete(proxy::issuer_proxy)
