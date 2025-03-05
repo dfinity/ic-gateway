@@ -226,6 +226,11 @@ pub struct Domain {
     /// Timeout for the outgoing HTTP calls made to fetch custom domains
     #[clap(env, long, default_value = "30s", value_parser = parse_duration)]
     pub domain_custom_provider_timeout: Duration,
+
+    /// Whether to try to resolve canister id from URI's query params.
+    /// If canister id is present both in hostname and query params - then the hostname takes precedence.
+    #[clap(env, long)]
+    pub domain_canister_id_from_query_params: bool,
 }
 
 #[derive(Args)]
