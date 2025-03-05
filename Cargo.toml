@@ -49,8 +49,7 @@ ic-agent = { version = "0.39.3", features = [
     "ring",
     "_internal_dynamic-routing",
 ] }
-#ic-bn-lib = { git = "https://github.com/dfinity/ic-bn-lib", rev = "530f8e8ea577740213aff4b6dfa7a49cc32bae4a" }
-ic-bn-lib = { path = "../ic-bn-lib" }
+ic-bn-lib = { git = "https://github.com/dfinity/ic-bn-lib", rev = "686cff6ccd422716d48767a299ab33044a27d4ad" }
 ic-http-gateway = "0.2.0"
 ic-transport-types = "0.39.3"
 itertools = "0.13.0"
@@ -86,7 +85,7 @@ time = { version = "0.3.36", features = ["macros", "serde"] }
 tokio = { version = "1.42.0", features = ["full", "tracing"] }
 tokio-util = { version = "0.7.12", features = ["full"] }
 tower = { version = "0.5.1", features = ["limit"] }
-#tower_governor = "0.4.3"
+# axum 0.8 support not yet released, use git
 tower_governor = { git = "https://github.com/benwis/tower-governor", rev = "bc9a6eacafcaec1e732886ceae8ae324bbd327df" }
 tower-http = { version = "0.6.1", features = ["cors", "compression-full"] }
 tower-service = "0.3.3"
