@@ -47,6 +47,7 @@ pub enum ErrorCause {
     NoAuthority,
     UnknownDomain,
     CanisterIdNotFound,
+    CanisterIdIncorrect(String),
     DomainCanisterMismatch,
     Denylisted,
     AgentError(String),
@@ -115,6 +116,7 @@ impl ErrorCause {
             Self::MalformedRequest(x) => ErrorClientFacing::MalformedRequest(x.clone()),
             Self::UnknownDomain => ErrorClientFacing::UnknownDomain,
             Self::CanisterIdNotFound => ErrorClientFacing::CanisterIdNotFound,
+            Self::CanisterIdIncorrect(x) => ErrorClientFacing::CanisterIdIncorrect(x.clone()),
             Self::DomainCanisterMismatch => ErrorClientFacing::DomainCanisterMismatch,
             Self::Denylisted => ErrorClientFacing::Denylisted,
             Self::NoAuthority => ErrorClientFacing::NoAuthority,
@@ -236,6 +238,7 @@ impl From<anyhow::Error> for ErrorCause {
 pub enum ErrorClientFacing {
     BodyTimedOut,
     CanisterIdNotFound,
+    CanisterIdIncorrect(String),
     CanisterError(String),
     Denylisted,
     DomainCanisterMismatch,
@@ -257,6 +260,7 @@ impl ErrorClientFacing {
         match self {
             Self::BodyTimedOut => StatusCode::REQUEST_TIMEOUT,
             Self::CanisterError(_) => StatusCode::BAD_GATEWAY,
+            Self::CanisterIdIncorrect(_) => StatusCode::BAD_REQUEST,
             Self::CanisterIdNotFound => StatusCode::BAD_REQUEST,
             Self::Denylisted => StatusCode::UNAVAILABLE_FOR_LEGAL_REASONS,
             Self::DomainCanisterMismatch => StatusCode::BAD_REQUEST,
@@ -277,6 +281,7 @@ impl ErrorClientFacing {
         match self {
             Self::BodyTimedOut => "Reading the request body timed out due to data arriving too slowly.".to_string(),
             Self::CanisterError(x) => x.to_string(),
+            Self::CanisterIdIncorrect(x) => format!("The canister ID is incorrect: {x}"),
             Self::CanisterIdNotFound => "The canister ID could not be resolved from the provided authority.".to_string(),
             Self::Denylisted => "Access to this resource is denied due to a violation of the code of conduct.".to_string(),
             Self::DomainCanisterMismatch => "Access to the canister is forbidden through the current gateway domain. Try accessing it through an allowed gateway domain.".to_string(),

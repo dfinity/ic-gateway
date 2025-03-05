@@ -34,7 +34,7 @@ use ic_bn_lib::{
     tasks::TaskManager,
     types::RequestType as RequestTypeApi,
 };
-use middleware::cache;
+use middleware::{cache, validate::ValidateState};
 use prometheus::Registry;
 use strum::{Display, IntoStaticStr};
 use tower::{limit::ConcurrencyLimitLayer, util::MapResponseLayer, ServiceBuilder, ServiceExt};
@@ -440,6 +440,11 @@ pub fn setup_router(
         None
     };
 
+    let validate_state = ValidateState {
+        resolver: domain_resolver,
+        canister_id_from_query_params: cli.domain.domain_canister_id_from_query_params,
+    };
+
     // Common layers for all routes
     let common_layers = ServiceBuilder::new()
         .layer(from_fn(request_id::middleware))
@@ -447,7 +452,7 @@ pub fn setup_router(
         .layer(from_fn(request_type::middleware))
         .layer(metrics_mw)
         .layer(load_shedder_system_mw)
-        .layer(from_fn_with_state(domain_resolver, validate::middleware))
+        .layer(from_fn_with_state(validate_state, validate::middleware))
         .layer(concurrency_limit_mw)
         .layer(geoip_mw)
         .layer(load_shedder_latency_mw);
