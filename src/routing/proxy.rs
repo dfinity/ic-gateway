@@ -25,6 +25,24 @@ lazy_static::lazy_static! {
     pub static ref REGEX_REG_ID: Regex = Regex::new(r"^[a-zA-Z0-9]+$").unwrap();
 }
 
+fn url_join(mut base: Url, mut path: &str) -> Result<Url, url::ParseError> {
+    // Add trailing slash to the base URL if it's not there
+    if !base.as_str().ends_with('/') {
+        base.path_segments_mut()
+            .map_err(|_| url::ParseError::SetHostOnCannotBeABaseUrl)?
+            .push("/");
+    }
+
+    // Strip the leading slash from the path if it's there
+    if path.starts_with('/') {
+        let mut chars = path.chars();
+        chars.next();
+        path = chars.as_str();
+    }
+
+    base.join(path)
+}
+
 #[derive(new)]
 pub struct ApiProxyState {
     http_client: Arc<dyn Client>,
@@ -51,8 +69,7 @@ pub async fn api_proxy(
         .map_err(|e| ErrorCause::Other(format!("Unable to obtain route: {e:#}")))?;
 
     // Append the query URL to the IC url
-    let url = url
-        .join(original_uri.path())
+    let url = url_join(url, original_uri.path())
         .map_err(|e| ErrorCause::MalformedRequest(format!("Incorrect URL: {e:#}")))?;
 
     // Proxy the request
@@ -120,4 +137,28 @@ pub async fn issuer_proxy(
     response.extensions_mut().insert(matched_path);
 
     Ok(response)
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_url_join() {
+        let base_url = Url::parse("http://127.0.0.1:443/foo/bar/").unwrap();
+        let url = url_join(base_url, "/api/v2/status").unwrap();
+        assert_eq!(url.as_str(), "http://127.0.0.1:443/foo/bar/api/v2/status");
+
+        let base_url = Url::parse("http://127.0.0.1:443/foo/bar").unwrap();
+        let url = url_join(base_url, "/api/v2/status").unwrap();
+        assert_eq!(url.as_str(), "http://127.0.0.1:443/foo/bar/api/v2/status");
+
+        let base_url = Url::parse("http://127.0.0.1:443/foo/bar").unwrap();
+        let url = url_join(base_url, "api/v2/status").unwrap();
+        assert_eq!(url.as_str(), "http://127.0.0.1:443/foo/bar/api/v2/status");
+
+        let base_url = Url::parse("http://127.0.0.1:443").unwrap();
+        let url = url_join(base_url, "/api/v2/status").unwrap();
+        assert_eq!(url.as_str(), "http://127.0.0.1:443/api/v2/status");
+    }
 }
