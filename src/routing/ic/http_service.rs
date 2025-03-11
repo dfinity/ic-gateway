@@ -97,7 +97,7 @@ impl HttpService for AgentHttpService {
                 }
 
                 Err(e) => {
-                    let should_retry = (e.is_connect() || !e.is_timeout()) && retries > 0;
+                    let should_retry = (e.is_connect() || e.is_timeout()) && retries > 0;
                     if should_retry {
                         return Err(AgentError::TransportError(e));
                     }
