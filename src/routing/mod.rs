@@ -322,6 +322,10 @@ pub fn setup_router(
     let state_api = Arc::new(proxy::ApiProxyState::new(
         http_client.clone(),
         route_provider,
+        cli.ic.ic_request_retries,
+        cli.ic.ic_request_retry_interval,
+        cli.ic.ic_request_max_size,
+        cli.ic.ic_request_body_timeout,
     ));
 
     // Common CORS layers
