@@ -78,7 +78,7 @@ impl HttpService for AgentHttpService {
         req: &'a (dyn Fn() -> Result<Request, AgentError> + Send + Sync),
         max_retries: usize,
     ) -> Result<Response, AgentError> {
-        let mut retry = 0;
+        let mut retries = max_retries;
         let mut interval = self.retry_interval;
 
         loop {
@@ -87,16 +87,18 @@ impl HttpService for AgentHttpService {
 
             match self.execute(request).await {
                 Ok(v) => {
-                    // Retry only on 429 for now
-                    let should_retry = v.status() == StatusCode::TOO_MANY_REQUESTS && retry < max_retries;
+                    let s = v.status();
+                    let should_retry =
+                        (s == StatusCode::TOO_MANY_REQUESTS || s.is_server_error()) && retries > 0;
+
                     if !should_retry {
                         return Ok(v);
                     }
                 }
 
                 Err(e) => {
-                    // Don't retry on any errors except connect for now
-                    if !e.is_connect() || retry >= max_retries {
+                    let should_retry = (e.is_connect() || !e.is_timeout()) && retries > 0;
+                    if should_retry {
                         return Err(AgentError::TransportError(e));
                     }
                 }
@@ -104,7 +106,7 @@ impl HttpService for AgentHttpService {
 
             // Wait & backoff
             tokio::time::sleep(interval).await;
-            retry += 1;
+            retries -= 1;
             interval *= 2;
         }
     }

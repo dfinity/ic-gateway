@@ -144,6 +144,11 @@ pub struct Ic {
     #[clap(env, long, default_value = "10MB", value_parser = parse_size_usize)]
     pub ic_request_max_size: usize,
 
+    /// Maximum time to spend waiting for the request body.
+    /// Used by the API proxy which buffers the request for later retries.
+    #[clap(env, long, default_value = "15s", value_parser = parse_duration)]
+    pub ic_request_body_timeout: Duration,
+
     /// Max response size to allow from the IC
     #[clap(env, long, default_value = "3MB", value_parser = parse_size_usize)]
     pub ic_response_max_size: usize,
