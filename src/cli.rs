@@ -146,7 +146,7 @@ pub struct Ic {
 
     /// Maximum time to spend waiting for the request body.
     /// Used by the API proxy which buffers the request for later retries.
-    #[clap(env, long, default_value = "15s", value_parser = parse_duration)]
+    #[clap(env, long, default_value = "30s", value_parser = parse_duration)]
     pub ic_request_body_timeout: Duration,
 
     /// Max response size to allow from the IC
