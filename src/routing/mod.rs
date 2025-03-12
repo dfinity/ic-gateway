@@ -5,7 +5,7 @@ pub mod ic;
 pub mod middleware;
 pub mod proxy;
 
-use std::{str::FromStr, sync::Arc, time::Duration};
+use std::{fmt, str::FromStr, sync::Arc, time::Duration};
 
 use anyhow::{Context, Error};
 use axum::{
@@ -56,12 +56,18 @@ use {
     ic::handler,
 };
 
-#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
 pub struct CanisterId(pub Principal);
 
 impl From<CanisterId> for Principal {
     fn from(value: CanisterId) -> Self {
         value.0
+    }
+}
+
+impl fmt::Display for CanisterId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 
@@ -468,6 +474,7 @@ pub fn setup_router(
         .fallback(
             |Extension(ctx): Extension<Arc<RequestCtx>>, request: Request| async move {
                 let path = request.uri().path();
+                let canister_id = request.extensions().get::<CanisterId>();
 
                 // If there are issuers defined and the request came to the base domain -> proxy to them
                 if let Some(v) = router_issuer {
@@ -483,8 +490,10 @@ pub fn setup_router(
 
                 // Redirect to the dashboard if the request is to the root of the base domain
                 // or to a bare "raw" subdomain w/o canister id.
+                // Do so only if canister id wasn't resolved.
                 if path == "/"
                     && (ctx.is_base_domain() || ctx.authority.labels().next() == Some("raw"))
+                    && canister_id.is_none()
                 {
                     return Ok(
                         Redirect::temporary("https://dashboard.internetcomputer.org/")
