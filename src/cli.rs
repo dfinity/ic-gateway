@@ -125,9 +125,15 @@ pub struct Ic {
     #[clap(env, long)]
     pub ic_use_discovery: bool,
 
-    /// Path to an IC root key. Must be DER-encoded. If not specified - hardcoded will be used.
+    /// Path to an IC root key. Must be DER-encoded. If not specified - hardcoded or fetched (see ic_root_key_fetch_unsafe) will be used.
     #[clap(env, long)]
     pub ic_root_key: Option<PathBuf>,
+
+    /// Fetches the IC root key instead of using hardcoded/provided one.
+    /// Unsafe, should be used only in test environments.
+    /// If `ic_root_key` is specified then this option is ignored.
+    #[clap(env, long)]
+    pub ic_root_key_fetch_unsafe: bool,
 
     /// Maximum number of request retries for connection failures and HTTP code 429.
     /// First attempt is not counted.

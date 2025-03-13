@@ -42,8 +42,8 @@ pub async fn handler(
     let canister_id = request
         .extensions()
         .get::<CanisterId>()
-        .map(|x| x.0)
-        .ok_or(ErrorCause::CanisterIdNotFound)?;
+        .ok_or(ErrorCause::CanisterIdNotFound)?
+        .0;
 
     let (parts, body) = request.into_parts();
 

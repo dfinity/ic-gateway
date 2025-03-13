@@ -1,8 +1,8 @@
 [package]
 name = "ic-gateway"
-version = "0.1.0"
+version = "0.2.0"
 description = "HTTP-to-IC gateway"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 ahash = "0.8.11"
@@ -12,13 +12,9 @@ async-channel = "2.3.1"
 async-trait = "0.1.83"
 axum = { version = "0.8.1", features = ["macros"] }
 axum-extra = "0.10.0"
-backoff = { version = "0.4.0", features = ["tokio"] }
-base64 = "0.22.1"
 bytes = "1.9.0"
 candid = "0.10.10"
-chrono = "0.4.38"
 clap = { version = "4.5.20", features = ["derive", "string", "env"] }
-clap_derive = "4.5.18"
 clickhouse = { version = "0.13.1", features = [
     "lz4",
     "uuid",
@@ -32,7 +28,6 @@ ctrlc = { version = "3.4.5", features = ["termination"] }
 derive-new = "0.7.0"
 fqdn = { version = "0.4.1", features = ["serde"] }
 futures = "0.3.31"
-futures-util = "0.3.31"
 governor = "0.8.0" # must match tower-governor deps
 hickory-resolver = { version = "0.24.1", features = [
     "dns-over-https-rustls",
@@ -40,27 +35,25 @@ hickory-resolver = { version = "0.24.1", features = [
     "dnssec-ring",
 ] }
 hostname = "0.4.0"
-http = "1.2.0"
+http = "1.3.1"
 http-body = "1.0.1"
 http-body-util = "0.1.2"
 humantime = "2.1.0"
-hyper-util = "0.1.10"
 ic-agent = { version = "0.39.3", features = [
     "ring",
     "_internal_dynamic-routing",
 ] }
-ic-bn-lib = { git = "https://github.com/dfinity/ic-bn-lib", rev = "686cff6ccd422716d48767a299ab33044a27d4ad" }
+ic-bn-lib = { git = "https://github.com/dfinity/ic-bn-lib", rev = "ab5130fce6c3fc23c576b6f9ddffedb805b94eec" }
 ic-http-gateway = "0.2.0"
 ic-transport-types = "0.39.3"
-itertools = "0.13.0"
+itertools = "0.14.0"
 lazy_static = "1.5.0"
-maxminddb = "0.24.0"
-moka = { version = "0.12.8", features = ["sync", "future"] }
+maxminddb = "0.25.0"
 ocsp-stapler = "0.4.1"
 prometheus = "0.13.4"
 rand = "0.8.5"
 regex = "1.11.1"
-reqwest = { version = "0.12.9", default-features = false, features = [
+reqwest = { version = "0.12.12", default-features = false, features = [
     "http2",
     "rustls-tls",
     "hickory-dns",
@@ -72,23 +65,19 @@ rustls = { version = "0.23.18", default-features = false, features = [
     "std",
     "brotli",
 ] }
-rustls-platform-verifier = "0.4.0"
 serde = "1.0.214"
-serde_cbor = "0.11.2"
 serde_json = "1.0.132"
-strum = { version = "0.26.3", features = ["derive"] }
-strum_macros = "0.26.4"
+strum = { version = "0.27.1", features = ["derive"] }
 thiserror = "2.0.3"
 tikv-jemallocator = "0.6.0"
 tikv-jemalloc-ctl = { version = "0.6.0", features = ["stats"] }
 time = { version = "0.3.36", features = ["macros", "serde"] }
-tokio = { version = "1.42.0", features = ["full", "tracing"] }
+tokio = { version = "1.44.0", features = ["full", "tracing"] }
 tokio-util = { version = "0.7.12", features = ["full"] }
 tower = { version = "0.5.1", features = ["limit"] }
 # axum 0.8 support not yet released, use git
 tower_governor = { git = "https://github.com/benwis/tower-governor", rev = "bc9a6eacafcaec1e732886ceae8ae324bbd327df" }
 tower-http = { version = "0.6.1", features = ["cors", "compression-full"] }
-tower-service = "0.3.3"
 tracing = "0.1.40"
 tracing-core = "0.1.32"
 tracing-serde = "0.2.0"
@@ -98,9 +87,8 @@ tracing-subscriber = { version = "0.3.18", features = [
     "json",
 ] }
 url = "2.5.3"
-uuid = { version = "1.11.0", features = ["v7"] }
-webpki-roots = "0.26.6"
-x509-parser = "0.16.0"
+uuid = { version = "1.15.1", features = ["v7"] }
+x509-parser = "0.17.0"
 zstd = "0.13.2"
 
 [features]
@@ -108,11 +96,8 @@ tokio_console = ["console-subscriber"]
 
 [dev-dependencies]
 mockall = "0.13.0"
-hex-literal = "0.4.1"
-hyper = "1.5.0"
-criterion = { version = "0.5.1", features = ["async_tokio"] }
 httptest = "0.16.1"
-tempfile = "3.14.0"
+tempfile = "3.18.0"
 
 [profile.release]
 strip = "symbols"

@@ -118,6 +118,14 @@ pub fn setup(
     if let Some(v) = &cli.ic.ic_root_key {
         let key = fs::read(v).context("unable to read IC root key")?;
         agent.set_root_key(key);
+    } else if cli.ic.ic_root_key_fetch_unsafe {
+        let agent = agent.clone();
+        let _ = futures::executor::block_on(async move {
+            tokio::runtime::Handle::current()
+                .spawn(async move { agent.fetch_root_key().await })
+                .await
+        })
+        .context("unable to fetch IC root key")?;
     }
 
     let client = HttpGatewayClientBuilder::new()
