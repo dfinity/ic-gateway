@@ -21,6 +21,7 @@ use domain::{CustomDomainStorage, DomainResolver, ProvidesCustomDomains};
 use fqdn::FQDN;
 use http::{method::Method, uri::PathAndQuery, StatusCode, Uri};
 use ic_agent::agent::route_provider::RouteProvider;
+use ic::route_provider::ApiBoundaryNodesStats;
 use ic_bn_lib::{
     http::{
         cache::{Cache, KeyExtractorUriRange, Opts},
@@ -317,6 +318,12 @@ pub fn setup_router(
 
     // Prepare the HTTP->IC library
     let client = ic::setup(cli, http_client.clone(), route_provider.clone())?;
+
+    tasks.add_interval(
+        "api_boundary_nodes_stats",
+        Arc::new(ApiBoundaryNodesStats::new(route_provider.clone(), registry)),
+        cli.misc.api_boundary_nodes_stats_refresh_interval,
+    );
 
     // Prepare the states
     let state_handler = Arc::new(handler::HandlerState::new(
