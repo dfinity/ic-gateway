@@ -322,7 +322,7 @@ pub fn setup_router(
     tasks.add_interval(
         "api_boundary_nodes_stats",
         Arc::new(ApiBoundaryNodesStats::new(route_provider.clone(), registry)),
-        cli.misc.api_boundary_nodes_stats_refresh_interval,
+        cli.metrics.api_boundary_nodes_stats_refresh_interval,
     );
 
     // Prepare the states

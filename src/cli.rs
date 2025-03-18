@@ -320,6 +320,9 @@ pub struct Metrics {
     /// Where to listen for Prometheus metrics scraping
     #[clap(env, long)]
     pub metrics_listen: Option<SocketAddr>,
+    /// How frequently to refresh statistics about API boundary nodes
+    #[clap(env, long, default_value = "30s", value_parser = parse_duration)]
+    pub api_boundary_nodes_stats_refresh_interval: Duration,
 }
 
 #[derive(Args)]
@@ -478,10 +481,6 @@ pub struct Misc {
     /// Defaults to the number of CPUs
     #[clap(env, long)]
     pub threads: Option<usize>,
-
-    /// How frequently to refresh statistics about API boundary nodes
-    #[clap(env, long, default_value = "30s", value_parser = parse_duration)]
-    pub api_boundary_nodes_stats_refresh_interval: Duration,
 }
 
 #[derive(Args)]
