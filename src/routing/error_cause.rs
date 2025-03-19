@@ -133,12 +133,12 @@ impl ErrorCause {
             Self::HttpGatewayError(http_gateway_error) => match http_gateway_error {
                 HttpGatewayError::AgentError(agent_error) => {
                     match agent_error.as_ref() {
-                        AgentError::CertifiedReject(reject_response) | AgentError::UncertifiedReject(reject_response) => {
-                            match reject_response.reject_code {
+                        AgentError::CertifiedReject{reject, ..} | AgentError::UncertifiedReject{reject, ..}=> {
+                            match reject.reject_code {
                                 RejectCode::CanisterError => ErrorClientFacing::CanisterError(
                                     "The canister encountered an error while processing the request.<br />This issue may be due to resource limitations, configuration problems, or an internal failure.".to_string(),
                                 ),
-                                RejectCode::SysTransient if reject_response.reject_message.contains("frozen") => ErrorClientFacing::CanisterError(
+                                RejectCode::SysTransient if reject.reject_message.contains("frozen") => ErrorClientFacing::CanisterError(
                                     "The canister is temporarily unable to process the request due to insufficient funds.".to_string(),
                                 ),
                                 _ => ErrorClientFacing::UpstreamError,

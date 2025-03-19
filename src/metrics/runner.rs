@@ -6,8 +6,9 @@ use async_trait::async_trait;
 use axum::{extract::State, response::IntoResponse};
 use bytes::{BufMut, Bytes, BytesMut};
 use http::header::CONTENT_TYPE;
+use ic_agent::agent::route_provider::RouteProvider;
 use ic_bn_lib::tasks::Run;
-use prometheus::{register_int_gauge_with_registry, Encoder, IntGauge, Registry, TextEncoder};
+use prometheus::{register_int_gauge_vec_with_registry, register_int_gauge_with_registry, Encoder, IntGauge, IntGaugeVec, Registry, TextEncoder};
 use tikv_jemalloc_ctl::{epoch, stats};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
@@ -31,15 +32,21 @@ pub struct MetricsRunner {
     metrics_cache: Arc<MetricsCache>,
     registry: Registry,
     encoder: TextEncoder,
-
+    route_provider: Arc<dyn RouteProvider>,
     // Metrics
     mem_allocated: IntGauge,
     mem_resident: IntGauge,
+    // API boundary nodes metrics
+    api_boundary_nodes: IntGaugeVec,
 }
 
 // Snapshots & encodes the metrics for the handler to export
 impl MetricsRunner {
-    pub fn new(metrics_cache: Arc<MetricsCache>, registry: &Registry) -> Self {
+    pub fn new(
+        metrics_cache: Arc<MetricsCache>,
+        registry: &Registry,
+        route_provider: Arc<dyn RouteProvider>,
+    ) -> Self {
         let mem_allocated = register_int_gauge_with_registry!(
             format!("memory_allocated"),
             format!("Allocated memory in bytes"),
@@ -54,12 +61,21 @@ impl MetricsRunner {
         )
         .unwrap();
 
+        let api_boundary_nodes = register_int_gauge_vec_with_registry!(
+            "api_boundary_nodes",
+            "Number of API boundary nodes with status.",
+            &["status"],
+            registry
+        ).unwrap();
+
         Self {
             metrics_cache,
             registry: registry.clone(),
             encoder: TextEncoder::new(),
             mem_allocated,
             mem_resident,
+            route_provider,
+            api_boundary_nodes,
         }
     }
 }
@@ -84,6 +100,11 @@ impl MetricsRunner {
         self.metrics_cache
             .buffer
             .store(Arc::new(buffer.into_inner().freeze()));
+
+        // Update API boundary nodes stats
+        let stats = self.route_provider.routes_stats();
+        self.api_boundary_nodes.with_label_values(&["total"]).set(stats.total as i64);
+        self.api_boundary_nodes.with_label_values(&["healthy"]).set(stats.healthy.unwrap_or(0) as i64);
 
         Ok(())
     }
