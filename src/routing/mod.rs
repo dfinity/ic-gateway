@@ -21,7 +21,7 @@ use domain::{CustomDomainStorage, DomainResolver, ProvidesCustomDomains};
 use fqdn::FQDN;
 use http::{method::Method, uri::PathAndQuery, StatusCode, Uri};
 use ic_agent::agent::route_provider::RouteProvider;
-use ic::route_provider::ApiBoundaryNodesStats;
+use ic::route_provider::{ApiBoundaryNodesStats, API_BOUNDARY_NODES_STATS_REFRESH_INTERVAL};
 use ic_bn_lib::{
     http::{
         cache::{Cache, KeyExtractorUriRange, Opts},
@@ -322,7 +322,7 @@ pub fn setup_router(
     tasks.add_interval(
         "api_boundary_nodes_stats",
         Arc::new(ApiBoundaryNodesStats::new(route_provider.clone(), registry)),
-        cli.metrics.api_boundary_nodes_stats_refresh_interval,
+        API_BOUNDARY_NODES_STATS_REFRESH_INTERVAL,
     );
 
     // Prepare the states

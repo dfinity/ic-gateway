@@ -1,6 +1,6 @@
-use std::sync::Arc;
-use async_trait::async_trait;
+use std::{sync::Arc, time::Duration};
 use anyhow::anyhow;
+use async_trait::async_trait;
 use candid::Principal;
 use ic_agent::agent::http_transport::reqwest_transport::reqwest::Client as AgentClient;
 use ic_agent::agent::route_provider::{
@@ -20,6 +20,8 @@ use crate::routing::ic::{
     health_check::{CHECK_TIMEOUT, HealthChecker},
     nodes_fetcher::{MAINNET_ROOT_SUBNET_ID, NodesFetcher},
 };
+
+pub const API_BOUNDARY_NODES_STATS_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
 
 pub async fn setup_route_provider(
     urls: &[Url],
@@ -115,7 +117,9 @@ impl Run for ApiBoundaryNodesStats {
     async fn run(&self, _: CancellationToken) -> Result<(), anyhow::Error> {
         let stats = self.route_provider.routes_stats();
         self.metrics.total_nodes.set(stats.total as i64);
-        self.metrics.healthy_nodes.set(stats.healthy.unwrap_or(0) as i64);
+        self.metrics
+            .healthy_nodes
+            .set(stats.healthy.unwrap_or(0) as i64);
         Ok(())
     }
 }

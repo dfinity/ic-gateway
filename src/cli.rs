@@ -20,7 +20,7 @@ use reqwest::Url;
 
 use crate::{
     core::{AUTHOR_NAME, SERVICE_NAME},
-    routing::{domain::CanisterAlias, RequestType},
+    routing::{RequestType, domain::CanisterAlias},
 };
 
 /// Clap does not support prefixes due to macro limitations.
@@ -320,9 +320,6 @@ pub struct Metrics {
     /// Where to listen for Prometheus metrics scraping
     #[clap(env, long)]
     pub metrics_listen: Option<SocketAddr>,
-    /// How frequently to refresh statistics about API boundary nodes
-    #[clap(env, long, default_value = "30s", value_parser = parse_duration)]
-    pub api_boundary_nodes_stats_refresh_interval: Duration,
 }
 
 #[derive(Args)]
