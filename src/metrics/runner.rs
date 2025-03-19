@@ -8,7 +8,7 @@ use bytes::{BufMut, Bytes, BytesMut};
 use http::header::CONTENT_TYPE;
 use ic_agent::agent::route_provider::RouteProvider;
 use ic_bn_lib::tasks::Run;
-use prometheus::{Encoder, IntGauge, Registry, TextEncoder, register_int_gauge_with_registry};
+use prometheus::{register_int_gauge_vec_with_registry, register_int_gauge_with_registry, Encoder, IntGauge, IntGaugeVec, Registry, TextEncoder};
 use tikv_jemalloc_ctl::{epoch, stats};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
@@ -37,8 +37,7 @@ pub struct MetricsRunner {
     mem_allocated: IntGauge,
     mem_resident: IntGauge,
     // API boundary nodes metrics
-    total_api_boundary_nodes: IntGauge,
-    healthy_api_boundary_nodes: IntGauge,
+    api_boundary_nodes: IntGaugeVec,
 }
 
 // Snapshots & encodes the metrics for the handler to export
@@ -62,19 +61,12 @@ impl MetricsRunner {
         )
         .unwrap();
 
-        let total_api_boundary_nodes = register_int_gauge_with_registry!(
-            format!("total_api_boundary_nodes"),
-            format!("Total number of existing API boundary nodes (both healthy and unhealthy)."),
+        let api_boundary_nodes = register_int_gauge_vec_with_registry!(
+            "api_boundary_nodes",
+            "Number of API boundary nodes with status.",
+            &["status"],
             registry
-        )
-        .unwrap();
-
-        let healthy_api_boundary_nodes = register_int_gauge_with_registry!(
-            format!("healthy_api_boundary_nodes"),
-            format!("Number of currently healthy API boundary nodes"),
-            registry,
-        )
-        .unwrap();
+        ).unwrap();
 
         Self {
             metrics_cache,
@@ -83,8 +75,7 @@ impl MetricsRunner {
             mem_allocated,
             mem_resident,
             route_provider,
-            healthy_api_boundary_nodes,
-            total_api_boundary_nodes,
+            api_boundary_nodes,
         }
     }
 }
@@ -112,9 +103,8 @@ impl MetricsRunner {
 
         // Update API boundary nodes stats
         let stats = self.route_provider.routes_stats();
-        self.total_api_boundary_nodes.set(stats.total as i64);
-        self.healthy_api_boundary_nodes
-            .set(stats.healthy.unwrap_or(0) as i64);
+        self.api_boundary_nodes.with_label_values(&["total"]).set(stats.total as i64);
+        self.api_boundary_nodes.with_label_values(&["healthy"]).set(stats.healthy.unwrap_or(0) as i64);
 
         Ok(())
     }
