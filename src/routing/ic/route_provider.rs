@@ -1,27 +1,22 @@
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
+
 use anyhow::anyhow;
-use async_trait::async_trait;
 use candid::Principal;
 use ic_agent::agent::http_transport::reqwest_transport::reqwest::Client as AgentClient;
 use ic_agent::agent::route_provider::{
-    RoundRobinRouteProvider, RouteProvider,
     dynamic_routing::{
         dynamic_route_provider::DynamicRouteProviderBuilder, node::Node,
         snapshot::latency_based_routing::LatencyRoutingSnapshot,
     },
+    RoundRobinRouteProvider, RouteProvider,
 };
-use ic_bn_lib::tasks::Run;
-use prometheus::{IntGauge, Registry, register_int_gauge_with_registry};
-use tokio_util::sync::CancellationToken;
 use tracing::info;
 use url::Url;
 
 use crate::routing::ic::{
-    health_check::{CHECK_TIMEOUT, HealthChecker},
-    nodes_fetcher::{MAINNET_ROOT_SUBNET_ID, NodesFetcher},
+    health_check::{HealthChecker, CHECK_TIMEOUT},
+    nodes_fetcher::{NodesFetcher, MAINNET_ROOT_SUBNET_ID},
 };
-
-pub const API_BOUNDARY_NODES_STATS_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
 
 pub async fn setup_route_provider(
     urls: &[Url],
@@ -69,57 +64,4 @@ pub async fn setup_route_provider(
     };
 
     Ok(route_provider)
-}
-
-struct ApiBoundaryNodesMetrics {
-    total_nodes: IntGauge,
-    healthy_nodes: IntGauge,
-}
-
-pub struct ApiBoundaryNodesStats {
-    route_provider: Arc<dyn RouteProvider>,
-    metrics: ApiBoundaryNodesMetrics,
-}
-
-impl ApiBoundaryNodesMetrics {
-    fn new(registry: &Registry) -> Self {
-        Self {
-            total_nodes: register_int_gauge_with_registry!(
-                format!("total_api_boundary_nodes"),
-                format!(
-                    "Total number of existing API boundary nodes (both healthy and unhealthy)."
-                ),
-                registry
-            )
-            .unwrap(),
-
-            healthy_nodes: register_int_gauge_with_registry!(
-                format!("healthy_api_boundary_nodes"),
-                format!("Number of currently healthy API boundary nodes"),
-                registry,
-            )
-            .unwrap(),
-        }
-    }
-}
-
-impl ApiBoundaryNodesStats {
-    pub fn new(route_provider: Arc<dyn RouteProvider>, registry: &Registry) -> Self {
-        Self {
-            route_provider,
-            metrics: ApiBoundaryNodesMetrics::new(registry),
-        }
-    }
-}
-
-#[async_trait]
-impl Run for ApiBoundaryNodesStats {
-    async fn run(&self, _: CancellationToken) -> Result<(), anyhow::Error> {
-        let stats = self.route_provider.routes_stats();
-        self.metrics.total_nodes.set(stats.total as i64);
-        self.metrics
-            .healthy_nodes
-            .set(stats.healthy.unwrap_or(0) as i64);
-        Ok(())
-    }
 }

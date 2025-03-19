@@ -16,6 +16,7 @@ use axum::{
     Router,
 };
 use http::header::{CONTENT_TYPE, ORIGIN, REFERER, USER_AGENT};
+use ic_agent::agent::route_provider::RouteProvider;
 use ic_bn_lib::{
     http::{
         body::CountingBody,
@@ -54,9 +55,9 @@ pub const HTTP_DURATION_BUCKETS: &[f64] = &[0.05, 0.2, 1.0, 2.0];
 pub const HTTP_REQUEST_SIZE_BUCKETS: &[f64] = &[128.0, KB, 2.0 * KB, 4.0 * KB, 8.0 * KB];
 pub const HTTP_RESPONSE_SIZE_BUCKETS: &[f64] = &[1.0 * KB, 8.0 * KB, 64.0 * KB, 256.0 * KB];
 
-pub fn setup(registry: &Registry, tasks: &mut TaskManager) -> Router {
+pub fn setup(registry: &Registry, tasks: &mut TaskManager, route_provider: Arc<dyn RouteProvider>) -> Router {
     let cache = Arc::new(runner::MetricsCache::new());
-    let runner = Arc::new(runner::MetricsRunner::new(cache.clone(), registry));
+    let runner = Arc::new(runner::MetricsRunner::new(cache.clone(), registry, route_provider));
     tasks.add_interval("metrics_runner", runner, Duration::from_secs(5));
 
     Router::new()

@@ -20,7 +20,7 @@ use reqwest::Url;
 
 use crate::{
     core::{AUTHOR_NAME, SERVICE_NAME},
-    routing::{RequestType, domain::CanisterAlias},
+    routing::{domain::CanisterAlias, RequestType},
 };
 
 /// Clap does not support prefixes due to macro limitations.

@@ -134,7 +134,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         custom_domain_providers,
         &mut tasks,
         http_client.clone(),
-        route_provider,
+        Arc::clone(&route_provider),
         &registry,
         clickhouse.clone(),
         vector.clone(),
@@ -183,7 +183,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
 
     // Setup metrics
     if let Some(addr) = cli.metrics.metrics_listen {
-        let router = metrics::setup(&registry, &mut tasks);
+        let router = metrics::setup(&registry, &mut tasks, route_provider);
 
         let srv = Arc::new(http::Server::new(
             http::server::Addr::Tcp(addr),
