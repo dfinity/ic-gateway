@@ -21,6 +21,7 @@ use crate::routing::ic::{
 pub async fn setup_route_provider(
     urls: &[Url],
     ic_use_discovery: bool,
+    ic_use_k_top_api_nodes: Option<usize>,
     reqwest_client: reqwest::Client,
 ) -> anyhow::Result<Arc<dyn RouteProvider>> {
     let urls_str = urls.iter().map(Url::as_str).collect::<Vec<_>>();
@@ -39,7 +40,10 @@ pub async fn setup_route_provider(
         }
 
         let route_provider = {
-            let snapshot = LatencyRoutingSnapshot::new();
+            let snapshot = ic_use_k_top_api_nodes.map_or_else(LatencyRoutingSnapshot::new, |k| {
+                info!("Using up to k_top={k} API Nodes with best score for dynamic routing");
+                LatencyRoutingSnapshot::new().set_k_top_nodes(k)
+            });
             // This temporary client is only needed for the instantiation. It is later overridden by the checker/fetcher accepting the reqwest_client.
             let tmp_client = AgentClient::builder()
                 .build()

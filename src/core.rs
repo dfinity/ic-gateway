@@ -126,7 +126,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     }));
 
     let route_provider =
-        setup_route_provider(&cli.ic.ic_url, cli.ic.ic_use_discovery, reqwest_client).await?;
+        setup_route_provider(&cli.ic.ic_url, cli.ic.ic_use_discovery, cli.ic.ic_use_k_top_api_nodes,  reqwest_client).await?;
 
     // Create gateway router to serve all endpoints
     let gateway_router = routing::setup_router(
