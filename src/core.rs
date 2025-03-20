@@ -125,8 +125,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         )) as Arc<dyn ProvidesCustomDomains>
     }));
 
-    let route_provider =
-        setup_route_provider(&cli.ic.ic_url, cli.ic.ic_use_discovery, reqwest_client).await?;
+    let route_provider = setup_route_provider(cli, reqwest_client).await?;
 
     // Create gateway router to serve all endpoints
     let gateway_router = routing::setup_router(

@@ -125,6 +125,11 @@ pub struct Ic {
     #[clap(env, long)]
     pub ic_use_discovery: bool,
 
+    /// In dynamic routing mode, limits routing to the top K API nodes with best score (ranked by latency and availability).
+    /// If not set, routing uses all healthy API nodes.
+    #[clap(env, long)]
+    pub ic_use_k_top_api_nodes: Option<usize>,
+
     /// Path to an IC root key. Must be DER-encoded. If not specified - hardcoded or fetched (see ic_root_key_fetch_unsafe) will be used.
     #[clap(env, long)]
     pub ic_root_key: Option<PathBuf>,

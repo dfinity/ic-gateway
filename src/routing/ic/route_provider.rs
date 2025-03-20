@@ -17,16 +17,16 @@ use crate::routing::ic::{
     health_check::{HealthChecker, CHECK_TIMEOUT},
     nodes_fetcher::{NodesFetcher, MAINNET_ROOT_SUBNET_ID},
 };
+use crate::Cli;
 
 pub async fn setup_route_provider(
-    urls: &[Url],
-    ic_use_discovery: bool,
+    cli: &Cli,
     reqwest_client: reqwest::Client,
 ) -> anyhow::Result<Arc<dyn RouteProvider>> {
-    let urls_str = urls.iter().map(Url::as_str).collect::<Vec<_>>();
+    let urls_str = cli.ic.ic_url.iter().map(Url::as_str).collect::<Vec<_>>();
 
-    let route_provider = if ic_use_discovery {
-        let api_seed_nodes = urls
+    let route_provider = if cli.ic.ic_use_discovery {
+        let api_seed_nodes = cli.ic.ic_url
             .iter()
             .filter_map(|url| url.domain())
             .map(|url| Node::new(url).unwrap())
@@ -39,7 +39,10 @@ pub async fn setup_route_provider(
         }
 
         let route_provider = {
-            let snapshot = LatencyRoutingSnapshot::new();
+            let snapshot = cli.ic.ic_use_k_top_api_nodes.map_or_else(LatencyRoutingSnapshot::new, |k| {
+                info!("Using up to k_top={k} API Nodes with best score for dynamic routing");
+                LatencyRoutingSnapshot::new().set_k_top_nodes(k)
+            });
             // This temporary client is only needed for the instantiation. It is later overridden by the checker/fetcher accepting the reqwest_client.
             let tmp_client = AgentClient::builder()
                 .build()
