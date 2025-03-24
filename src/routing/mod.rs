@@ -9,27 +9,27 @@ use std::{fmt, str::FromStr, sync::Arc, time::Duration};
 
 use anyhow::{Context, Error};
 use axum::{
+    Extension, Router,
     extract::{MatchedPath, OriginalUri, Request},
-    middleware::{from_fn, from_fn_with_state, FromFnLayer},
+    middleware::{FromFnLayer, from_fn, from_fn_with_state},
     response::{IntoResponse, Redirect},
     routing::{get, post},
-    Extension, Router,
 };
 use axum_extra::{extract::Host, middleware::option_layer};
 use candid::Principal;
 use domain::{CustomDomainStorage, DomainResolver, ProvidesCustomDomains};
 use fqdn::FQDN;
-use http::{method::Method, uri::PathAndQuery, StatusCode, Uri};
+use http::{StatusCode, Uri, method::Method, uri::PathAndQuery};
 use ic_agent::agent::route_provider::RouteProvider;
 use ic_bn_lib::{
     http::{
+        Client,
         cache::{Cache, KeyExtractorUriRange, Opts},
         shed::{
+            ShedResponse,
             sharded::{ShardedLittleLoadShedderLayer, ShardedOptions, TypeExtractor},
             system::{SystemInfo, SystemLoadShedderLayer},
-            ShedResponse,
         },
-        Client,
     },
     tasks::TaskManager,
     types::RequestType as RequestTypeApi,
@@ -37,12 +37,12 @@ use ic_bn_lib::{
 use middleware::{cache, validate::ValidateState};
 use prometheus::Registry;
 use strum::{Display, IntoStaticStr};
-use tower::{limit::ConcurrencyLimitLayer, util::MapResponseLayer, ServiceBuilder, ServiceExt};
+use tower::{ServiceBuilder, ServiceExt, limit::ConcurrencyLimitLayer, util::MapResponseLayer};
 use tracing::{debug, warn};
 
 use crate::{
     cli::Cli,
-    metrics::{self, clickhouse::Clickhouse, Vector},
+    metrics::{self, Vector, clickhouse::Clickhouse},
     routing::middleware::{
         canister_match, cors, geoip, headers, rate_limiter, request_id, request_type, validate,
     },
@@ -405,14 +405,10 @@ pub fn setup_router(
             .put(handler::handler)
             .delete(handler::handler)
             .patch(handler::handler)
-            .layer(cors::http_gw_layer(&[
-                Method::HEAD,
-                Method::GET,
-                Method::POST,
-                Method::PUT,
-                Method::DELETE,
-                Method::PATCH,
-            ]))
+            .layer(from_fn_with_state(
+                Arc::new(cors::CorsStateHttp::new()),
+                cors::middleware,
+            ))
             .layer(http_layers)
             .with_state(state_handler),
     );
