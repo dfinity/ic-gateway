@@ -20,8 +20,6 @@ use ic_bn_lib::http::headers::{X_IC_CANISTER_ID, X_REQUEST_ID, X_REQUESTED_WITH}
 use itertools::Itertools;
 use tower_http::cors::{Any, CorsLayer};
 
-const MINUTE: Duration = Duration::from_secs(60);
-
 const X_OC_JWT: HeaderName = HeaderName::from_static("x-oc-jwt");
 const X_OC_API_KEY: HeaderName = HeaderName::from_static("x-oc-api-key");
 
@@ -132,7 +130,7 @@ pub fn layer(methods: &[Method]) -> CorsLayer {
         .allow_methods(methods.to_vec())
         .expose_headers(EXPOSE_HEADERS)
         .allow_headers(ALLOW_HEADERS)
-        .max_age(10 * MINUTE)
+        .max_age(Duration::from_secs(7200))
 }
 
 #[cfg(test)]
