@@ -9,23 +9,36 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use http::{
-    Method, StatusCode,
+    Method,
     header::{
-        ACCEPT_RANGES, ACCESS_CONTROL_ALLOW_HEADERS, ACCESS_CONTROL_ALLOW_METHODS,
-        ACCESS_CONTROL_ALLOW_ORIGIN, ACCESS_CONTROL_EXPOSE_HEADERS, ACCESS_CONTROL_MAX_AGE,
-        CACHE_CONTROL, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, COOKIE, DNT, HeaderName,
-        HeaderValue, IF_MODIFIED_SINCE, IF_NONE_MATCH, RANGE, USER_AGENT, VARY,
+        ACCEPT_RANGES, ACCESS_CONTROL_ALLOW_CREDENTIALS, ACCESS_CONTROL_ALLOW_HEADERS,
+        ACCESS_CONTROL_ALLOW_METHODS, ACCESS_CONTROL_ALLOW_ORIGIN, ACCESS_CONTROL_EXPOSE_HEADERS,
+        ACCESS_CONTROL_MAX_AGE, CACHE_CONTROL, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, COOKIE,
+        DNT, HeaderName, HeaderValue, IF_MODIFIED_SINCE, IF_NONE_MATCH, RANGE, USER_AGENT, VARY,
     },
 };
+use http_body::Body as _;
 use ic_bn_lib::http::headers::{X_IC_CANISTER_ID, X_REQUEST_ID, X_REQUESTED_WITH};
 use itertools::Itertools;
+use moka::sync::{Cache, CacheBuilder};
 use tower_http::cors::{Any, CorsLayer, preflight_request_headers};
+
+use crate::routing::CanisterId;
 
 const X_OC_JWT: HeaderName = HeaderName::from_static("x-oc-jwt");
 const X_OC_API_KEY: HeaderName = HeaderName::from_static("x-oc-api-key");
 
+// Possible CORS headers in OPTIONS response
+const OPTIONS_CORS_HEADERS: [HeaderName; 5] = [
+    ACCESS_CONTROL_ALLOW_HEADERS,
+    ACCESS_CONTROL_ALLOW_METHODS,
+    ACCESS_CONTROL_ALLOW_ORIGIN,
+    ACCESS_CONTROL_ALLOW_CREDENTIALS,
+    ACCESS_CONTROL_MAX_AGE,
+];
+
 // Methods allowed for HTTP calls
-const ALLOW_METHODS_HTTP: [Method; 6] = [
+pub const ALLOW_METHODS_HTTP: [Method; 6] = [
     Method::HEAD,
     Method::GET,
     Method::POST,
@@ -67,10 +80,12 @@ pub struct CorsStateHttp {
     allow_headers: HeaderValue,
     expose_headers: HeaderValue,
     vary: HeaderValue,
+
+    invalid_canisters: Cache<CanisterId, ()>,
 }
 
 impl CorsStateHttp {
-    pub fn new() -> Self {
+    pub fn new(invalid_canisters_max: u64, invalid_canisters_ttl: Duration) -> Self {
         let allow_methods = HeaderValue::from_str(&ALLOW_METHODS_HTTP.iter().join(", ")).unwrap();
         let allow_headers = HeaderValue::from_str(
             &ALLOW_HEADERS
@@ -82,11 +97,16 @@ impl CorsStateHttp {
         let expose_headers = HeaderValue::from_str(&EXPOSE_HEADERS.into_iter().join(", ")).unwrap();
         let vary = HeaderValue::from_str(&preflight_request_headers().join(", ")).unwrap();
 
+        let invalid_canisters = CacheBuilder::new(invalid_canisters_max)
+            .time_to_live(invalid_canisters_ttl)
+            .build();
+
         Self {
             allow_headers,
             allow_methods,
             expose_headers,
             vary,
+            invalid_canisters,
         }
     }
 
@@ -136,19 +156,58 @@ impl CorsStateHttp {
     }
 }
 
+fn is_valid_preflight_response(response: &Response) -> bool {
+    // Must be a success
+    if !response.status().is_success() {
+        return false;
+    }
+
+    // OPTIONS response should have no body
+    if response.body().size_hint().exact() != Some(0) {
+        return false;
+    }
+
+    // There should be at least one CORS header
+    if !response
+        .headers()
+        .keys()
+        .any(|x| OPTIONS_CORS_HEADERS.contains(x))
+    {
+        return false;
+    }
+
+    true
+}
+
 pub async fn middleware(
     State(state): State<Arc<CorsStateHttp>>,
     request: Request,
     next: Next,
 ) -> impl IntoResponse {
+    let canister_id = request.extensions().get::<CanisterId>().copied();
     let method = request.method().clone();
+
+    // If there's no canister id - just return default response or pass it forward
+    let Some(canister_id) = canister_id else {
+        if method == Method::OPTIONS {
+            return state.default_preflight_response();
+        } else {
+            return next.run(request).await;
+        }
+    };
+
+    // If the reponse is known to be invalid - respond with ours
+    if method == Method::OPTIONS && state.invalid_canisters.contains_key(&canister_id) {
+        return state.default_preflight_response();
+    }
 
     // Pass the request further
     let mut response = next.run(request).await;
 
-    // If the request was OPTIONS but we didn't get a successful response - return our own response
+    // If the request was OPTIONS but we didn't get a valid response - return our own response
     // with default headers set.
-    if method == Method::OPTIONS && response.status() != StatusCode::OK {
+    if method == Method::OPTIONS && !is_valid_preflight_response(&response) {
+        state.invalid_canisters.insert(canister_id, ());
         return state.default_preflight_response();
     }
 
@@ -167,13 +226,19 @@ pub fn layer(methods: &[Method]) -> CorsLayer {
 
 #[cfg(test)]
 mod test {
+    use crate::principal;
+
     use super::*;
     use axum::{Router, body::Body, middleware::from_fn_with_state};
+    use bytes::Bytes;
+    use candid::Principal;
+    use http::StatusCode;
     use tower::ServiceExt;
 
     #[tokio::test]
     async fn test_cors_http() {
-        let s = Arc::new(CorsStateHttp::new());
+        let s = Arc::new(CorsStateHttp::new(10, Duration::from_secs(1)));
+
         assert_eq!(s.allow_methods, "HEAD, GET, POST, PUT, DELETE, PATCH");
         assert_eq!(
             s.allow_headers,
@@ -225,6 +290,8 @@ mod test {
         // For preflight
         let mut req = Request::new(Body::empty());
         *req.method_mut() = Method::OPTIONS;
+        req.extensions_mut()
+            .insert(CanisterId(principal!("aaaaa-aa")));
         let resp = router.clone().oneshot(req).await.unwrap();
 
         assert_eq!(
@@ -333,7 +400,9 @@ mod test {
             .fallback(|| async { "foo" })
             .layer(from_fn_with_state(s.clone(), middleware));
 
-        let req = Request::new(Body::empty());
+        let mut req = Request::new(Body::empty());
+        req.extensions_mut()
+            .insert(CanisterId(principal!("aaaaa-aa")));
         let resp = router.oneshot(req).await.unwrap();
 
         assert_eq!(
@@ -401,5 +470,35 @@ mod test {
         );
         assert_eq!(resp.headers().get(VARY).unwrap().to_str().unwrap(), s.vary);
         assert!(resp.headers().get(ACCESS_CONTROL_EXPOSE_HEADERS).is_none());
+    }
+
+    #[test]
+    fn test_is_valid_preflight_response() {
+        // Check ok
+        let mut r = Response::new(Body::empty());
+        r.headers_mut().insert(
+            ACCESS_CONTROL_ALLOW_HEADERS,
+            HeaderValue::from_static("foo"),
+        );
+        assert!(is_valid_preflight_response(&r));
+
+        // Check no headers
+        let r = Response::new(Body::empty());
+        assert!(!is_valid_preflight_response(&r));
+
+        // Check non-empty body
+        let mut r = Response::new(Body::new(http_body_util::Full::new(Bytes::from_static(
+            "foo".as_bytes(),
+        ))));
+        r.headers_mut().insert(
+            ACCESS_CONTROL_ALLOW_HEADERS,
+            HeaderValue::from_static("foo"),
+        );
+        assert!(!is_valid_preflight_response(&r));
+
+        // Check bad status
+        let mut r = Response::new(Body::empty());
+        *r.status_mut() = StatusCode::METHOD_NOT_ALLOWED;
+        assert!(!is_valid_preflight_response(&r));
     }
 }

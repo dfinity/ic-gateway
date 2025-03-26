@@ -2352,6 +2352,7 @@ dependencies = [
  "lazy_static",
  "maxminddb",
  "mockall",
+ "moka",
  "ocsp-stapler",
  "prometheus",
  "rand 0.8.5",

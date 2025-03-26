@@ -15,7 +15,7 @@ use axum::{
     response::{IntoResponse, Redirect},
     routing::{get, post},
 };
-use axum_extra::{extract::Host, middleware::option_layer};
+use axum_extra::{either::Either, extract::Host, middleware::option_layer};
 use candid::Principal;
 use domain::{CustomDomainStorage, DomainResolver, ProvidesCustomDomains};
 use fqdn::FQDN;
@@ -56,7 +56,7 @@ use {
     ic::handler,
 };
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash)]
 pub struct CanisterId(pub Principal);
 
 impl From<CanisterId> for Principal {
@@ -393,8 +393,22 @@ pub fn setup_router(
         None
     });
 
+    // Use either static CORS layer or a dynamic one
+    let cors_layer = if cli.cors.cors_canister_passthrough {
+        Either::E1(from_fn_with_state(
+            Arc::new(cors::CorsStateHttp::new(
+                cli.cors.cors_invalid_canisters_max,
+                cli.cors.cors_invalid_canisters_ttl,
+            )),
+            cors::middleware,
+        ))
+    } else {
+        Either::E2(cors::layer(&cors::ALLOW_METHODS_HTTP))
+    };
+
     // Layers for the main HTTP->IC route
     let http_layers = ServiceBuilder::new()
+        .layer(cors_layer)
         .layer(option_layer(denylist_mw))
         .layer(option_layer(canister_match_mw))
         .layer(cache_middleware);
@@ -405,10 +419,7 @@ pub fn setup_router(
             .put(handler::handler)
             .delete(handler::handler)
             .patch(handler::handler)
-            .layer(from_fn_with_state(
-                Arc::new(cors::CorsStateHttp::new()),
-                cors::middleware,
-            ))
+            .options(handler::handler)
             .layer(http_layers)
             .with_state(state_handler),
     );
