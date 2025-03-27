@@ -2,6 +2,7 @@
 
 use std::{sync::Arc, time::Duration};
 
+use anyhow::Error;
 use axum::{
     body::Body,
     extract::{Request, State},
@@ -72,42 +73,58 @@ const ALLOW_HEADERS: [HeaderName; 10] = [
 // Additional headers to allow for HTTP calls
 const ALLOW_HEADERS_HTTP: [HeaderName; 2] = [X_OC_JWT, X_OC_API_KEY];
 
-const HEADER_WILDCARD: HeaderValue = HeaderValue::from_static("*");
-const HEADER_MAX_AGE: HeaderValue = HeaderValue::from_static("7200");
-
 pub struct CorsStateHttp {
     allow_methods: HeaderValue,
     allow_headers: HeaderValue,
+    allow_origin: HeaderValue,
     expose_headers: HeaderValue,
+    max_age: HeaderValue,
     vary: HeaderValue,
 
     invalid_canisters: Cache<CanisterId, ()>,
 }
 
 impl CorsStateHttp {
-    pub fn new(invalid_canisters_max: u64, invalid_canisters_ttl: Duration) -> Self {
-        let allow_methods = HeaderValue::from_str(&ALLOW_METHODS_HTTP.iter().join(", ")).unwrap();
+    pub fn new(
+        invalid_canisters_max: u64,
+        invalid_canisters_ttl: Duration,
+        allow_origin: Vec<HeaderValue>,
+        max_age: Duration,
+    ) -> Result<Self, Error> {
+        let allow_methods = HeaderValue::from_str(&ALLOW_METHODS_HTTP.iter().join(", "))?;
         let allow_headers = HeaderValue::from_str(
             &ALLOW_HEADERS
                 .into_iter()
                 .chain(ALLOW_HEADERS_HTTP)
                 .join(", "),
-        )
-        .unwrap();
-        let expose_headers = HeaderValue::from_str(&EXPOSE_HEADERS.into_iter().join(", ")).unwrap();
-        let vary = HeaderValue::from_str(&preflight_request_headers().join(", ")).unwrap();
+        )?;
+        // Concatenate provided headers with a separator
+        let allow_origin = HeaderValue::from_bytes(
+            allow_origin
+                .iter()
+                .map(|x| x.as_bytes().to_vec())
+                .interleave(std::iter::repeat_n(b", ".to_vec(), allow_origin.len() - 1))
+                .flatten()
+                .collect::<Vec<_>>()
+                .as_slice(),
+        )?;
+        let max_age = HeaderValue::from_str(&max_age.as_secs().to_string())?;
+        let expose_headers = HeaderValue::from_str(&EXPOSE_HEADERS.into_iter().join(", "))?;
+        let vary = HeaderValue::from_str(&preflight_request_headers().join(", "))?;
 
         let invalid_canisters = CacheBuilder::new(invalid_canisters_max)
             .time_to_live(invalid_canisters_ttl)
             .build();
 
-        Self {
+        Ok(Self {
             allow_headers,
             allow_methods,
+            allow_origin,
             expose_headers,
+            max_age,
             vary,
             invalid_canisters,
-        }
+        })
     }
 
     fn apply_cors(&self, method: Method, response: &mut Response) {
@@ -124,7 +141,7 @@ impl CorsStateHttp {
             }
 
             if !hdr.contains_key(ACCESS_CONTROL_MAX_AGE) {
-                hdr.insert(ACCESS_CONTROL_MAX_AGE, HEADER_MAX_AGE);
+                hdr.insert(ACCESS_CONTROL_MAX_AGE, self.max_age.clone());
             }
         } else {
             // This only to the actual response
@@ -135,7 +152,7 @@ impl CorsStateHttp {
 
         // These are sent out always
         if !hdr.contains_key(ACCESS_CONTROL_ALLOW_ORIGIN) {
-            hdr.insert(ACCESS_CONTROL_ALLOW_ORIGIN, HEADER_WILDCARD);
+            hdr.insert(ACCESS_CONTROL_ALLOW_ORIGIN, self.allow_origin.clone());
         }
 
         if !hdr.contains_key(VARY) {
@@ -149,8 +166,8 @@ impl CorsStateHttp {
         let hdr = response.headers_mut();
         hdr.insert(ACCESS_CONTROL_ALLOW_METHODS, self.allow_methods.clone());
         hdr.insert(ACCESS_CONTROL_ALLOW_HEADERS, self.allow_headers.clone());
-        hdr.insert(ACCESS_CONTROL_ALLOW_ORIGIN, HEADER_WILDCARD);
-        hdr.insert(ACCESS_CONTROL_MAX_AGE, HEADER_MAX_AGE);
+        hdr.insert(ACCESS_CONTROL_ALLOW_ORIGIN, self.allow_origin.clone());
+        hdr.insert(ACCESS_CONTROL_MAX_AGE, self.max_age.clone());
         hdr.insert(VARY, self.vary.clone());
         response
     }
@@ -215,13 +232,19 @@ pub async fn middleware(
     response
 }
 
-pub fn layer(methods: &[Method]) -> CorsLayer {
-    CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(methods.to_vec())
+pub fn layer(max_age: Duration, allow_origin: Vec<HeaderValue>) -> CorsLayer {
+    let mut layer = CorsLayer::new()
         .expose_headers(EXPOSE_HEADERS)
         .allow_headers(ALLOW_HEADERS)
-        .max_age(Duration::from_secs(7200))
+        .max_age(max_age);
+
+    if allow_origin.len() == 1 && allow_origin[0] == "*" {
+        layer = layer.allow_origin(Any);
+    } else {
+        layer = layer.allow_origin(allow_origin);
+    }
+
+    layer
 }
 
 #[cfg(test)]
@@ -237,17 +260,30 @@ mod test {
 
     #[tokio::test]
     async fn test_cors_http() {
-        let s = Arc::new(CorsStateHttp::new(10, Duration::from_secs(1)));
+        let s = Arc::new(
+            CorsStateHttp::new(
+                10,
+                Duration::from_secs(1),
+                vec![
+                    HeaderValue::from_static("foo"),
+                    HeaderValue::from_static("bar"),
+                ],
+                Duration::from_secs(7200),
+            )
+            .unwrap(),
+        );
 
         assert_eq!(s.allow_methods, "HEAD, GET, POST, PUT, DELETE, PATCH");
         assert_eq!(
             s.allow_headers,
             "user-agent, dnt, if-none-match, if-modified-since, cache-control, content-type, range, cookie, x-requested-with, x-ic-canister-id, x-oc-jwt, x-oc-api-key"
         );
+        assert_eq!(s.allow_origin, "foo, bar");
         assert_eq!(
             s.expose_headers,
             "accept-ranges, content-length, content-range, x-request-id, x-ic-canister-id"
         );
+        assert_eq!(s.max_age, "7200");
         assert_eq!(
             s.vary,
             "origin, access-control-request-method, access-control-request-headers"
@@ -382,7 +418,7 @@ mod test {
                 .unwrap()
                 .to_str()
                 .unwrap(),
-            HEADER_MAX_AGE.to_str().unwrap()
+            s.max_age,
         );
         assert_eq!(
             resp.headers()
@@ -390,7 +426,7 @@ mod test {
                 .unwrap()
                 .to_str()
                 .unwrap(),
-            HEADER_WILDCARD.to_str().unwrap(),
+            s.allow_origin,
         );
         assert_eq!(resp.headers().get(VARY).unwrap().to_str().unwrap(), s.vary);
         assert!(resp.headers().get(ACCESS_CONTROL_EXPOSE_HEADERS).is_none());
@@ -419,7 +455,7 @@ mod test {
                 .unwrap()
                 .to_str()
                 .unwrap(),
-            HEADER_WILDCARD.to_str().unwrap(),
+            s.allow_origin,
         );
         assert_eq!(resp.headers().get(VARY).unwrap().to_str().unwrap(), s.vary);
         assert!(resp.headers().get(ACCESS_CONTROL_ALLOW_METHODS).is_none());
@@ -458,7 +494,7 @@ mod test {
                 .unwrap()
                 .to_str()
                 .unwrap(),
-            HEADER_MAX_AGE.to_str().unwrap()
+            s.max_age,
         );
         assert_eq!(
             resp.headers()
@@ -466,7 +502,7 @@ mod test {
                 .unwrap()
                 .to_str()
                 .unwrap(),
-            HEADER_WILDCARD.to_str().unwrap(),
+            s.allow_origin,
         );
         assert_eq!(resp.headers().get(VARY).unwrap().to_str().unwrap(), s.vary);
         assert!(resp.headers().get(ACCESS_CONTROL_EXPOSE_HEADERS).is_none());

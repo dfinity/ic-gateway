@@ -4,6 +4,7 @@ use std::{
     time::Duration,
 };
 
+use ::http::HeaderValue;
 use clap::{Args, Parser};
 use fqdn::FQDN;
 use hickory_resolver::config::CLOUDFLARE_IPS;
@@ -521,7 +522,16 @@ pub struct CacheConfig {
 
 #[derive(Args)]
 pub struct Cors {
-    /// Whether to forward CORS requests to the canisters
+    /// Default value for Access-Control-Allow-Origin header
+    #[clap(env, long, default_value = "*")]
+    pub cors_allow_origin: Vec<HeaderValue>,
+
+    /// Default value for Access-Control-Max-Age header. Usually capped to 2h by the browser.
+    #[clap(env, long, default_value = "2h", value_parser = parse_duration)]
+    pub cors_max_age: Duration,
+
+    /// Whether to forward CORS requests to the canisters.
+    /// If the CORS reply from the canister is incorrect then it will be replaced with a default one.
     #[clap(env, long)]
     pub cors_canister_passthrough: bool,
 
