@@ -263,7 +263,7 @@ mod test {
         let s = Arc::new(
             CorsStateHttp::new(
                 10,
-                Duration::from_secs(1),
+                Duration::from_secs(600),
                 vec![
                     HeaderValue::from_static("foo"),
                     HeaderValue::from_static("bar"),
@@ -288,6 +288,8 @@ mod test {
             s.vary,
             "origin, access-control-request-method, access-control-request-headers"
         );
+
+        let canister_id = CanisterId(principal!("aaaaa-aa"));
 
         // Check that the existing response headers are not overriden
         let router = Router::new()
@@ -326,8 +328,7 @@ mod test {
         // For preflight
         let mut req = Request::new(Body::empty());
         *req.method_mut() = Method::OPTIONS;
-        req.extensions_mut()
-            .insert(CanisterId(principal!("aaaaa-aa")));
+        req.extensions_mut().insert(canister_id);
         let resp = router.clone().oneshot(req).await.unwrap();
 
         assert_eq!(
@@ -437,8 +438,7 @@ mod test {
             .layer(from_fn_with_state(s.clone(), middleware));
 
         let mut req = Request::new(Body::empty());
-        req.extensions_mut()
-            .insert(CanisterId(principal!("aaaaa-aa")));
+        req.extensions_mut().insert(canister_id);
         let resp = router.oneshot(req).await.unwrap();
 
         assert_eq!(
@@ -462,15 +462,19 @@ mod test {
         assert!(resp.headers().get(ACCESS_CONTROL_ALLOW_HEADERS).is_none());
         assert!(resp.headers().get(ACCESS_CONTROL_MAX_AGE).is_none());
 
-        // Check that default response is sent for OPTIONS request if the backend returns non-200
+        // Check that default response is sent for OPTIONS request if the backend returns incorrect response
         let router = Router::new()
             .fallback(|| async { StatusCode::METHOD_NOT_ALLOWED })
             .layer(from_fn_with_state(s.clone(), middleware));
 
         let mut req = Request::new(Body::empty());
         *req.method_mut() = Method::OPTIONS;
+        req.extensions_mut().insert(canister_id);
         let resp = router.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
+
+        // Make sure the canister is marked as invalid
+        assert!(s.invalid_canisters.contains_key(&canister_id));
 
         assert_eq!(
             resp.headers()
