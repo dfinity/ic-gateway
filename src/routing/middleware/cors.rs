@@ -520,17 +520,17 @@ mod test {
             ACCESS_CONTROL_ALLOW_HEADERS,
             HeaderValue::from_static("foo"),
         );
-    assert!(
-        is_valid_preflight_response(&r),
-        "Expected valid preflight response, but it was invalid"
-    );
+        assert!(
+            is_valid_preflight_response(&r),
+            "Expected valid preflight response, but it was invalid"
+        );
 
         // Check no headers
         let r = Response::new(Body::empty());
-    assert!(
-        !is_valid_preflight_response(&r),
-        "Expected invalid preflight response due to missing headers, but it was valid"
-    );
+        assert!(
+            !is_valid_preflight_response(&r),
+            "Expected invalid preflight response due to missing headers, but it was valid"
+        );
 
         // Check non-empty body
         let mut r = Response::new(Body::new(http_body_util::Full::new(Bytes::from_static(
@@ -540,17 +540,17 @@ mod test {
             ACCESS_CONTROL_ALLOW_HEADERS,
             HeaderValue::from_static("foo"),
         );
-    assert!(
-        !is_valid_preflight_response(&r),
-        "Expected invalid preflight response due to non-empty body, but it was valid"
-    );
+        assert!(
+            !is_valid_preflight_response(&r),
+            "Expected invalid preflight response due to non-empty body, but it was valid"
+        );
 
         // Check bad status
         let mut r = Response::new(Body::empty());
         *r.status_mut() = StatusCode::METHOD_NOT_ALLOWED;
-    assert!(
-        !is_valid_preflight_response(&r),
-        "Expected invalid preflight response due to "non-success" status code, but it was valid"
-    );
+        assert!(
+            !is_valid_preflight_response(&r),
+            "Expected invalid preflight response due to non-success status code, but it was valid"
+        );
     }
 }
