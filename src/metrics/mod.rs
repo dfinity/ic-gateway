@@ -102,6 +102,7 @@ impl HttpMetrics {
             "cache_status",
             "cache_bypass_reason",
             "response_verification_version",
+            "backend",
         ];
 
         Self {
@@ -287,6 +288,11 @@ pub async fn middleware(
             .clone()
             .map_or_else(String::new, |x| x.to_string());
 
+        let backend_host = req_meta.backend
+            .as_ref()
+            .and_then(|s| s.split_once(':').map(|(host, _)| host))
+            .unwrap_or_default();
+
         let labels = &[
             tls_version,
             method,
@@ -296,6 +302,7 @@ pub async fn middleware(
             cache_status_str,
             cache_bypass_reason_str,
             &response_verification_version,
+            backend_host,
         ];
 
         // Update metrics
