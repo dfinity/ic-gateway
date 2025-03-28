@@ -9,27 +9,27 @@ use std::{fmt, str::FromStr, sync::Arc, time::Duration};
 
 use anyhow::{Context, Error};
 use axum::{
+    Extension, Router,
     extract::{MatchedPath, OriginalUri, Request},
-    middleware::{from_fn, from_fn_with_state, FromFnLayer},
+    middleware::{FromFnLayer, from_fn, from_fn_with_state},
     response::{IntoResponse, Redirect},
     routing::{get, post},
-    Extension, Router,
 };
-use axum_extra::{extract::Host, middleware::option_layer};
+use axum_extra::{either::Either, extract::Host, middleware::option_layer};
 use candid::Principal;
 use domain::{CustomDomainStorage, DomainResolver, ProvidesCustomDomains};
 use fqdn::FQDN;
-use http::{method::Method, uri::PathAndQuery, StatusCode, Uri};
+use http::{StatusCode, Uri, method::Method, uri::PathAndQuery};
 use ic_agent::agent::route_provider::RouteProvider;
 use ic_bn_lib::{
     http::{
+        Client,
         cache::{Cache, KeyExtractorUriRange, Opts},
         shed::{
+            ShedResponse,
             sharded::{ShardedLittleLoadShedderLayer, ShardedOptions, TypeExtractor},
             system::{SystemInfo, SystemLoadShedderLayer},
-            ShedResponse,
         },
-        Client,
     },
     tasks::TaskManager,
     types::RequestType as RequestTypeApi,
@@ -37,12 +37,12 @@ use ic_bn_lib::{
 use middleware::{cache, validate::ValidateState};
 use prometheus::Registry;
 use strum::{Display, IntoStaticStr};
-use tower::{limit::ConcurrencyLimitLayer, util::MapResponseLayer, ServiceBuilder, ServiceExt};
-use tracing::{debug, warn};
+use tower::{ServiceBuilder, ServiceExt, limit::ConcurrencyLimitLayer, util::MapResponseLayer};
+use tracing::warn;
 
 use crate::{
     cli::Cli,
-    metrics::{self, clickhouse::Clickhouse, Vector},
+    metrics::{self, Vector, clickhouse::Clickhouse},
     routing::middleware::{
         canister_match, cors, geoip, headers, rate_limiter, request_id, request_type, validate,
     },
@@ -56,7 +56,7 @@ use {
     ic::handler,
 };
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash)]
 pub struct CanisterId(pub Principal);
 
 impl From<CanisterId> for Principal {
@@ -208,46 +208,50 @@ pub fn setup_router(
                 let geoip_db = geoip::GeoIp::new(x)?;
                 Ok(from_fn_with_state(Arc::new(geoip_db), geoip::middleware))
             })
-            .transpose()?,
+            .transpose()
+            .context("unable to init GeoIP")?,
     );
 
     // Denylist
-    let denylist_mw =
-        if cli.policy.policy_denylist_seed.is_some() || cli.policy.policy_denylist_url.is_some() {
-            let state = denylist::DenylistState::new(
-                cli.policy.policy_denylist_url.clone(),
-                cli.policy.policy_denylist_seed.clone(),
-                cli.policy.policy_denylist_allowlist.clone(),
-                http_client.clone(),
-                registry,
-            )?;
+    let denylist_mw = option_layer(
+        (cli.policy.policy_denylist_seed.is_some() || cli.policy.policy_denylist_url.is_some())
+            .then(|| -> Result<_, Error> {
+                let state = denylist::DenylistState::new(
+                    cli.policy.policy_denylist_url.clone(),
+                    cli.policy.policy_denylist_seed.clone(),
+                    cli.policy.policy_denylist_allowlist.clone(),
+                    http_client.clone(),
+                    registry,
+                )?;
 
-            // Only run periodic job if an URL was given
-            if cli.policy.policy_denylist_url.is_some() {
-                tasks.add_interval(
-                    "denylist_updater",
-                    Arc::new(state.clone()),
-                    cli.policy.policy_denylist_poll_interval,
-                );
-            }
+                // Only run periodic job if an URL was given
+                if cli.policy.policy_denylist_url.is_some() {
+                    tasks.add_interval(
+                        "denylist_updater",
+                        Arc::new(state.clone()),
+                        cli.policy.policy_denylist_poll_interval,
+                    );
+                }
 
-            Some(from_fn_with_state(state, denylist::middleware))
-        } else {
-            debug!("Running without denylist: neither a seed nor a URL has been specified.");
-            None
-        };
+                Ok(from_fn_with_state(state, denylist::middleware))
+            })
+            .transpose()
+            .context("unable to init Denylisting")?,
+    );
 
     // Domain-Canister Matching
     // CLI makes sure that domains_system is also set
-    let canister_match_mw = if !cli.domain.domain_app.is_empty() {
-        Some(from_fn_with_state(
-            canister_match::CanisterMatcherState::new(cli)?,
-            canister_match::middleware,
-        ))
-    } else {
-        debug!("Running without domain-canister matching.");
-        None
-    };
+    let canister_match_mw = option_layer(
+        (!cli.domain.domain_app.is_empty())
+            .then(|| -> Result<_, Error> {
+                Ok(from_fn_with_state(
+                    canister_match::CanisterMatcherState::new(cli)?,
+                    canister_match::middleware,
+                ))
+            })
+            .transpose()
+            .context("unable to init Domain-Canister matcher")?,
+    );
 
     // Metrics
     let metrics_state = Arc::new(metrics::HttpMetrics::new(
@@ -282,45 +286,41 @@ pub fn setup_router(
             cli.shed_system.shed_system_load_avg_15,
         ];
 
-        if opts.iter().any(|x| x.is_some()) {
+        opts.iter().any(|x| x.is_some()).then(|| {
             warn!("System load shedder enabled ({:?})", cli.shed_system);
 
-            Some(
-                ServiceBuilder::new()
-                    .layer(shed_map_response.clone())
-                    .layer(SystemLoadShedderLayer::new(
-                        cli.shed_system.shed_system_ewma,
-                        cli.shed_system.clone().into(),
-                        SystemInfo::new(),
-                    )),
-            )
-        } else {
-            None
-        }
+            ServiceBuilder::new()
+                .layer(shed_map_response.clone())
+                .layer(SystemLoadShedderLayer::new(
+                    cli.shed_system.shed_system_ewma,
+                    cli.shed_system.clone().into(),
+                    SystemInfo::new(),
+                ))
+        })
     });
 
-    let load_shedder_latency_mw =
-        option_layer(if !cli.shed_latency.shed_sharded_latency.is_empty() {
+    let load_shedder_latency_mw = option_layer(
+        (!cli.shed_latency.shed_sharded_latency.is_empty()).then(|| {
             warn!("Latency load shedder enabled ({:?})", cli.shed_latency);
 
-            Some(ServiceBuilder::new().layer(shed_map_response).layer(
+            ServiceBuilder::new().layer(shed_map_response).layer(
                 ShardedLittleLoadShedderLayer::new(ShardedOptions {
                     extractor: RequestTypeExtractor,
                     ewma_alpha: cli.shed_latency.shed_sharded_ewma,
                     passthrough_count: cli.shed_latency.shed_sharded_passthrough,
                     latencies: cli.shed_latency.shed_sharded_latency.clone(),
                 }),
-            ))
-        } else {
-            None
-        });
+            )
+        }),
+    );
 
     // Prepare the HTTP->IC library
-    let client = ic::setup(cli, http_client.clone(), route_provider.clone())?;
+    let ic_client = ic::setup(cli, http_client.clone(), route_provider.clone())
+        .context("unable to init IC client")?;
 
     // Prepare the states
     let state_handler = Arc::new(handler::HandlerState::new(
-        client,
+        ic_client,
         !cli.ic.ic_unsafe_disable_response_verification,
         cli.http_server.http_server_body_read_timeout,
         cli.ic.ic_request_max_size,
@@ -334,9 +334,11 @@ pub fn setup_router(
         cli.ic.ic_request_body_timeout,
     ));
 
+    let cors_base = cors::layer(cli.cors.cors_max_age, cli.cors.cors_allow_origin.clone());
+
     // Common CORS layers
-    let cors_post = cors::layer(&[Method::POST]);
-    let cors_get = cors::layer(&[Method::HEAD, Method::GET]);
+    let cors_post = cors_base.clone().allow_methods([Method::POST]);
+    let cors_get = cors_base.clone().allow_methods([Method::HEAD, Method::GET]);
 
     // IC API proxy routers
     let router_api_v2 = Router::new()
@@ -374,29 +376,51 @@ pub fn setup_router(
     );
 
     // Caching middleware
-    let cache_middleware = option_layer(if let Some(v) = cli.cache.cache_size {
-        let opts = Opts {
-            cache_size: v,
-            max_item_size: cli.cache.cache_max_item_size,
-            ttl: cli.cache.cache_ttl,
-            lock_timeout: cli.cache.cache_lock_timeout,
-            body_timeout: cli.cache.cache_body_timeout,
-            xfetch_beta: cli.cache.cache_xfetch_beta,
-            methods: vec![Method::GET],
-        };
+    let cache_middleware = option_layer(
+        cli.cache
+            .cache_size
+            .map(|v| -> Result<_, Error> {
+                let opts = Opts {
+                    cache_size: v,
+                    max_item_size: cli.cache.cache_max_item_size,
+                    ttl: cli.cache.cache_ttl,
+                    lock_timeout: cli.cache.cache_lock_timeout,
+                    body_timeout: cli.cache.cache_body_timeout,
+                    xfetch_beta: cli.cache.cache_xfetch_beta,
+                    methods: vec![Method::GET],
+                };
 
-        let cache = Arc::new(Cache::new(opts, KeyExtractorUriRange, registry)?);
-        tasks.add_interval("cache", cache.clone(), Duration::from_secs(5));
-        Some(from_fn_with_state(cache, cache::middleware))
+                let cache = Arc::new(Cache::new(opts, KeyExtractorUriRange, registry)?);
+                tasks.add_interval("cache", cache.clone(), Duration::from_secs(5));
+                Ok(from_fn_with_state(cache, cache::middleware))
+            })
+            .transpose()
+            .context("unable to init cache")?,
+    );
+
+    // Use either static CORS layer or a dynamic one
+    let cors_http = if cli.cors.cors_canister_passthrough {
+        Either::E1(from_fn_with_state(
+            Arc::new(
+                cors::CorsStateHttp::new(
+                    cli.cors.cors_invalid_canisters_max,
+                    cli.cors.cors_invalid_canisters_ttl,
+                    cli.cors.cors_allow_origin.clone(),
+                    cli.cors.cors_max_age,
+                )
+                .context("unable to init CORS")?,
+            ),
+            cors::middleware,
+        ))
     } else {
-        warn!("Running without HTTP cache");
-        None
-    });
+        Either::E2(cors_base.clone().allow_methods(cors::ALLOW_METHODS_HTTP))
+    };
 
     // Layers for the main HTTP->IC route
     let http_layers = ServiceBuilder::new()
-        .layer(option_layer(denylist_mw))
-        .layer(option_layer(canister_match_mw))
+        .layer(cors_http)
+        .layer(denylist_mw)
+        .layer(canister_match_mw)
         .layer(cache_middleware);
 
     let router_http = Router::new().fallback(
@@ -405,14 +429,7 @@ pub fn setup_router(
             .put(handler::handler)
             .delete(handler::handler)
             .patch(handler::handler)
-            .layer(cors::http_gw_layer(&[
-                Method::HEAD,
-                Method::GET,
-                Method::POST,
-                Method::PUT,
-                Method::DELETE,
-                Method::PATCH,
-            ]))
+            .options(handler::handler)
             .layer(http_layers)
             .with_state(state_handler),
     );
@@ -433,7 +450,7 @@ pub fn setup_router(
                 get(proxy::issuer_proxy)
                     .put(proxy::issuer_proxy)
                     .delete(proxy::issuer_proxy)
-                    .layer(cors::layer(&[
+                    .layer(cors_base.allow_methods([
                         Method::HEAD,
                         Method::GET,
                         Method::PUT,

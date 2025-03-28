@@ -4,6 +4,7 @@ use std::{
     time::Duration,
 };
 
+use ::http::HeaderValue;
 use clap::{Args, Parser};
 use fqdn::FQDN;
 use hickory_resolver::config::CLOUDFLARE_IPS;
@@ -20,7 +21,7 @@ use reqwest::Url;
 
 use crate::{
     core::{AUTHOR_NAME, SERVICE_NAME},
-    routing::{domain::CanisterAlias, RequestType},
+    routing::{RequestType, domain::CanisterAlias},
 };
 
 /// Clap does not support prefixes due to macro limitations.
@@ -69,6 +70,9 @@ pub struct Cli {
 
     #[command(flatten, next_help_heading = "Misc")]
     pub misc: Misc,
+
+    #[command(flatten, next_help_heading = "CORS")]
+    pub cors: Cors,
 
     #[command(flatten, next_help_heading = "Cache")]
     pub cache: CacheConfig,
@@ -514,6 +518,30 @@ pub struct CacheConfig {
     /// Value of 0.0 would effectively disable the x-fetch algorithm.
     #[clap(env, long, default_value = "3.0")]
     pub cache_xfetch_beta: f64,
+}
+
+#[derive(Args)]
+pub struct Cors {
+    /// Default value for Access-Control-Allow-Origin header
+    #[clap(env, long, default_value = "*")]
+    pub cors_allow_origin: Vec<HeaderValue>,
+
+    /// Default value for Access-Control-Max-Age header. Usually capped to 2h by the browser.
+    #[clap(env, long, default_value = "2h", value_parser = parse_duration)]
+    pub cors_max_age: Duration,
+
+    /// Whether to forward CORS requests to the canisters.
+    /// If the CORS reply from the canister is incorrect then it will be replaced with a default one.
+    #[clap(env, long)]
+    pub cors_canister_passthrough: bool,
+
+    /// Maximum number of canisters to cache that replied incorrectly to the OPTIONS request
+    #[clap(env, long, default_value = "1000000")]
+    pub cors_invalid_canisters_max: u64,
+
+    /// Timeout for expiring invalid canisters from the cache
+    #[clap(env, long, default_value = "1d", value_parser = parse_duration)]
+    pub cors_invalid_canisters_ttl: Duration,
 }
 
 // Some conversions
