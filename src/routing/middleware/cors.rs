@@ -520,7 +520,10 @@ mod test {
             ACCESS_CONTROL_ALLOW_HEADERS,
             HeaderValue::from_static("foo"),
         );
-        assert!(is_valid_preflight_response(&r));
+    assert!(
+        is_valid_preflight_response(&r),
+        "Expected valid preflight response, but it was invalid"
+    );
 
         // Check no headers
         let r = Response::new(Body::empty());
