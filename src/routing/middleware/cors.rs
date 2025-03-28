@@ -291,7 +291,7 @@ mod test {
 
         let canister_id = CanisterId(principal!("aaaaa-aa"));
 
-        // Check that the existing response headers are not overriden
+        // Check that the existing response headers are not overridden
         let router = Router::new()
             .fallback(|req: Request| async move {
                 let mut resp = Response::new(Body::empty());
