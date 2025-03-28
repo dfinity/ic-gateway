@@ -524,7 +524,10 @@ mod test {
 
         // Check no headers
         let r = Response::new(Body::empty());
-        assert!(!is_valid_preflight_response(&r));
+    assert!(
+        !is_valid_preflight_response(&r),
+        "Expected invalid preflight response due to missing headers, but it was valid"
+    );
 
         // Check non-empty body
         let mut r = Response::new(Body::new(http_body_util::Full::new(Bytes::from_static(
