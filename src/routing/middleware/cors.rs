@@ -542,6 +542,9 @@ mod test {
         // Check bad status
         let mut r = Response::new(Body::empty());
         *r.status_mut() = StatusCode::METHOD_NOT_ALLOWED;
-        assert!(!is_valid_preflight_response(&r));
+    assert!(
+        !is_valid_preflight_response(&r),
+        "Expected invalid preflight response due to "non-success" status code, but it was valid"
+    );
     }
 }
