@@ -102,7 +102,7 @@ impl HttpMetrics {
             "cache_status",
             "cache_bypass_reason",
             "response_verification_version",
-            "backend",
+            "upstream",
         ];
 
         Self {
@@ -374,7 +374,7 @@ pub async fn middleware(
                 conn_reqs = conn_req_count,
                 cache_status = cache_status_str,
                 cache_bypass_reason = cache_bypass_reason_str,
-                backend = req_meta.backend,
+                upstream = req_meta.backend,
             );
         }
 
@@ -419,6 +419,7 @@ pub async fn middleware(
                 duration_conn: conn_info.accepted_at.elapsed().as_secs_f64(),
                 cache_status: cache_status_str,
                 cache_bypass_reason: cache_bypass_reason_str,
+                upstream: backend_host.into(),
             };
 
             v.send(row);
