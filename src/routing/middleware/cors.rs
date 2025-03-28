@@ -537,7 +537,10 @@ mod test {
             ACCESS_CONTROL_ALLOW_HEADERS,
             HeaderValue::from_static("foo"),
         );
-        assert!(!is_valid_preflight_response(&r));
+    assert!(
+        !is_valid_preflight_response(&r),
+        "Expected invalid preflight response due to non-empty body, but it was valid"
+    );
 
         // Check bad status
         let mut r = Response::new(Body::empty());
