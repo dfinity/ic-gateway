@@ -53,6 +53,7 @@ pub struct Row {
     pub duration_conn: f64,
     pub cache_status: &'static str,
     pub cache_bypass_reason: &'static str,
+    pub upstream: String,
 }
 
 pub struct Clickhouse {
