@@ -191,12 +191,12 @@ mod tests {
                 ];
 
                 // Execute all tests
-                for (delay_ms, expected_status) in test_cases {
+                for (idx, (delay_ms, expected_status)) in test_cases.into_iter().enumerate() {
                     if delay_ms > 0 {
                         sleep(Duration::from_millis(delay_ms)).await;
                     }
                     let result = send_request(&mut app).await.unwrap();
-                    assert_eq!(result.status(), expected_status);
+                    assert_eq!(result.status(), expected_status, "test {idx} failed");
                     if expected_status == StatusCode::TOO_MANY_REQUESTS {
                         let body = to_bytes(result.into_body(), 100).await.unwrap().to_vec();
                         assert!(body.starts_with(b"error: rate_limited\n"));
