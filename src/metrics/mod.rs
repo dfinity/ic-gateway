@@ -102,6 +102,7 @@ impl HttpMetrics {
             "cache_status",
             "cache_bypass_reason",
             "response_verification_version",
+            "upstream",
         ];
 
         Self {
@@ -287,6 +288,11 @@ pub async fn middleware(
             .clone()
             .map_or_else(String::new, |x| x.to_string());
 
+        let backend_host = req_meta.backend
+            .as_ref()
+            .and_then(|s| s.split_once(':').map(|(host, _)| host))
+            .unwrap_or_default();
+
         let labels = &[
             tls_version,
             method,
@@ -296,6 +302,7 @@ pub async fn middleware(
             cache_status_str,
             cache_bypass_reason_str,
             &response_verification_version,
+            backend_host,
         ];
 
         // Update metrics
@@ -367,7 +374,7 @@ pub async fn middleware(
                 conn_reqs = conn_req_count,
                 cache_status = cache_status_str,
                 cache_bypass_reason = cache_bypass_reason_str,
-                backend = req_meta.backend,
+                upstream = backend_host,
             );
         }
 
@@ -412,6 +419,7 @@ pub async fn middleware(
                 duration_conn: conn_info.accepted_at.elapsed().as_secs_f64(),
                 cache_status: cache_status_str,
                 cache_bypass_reason: cache_bypass_reason_str,
+                upstream: backend_host.into(),
             };
 
             v.send(row);
@@ -459,7 +467,7 @@ pub async fn middleware(
                 "cache_status": resp_meta.cache_status,
                 "cache_status_nginx": cache_status_str,
                 "cache_bypass_reason": resp_meta.cache_bypass_reason,
-                "upstream": req_meta.backend.unwrap_or_default(),
+                "upstream": backend_host,
             });
 
             v.send(val);
