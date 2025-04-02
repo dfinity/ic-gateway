@@ -374,7 +374,7 @@ pub async fn middleware(
                 conn_reqs = conn_req_count,
                 cache_status = cache_status_str,
                 cache_bypass_reason = cache_bypass_reason_str,
-                upstream = req_meta.backend,
+                upstream = backend_host,
             );
         }
 
@@ -467,7 +467,7 @@ pub async fn middleware(
                 "cache_status": resp_meta.cache_status,
                 "cache_status_nginx": cache_status_str,
                 "cache_bypass_reason": resp_meta.cache_bypass_reason,
-                "upstream": req_meta.backend.unwrap_or_default(),
+                "upstream": backend_host,
             });
 
             v.send(val);
