@@ -1,4 +1,3 @@
-use std::str::FromStr as _;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::{sync::Arc, time::Duration};
 
@@ -53,18 +52,16 @@ async fn get_custom_domains_from_url(
         .context("unable to fetch custom domains list JSON")?;
 
     // TODO use fqdn's crate serde when it's fixed
-    let domains: HashMap<String, Principal> =
+    let domains: HashMap<FQDN, Principal> =
         serde_json::from_slice(&body).context("failed to parse JSON body")?;
 
-    domains
+    Ok(domains
         .into_iter()
-        .map(|(k, v)| -> Result<CustomDomain, Error> {
-            Ok(CustomDomain {
-                name: FQDN::from_str(&k)?,
-                canister_id: v,
-            })
+        .map(|(k, v)| CustomDomain {
+            name: k,
+            canister_id: v,
         })
-        .collect::<Result<Vec<_>, _>>()
+        .collect::<Vec<_>>())
 }
 
 #[derive(new)]
@@ -108,12 +105,12 @@ impl ProvidesCustomDomains for GenericProviderTimestamped {
         let resp: TimestampedResponse = serde_json::from_slice(&body)
             .context("unable to parse response as TimestampedResponse")?;
 
+        // Swap the timestamps, get the old one
         let ts = self.timestamp.swap(resp.timestamp, Ordering::SeqCst);
-        let cache = self.cache.load_full();
 
         // Return the cached value if we have one & the timestamps are the same
         if ts == resp.timestamp {
-            if let Some(v) = cache {
+            if let Some(v) = self.cache.load_full() {
                 return Ok(v.as_ref().clone());
             }
         }
@@ -126,6 +123,8 @@ impl ProvidesCustomDomains for GenericProviderTimestamped {
             self.url,
             domains.len()
         );
+
+        // Store the new version in cache
         self.cache.store(Some(Arc::new(domains.clone())));
 
         Ok(domains)
