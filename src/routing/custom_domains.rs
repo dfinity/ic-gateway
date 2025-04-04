@@ -14,6 +14,7 @@ use fqdn::FQDN;
 use ic_bn_lib::http;
 use reqwest::{Method, Request, Url};
 use serde::Deserialize;
+use tracing::warn;
 
 use crate::routing::domain::{CustomDomain, ProvidesCustomDomains};
 
@@ -111,13 +112,20 @@ impl ProvidesCustomDomains for GenericProviderTimestamped {
         let cache = self.cache.load_full();
 
         // Return the cached value if we have one & the timestamps are the same
-        if ts == resp.timestamp && cache.is_some() {
-            return Ok(cache.unwrap().as_ref().clone());
+        if ts == resp.timestamp {
+            if let Some(v) = cache {
+                return Ok(v.as_ref().clone());
+            }
         }
 
         // Otherwise fetch a fresh version from the provided URL
         let url = Url::parse(&resp.url).context("unable to parse source URL")?;
         let domains = get_custom_domains_from_url(&self.http_client, &url, self.timeout).await?;
+        warn!(
+            "GenericProviderTimestamped({}): got new set of domains ({})",
+            self.url,
+            domains.len()
+        );
         self.cache.store(Some(Arc::new(domains.clone())));
 
         Ok(domains)
@@ -256,6 +264,29 @@ mod test {
         );
 
         // Check that 3rd call provides different set
+        let domains: Vec<CustomDomain> = prov
+            .get_custom_domains()
+            .await
+            .unwrap()
+            .into_iter()
+            .sorted_by_key(|x| x.name.clone())
+            .collect();
+
+        assert_eq!(
+            domains,
+            vec![
+                CustomDomain {
+                    name: fqdn!("bar.foos"),
+                    canister_id: principal!("qoctq-giaaa-aaaaa-aaaea-cai")
+                },
+                CustomDomain {
+                    name: fqdn!("foo.barr"),
+                    canister_id: principal!("aaaaa-aa")
+                },
+            ]
+        );
+
+        // Check that 4th call provides same set again
         let domains: Vec<CustomDomain> = prov
             .get_custom_domains()
             .await
