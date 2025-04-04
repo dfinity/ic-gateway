@@ -76,8 +76,7 @@ time = { version = "0.3.36", features = ["macros", "serde"] }
 tokio = { version = "1.44.0", features = ["full", "tracing"] }
 tokio-util = { version = "0.7.12", features = ["full"] }
 tower = { version = "0.5.1", features = ["limit"] }
-# axum 0.8 support not yet released, use git
-tower_governor = { git = "https://github.com/benwis/tower-governor", rev = "bc9a6eacafcaec1e732886ceae8ae324bbd327df" }
+tower_governor = { version = "0.7" }
 tower-http = { version = "0.6.1", features = ["cors", "compression-full"] }
 tracing = "0.1.40"
 tracing-core = "0.1.32"

@@ -1,6 +1,6 @@
 use std::sync::{Arc, OnceLock};
 
-use anyhow::{anyhow, Context, Error};
+use anyhow::{Context, Error, anyhow};
 use axum::Router;
 use ic_bn_lib::{http, tasks::TaskManager, tls::prepare_client_config};
 use itertools::Itertools;
@@ -124,6 +124,21 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
             cli.domain.domain_custom_provider_timeout,
         )) as Arc<dyn ProvidesCustomDomains>
     }));
+
+    custom_domain_providers.extend(
+        cli.domain
+            .domain_custom_provider_timestamped
+            .iter()
+            .map(|x| {
+                warn!("Adding timestamped custom domain provider: {x}");
+
+                Arc::new(routing::custom_domains::GenericProviderTimestamped::new(
+                    http_client.clone(),
+                    x.clone(),
+                    cli.domain.domain_custom_provider_timeout,
+                )) as Arc<dyn ProvidesCustomDomains>
+            }),
+    );
 
     let route_provider = setup_route_provider(cli, reqwest_client).await?;
 
