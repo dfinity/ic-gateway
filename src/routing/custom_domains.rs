@@ -51,7 +51,6 @@ async fn get_custom_domains_from_url(
         .await
         .context("unable to fetch custom domains list JSON")?;
 
-    // TODO use fqdn's crate serde when it's fixed
     let domains: HashMap<FQDN, Principal> =
         serde_json::from_slice(&body).context("failed to parse JSON body")?;
 
