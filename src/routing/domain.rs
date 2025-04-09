@@ -11,7 +11,7 @@ use candid::Principal;
 use fqdn::{FQDN, Fqdn, fqdn};
 use ic_bn_lib::tasks::Run;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 #[macro_export]
 macro_rules! principal {
@@ -130,7 +130,7 @@ impl CustomDomainStorage {
 
         // Check if the new set is different
         if snapshot == snapshot_old {
-            debug!("CustomDomainStorage: certs haven't changed, not updating");
+            debug!("CustomDomainStorage: domains haven't changed, not updating");
             return;
         }
 
