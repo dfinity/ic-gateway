@@ -11,7 +11,7 @@ use candid::Principal;
 use fqdn::{FQDN, Fqdn, fqdn};
 use ic_bn_lib::tasks::Run;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 #[macro_export]
 macro_rules! principal {
