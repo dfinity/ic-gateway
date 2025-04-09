@@ -1,14 +1,15 @@
 use std::{cell::RefCell, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
-use http::StatusCode;
-use ic_agent::{agent::HttpService, AgentError};
+use ic_agent::{AgentError, agent::HttpService};
 use ic_bn_lib::http::Client as HttpClient;
 use reqwest::{
-    header::{HeaderMap, HeaderValue},
     Request, Response,
+    header::{HeaderMap, HeaderValue},
 };
 use tokio::task_local;
+
+use crate::routing::proxy::{reqwest_error_needs_retrying, status_code_needs_retrying};
 
 pub struct Context {
     pub hostname: Option<String>,
@@ -87,9 +88,7 @@ impl HttpService for AgentHttpService {
 
             match self.execute(request).await {
                 Ok(v) => {
-                    let s = v.status();
-                    let should_retry =
-                        (s == StatusCode::TOO_MANY_REQUESTS || s.is_server_error()) && retries > 0;
+                    let should_retry = status_code_needs_retrying(v.status()) && retries > 0;
 
                     if !should_retry {
                         return Ok(v);
@@ -97,7 +96,7 @@ impl HttpService for AgentHttpService {
                 }
 
                 Err(e) => {
-                    let should_retry = (e.is_connect() || e.is_timeout()) && retries > 0;
+                    let should_retry = reqwest_error_needs_retrying(&e) && retries > 0;
                     if should_retry {
                         return Err(AgentError::TransportError(e));
                     }

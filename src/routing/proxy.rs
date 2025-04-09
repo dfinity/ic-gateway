@@ -1,7 +1,7 @@
 use std::{
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     },
     time::Duration,
 };
@@ -15,15 +15,15 @@ use candid::Principal;
 use derive_new::new;
 use futures::TryFutureExt;
 use http::{
-    header::{CONTENT_TYPE, X_CONTENT_TYPE_OPTIONS, X_FRAME_OPTIONS},
     StatusCode,
+    header::{CONTENT_TYPE, X_CONTENT_TYPE_OPTIONS, X_FRAME_OPTIONS},
 };
 use ic_agent::agent::route_provider::RouteProvider;
 use ic_bn_lib::http::{
+    Client, Error as IcBnError,
     body::buffer_body,
     headers::{CONTENT_TYPE_CBOR, X_CONTENT_TYPE_OPTIONS_NO_SNIFF, X_FRAME_OPTIONS_DENY},
     proxy::proxy,
-    Client, Error as IcBnError,
 };
 use regex::Regex;
 use tokio::time::sleep;
@@ -53,10 +53,21 @@ fn url_join(mut base: Url, mut path: &str) -> Result<Url, url::ParseError> {
     base.join(path)
 }
 
+pub fn status_code_needs_retrying(s: http::StatusCode) -> bool {
+    s == StatusCode::TOO_MANY_REQUESTS || s.is_server_error()
+}
+
+pub fn reqwest_error_needs_retrying(e: &reqwest::Error) -> bool {
+    e.is_connect() || e.is_timeout()
+}
+
 // Check if we need to retry the request based on the response that we got
-fn request_needs_retrying(response: &Response) -> bool {
-    let status = response.status();
-    status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error()
+fn request_needs_retrying(result: &Result<Response, IcBnError>) -> bool {
+    match result {
+        Ok(v) => status_code_needs_retrying(v.status()),
+        Err(IcBnError::RequestFailed(e)) => reqwest_error_needs_retrying(e),
+        _ => false,
+    }
 }
 
 #[derive(new)]
@@ -94,13 +105,10 @@ pub async fn api_proxy(
         .map_err(|e| ErrorCause::ClientBodyError(e.to_string()))
         .await?;
 
-    let mut response_last: Option<Response> = None;
-    let mut error_last: Option<IcBnError> = None;
-
     let mut retry_interval = state.retry_interval;
     let mut retries = state.retries;
 
-    while retries > 0 {
+    let outcome = loop {
         // Pick the next URL, wrapping around if not enough are available
         let idx = (state.retries - retries) % urls.len();
         let url = urls[idx].clone();
@@ -112,59 +120,41 @@ pub async fn api_proxy(
         let request = Request::from_parts(parts.clone(), Body::from(body.clone()));
 
         // Proxy the request
-        match proxy(url, request, &state.http_client).await {
-            Ok(v) => {
-                let needs_retrying = request_needs_retrying(&v);
-                response_last = Some(v);
-
-                if !needs_retrying {
-                    break;
-                }
-            }
-
-            Err(e) => {
-                let needs_retrying = if let IcBnError::RequestFailed(re) = &e {
-                    re.is_connect() || re.is_timeout()
-                } else {
-                    false
-                };
-                error_last = Some(e);
-
-                if !needs_retrying {
-                    break;
-                }
-            }
-        };
+        let result = proxy(url, request, &state.http_client).await;
+        if !request_needs_retrying(&result) {
+            break result;
+        }
 
         sleep(retry_interval).await;
         retry_interval *= 2;
         retries -= 1;
-    }
 
-    // If there was some response - use it
-    if let Some(mut response) = response_last {
-        // Set the correct content-type for all replies if it's not an error
-        // The replica and the API boundary nodes should set these headers. This is just for redundancy.
-        if response.status().is_success() {
-            response
-                .headers_mut()
-                .insert(CONTENT_TYPE, CONTENT_TYPE_CBOR);
-            response
-                .headers_mut()
-                .insert(X_CONTENT_TYPE_OPTIONS, X_CONTENT_TYPE_OPTIONS_NO_SNIFF);
-            response
-                .headers_mut()
-                .insert(X_FRAME_OPTIONS, X_FRAME_OPTIONS_DENY);
+        if retries == 0 {
+            break result;
+        }
+    };
+
+    match outcome {
+        // If there was some response - use it
+        Ok(mut v) => {
+            // Set the correct content-type for all replies if it's not an error
+            // The replica and the API boundary nodes should set these headers. This is just for redundancy.
+            if v.status().is_success() {
+                v.headers_mut().insert(CONTENT_TYPE, CONTENT_TYPE_CBOR);
+                v.headers_mut()
+                    .insert(X_CONTENT_TYPE_OPTIONS, X_CONTENT_TYPE_OPTIONS_NO_SNIFF);
+                v.headers_mut()
+                    .insert(X_FRAME_OPTIONS, X_FRAME_OPTIONS_DENY);
+            }
+
+            let bn_metadata = BNResponseMetadata::from(v.headers_mut());
+            v.extensions_mut().insert(bn_metadata);
+            v.extensions_mut().insert(matched_path);
+            Ok(v)
         }
 
-        let bn_metadata = BNResponseMetadata::from(response.headers_mut());
-        response.extensions_mut().insert(bn_metadata);
-        response.extensions_mut().insert(matched_path);
-        return Ok(response);
+        Err(e) => Err(ErrorCause::from_backend_error(e)),
     }
-
-    // Otherwise there should be an error
-    Err(ErrorCause::from_backend_error(error_last.unwrap()))
 }
 
 #[derive(new)]
@@ -211,7 +201,7 @@ pub async fn issuer_proxy(
 
 #[cfg(test)]
 mod test {
-    use axum::{body::to_bytes, Router};
+    use axum::{Router, body::to_bytes};
     use http::{Method, Uri};
     use ic_agent::agent::route_provider::RoundRobinRouteProvider;
     use ic_bn_lib::http::Client;
