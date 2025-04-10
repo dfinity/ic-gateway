@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 
 use ahash::HashMap;
 use anyhow::Error;
-use anyhow::{anyhow, Context as AnyhowContext};
+use anyhow::{Context as AnyhowContext, anyhow};
 use async_trait::async_trait;
 use candid::Principal;
 use derive_new::new;
@@ -13,7 +13,7 @@ use reqwest::{Method, Request, StatusCode, Url};
 
 use crate::routing::domain::{CustomDomain, ProvidesCustomDomains};
 
-#[derive(new)]
+#[derive(new, Debug)]
 pub struct GenericProvider {
     http_client: Arc<dyn http::Client>,
     url: Url,
