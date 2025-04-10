@@ -1,16 +1,15 @@
 pub mod providers;
 pub mod storage;
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
-use anyhow::{anyhow, Error};
+use anyhow::{Error, anyhow};
 use async_trait::async_trait;
 use ic_bn_lib::{
     tasks::Run,
     tls::{extract_sans_der, pem_convert_to_rustls},
 };
 use rustls::sign::CertifiedKey;
-use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 
@@ -77,7 +76,6 @@ impl Eq for AggregatorSnapshot {}
 pub struct Aggregator {
     providers: Vec<Arc<dyn ProvidesCertificates>>,
     storage: Arc<dyn StoresCertificates<Arc<CertifiedKey>>>,
-    // Mutex here only to make it Sync
     snapshot: Mutex<AggregatorSnapshot>,
 }
 
@@ -110,13 +108,17 @@ impl Aggregator {
                 Ok(pem) => {
                     // Try to parse them first to make sure they're valid
                     match parse_pem(&pem) {
-                        Ok(parsed) => {
+                        Ok(mut parsed) => {
+                            parsed.sort_by(|a, b| a.san.cmp(&b.san));
+
                             // Update the entries in the snapshot
                             snapshot.pem[i] = Some(pem);
                             snapshot.parsed[i] = Some(parsed);
-                        },
+                        }
 
-                        Err(e) => warn!("CertAggregator: failed to parse certificates from provider {p:?}: {e:#}"),
+                        Err(e) => warn!(
+                            "CertAggregator: failed to parse certificates from provider {p:?}: {e:#}"
+                        ),
                     }
                 }
 
@@ -130,8 +132,7 @@ impl Aggregator {
     #[allow(clippy::significant_drop_tightening)]
     async fn refresh(&self) {
         // Get a snapshot of current data to update
-        let mut snapshot_lock = self.snapshot.lock().await;
-        let snapshot_old = snapshot_lock.clone();
+        let snapshot_old = self.snapshot.lock().unwrap().clone();
 
         // Fetch new certificates on top of the old snapshot
         let snapshot = self.fetch(snapshot_old.clone()).await;
@@ -154,7 +155,7 @@ impl Aggregator {
         }
 
         // Store the new snapshot
-        *snapshot_lock = snapshot;
+        *self.snapshot.lock().unwrap() = snapshot;
 
         // Publish to storage
         if let Err(e) = self.storage.store(certs) {
@@ -297,6 +298,16 @@ pub mod test {
         }
     }
 
+    #[derive(Debug)]
+    struct TestProviderBroken;
+
+    #[async_trait]
+    impl ProvidesCertificates for TestProviderBroken {
+        async fn get_certificates(&self) -> Result<Vec<Pem>, Error> {
+            Err(anyhow!("I'm dead"))
+        }
+    }
+
     #[test]
     fn test_pem_convert_to_certkey() -> Result<(), Error> {
         let cert = pem_convert_to_certkey(KEY_1, CERT_1)?;
@@ -327,10 +338,17 @@ pub mod test {
             None,
             storage::Metrics::new(&Registry::new()),
         ));
-        let aggregator = Aggregator::new(vec![Arc::new(prov1), Arc::new(prov2)], storage);
+        let aggregator = Aggregator::new(
+            vec![
+                Arc::new(prov1),
+                Arc::new(prov2),
+                Arc::new(TestProviderBroken),
+            ],
+            storage,
+        );
         aggregator.refresh().await;
 
-        let certs = aggregator.snapshot.lock().await.clone().flatten();
+        let certs = aggregator.snapshot.lock().unwrap().clone().flatten();
         assert_eq!(certs.len(), 2);
         assert_eq!(certs[0].san, vec!["novg"]);
         assert_eq!(certs[1].san, vec!["3658153f27e0"]);
@@ -338,7 +356,7 @@ pub mod test {
         // The providers will fail on the 2nd request, make sure the snapshot stays the same
         aggregator.refresh().await;
 
-        let certs = aggregator.snapshot.lock().await.clone().flatten();
+        let certs = aggregator.snapshot.lock().unwrap().clone().flatten();
         assert_eq!(certs.len(), 2);
         assert_eq!(certs[0].san, vec!["novg"]);
         assert_eq!(certs[1].san, vec!["3658153f27e0"]);

@@ -1,19 +1,21 @@
-use std::{collections::BTreeMap, str::FromStr, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    str::FromStr,
+    sync::{Arc, Mutex},
+};
 
-use anyhow::{anyhow, Context, Error};
+use anyhow::{Context, Error, anyhow};
 use arc_swap::ArcSwapOption;
 use async_trait::async_trait;
 use candid::Principal;
-use derive_new::new;
-use fqdn::{fqdn, Fqdn, FQDN};
+use fqdn::{FQDN, Fqdn, fqdn};
 use ic_bn_lib::tasks::Run;
 use tokio_util::sync::CancellationToken;
+use tracing::{debug, warn};
 
 #[macro_export]
 macro_rules! principal {
-    ($id:expr) => {{
-        Principal::from_text($id).unwrap()
-    }};
+    ($id:expr) => {{ Principal::from_text($id).unwrap() }};
 }
 
 /// Domain entity with certain metadata
@@ -49,7 +51,7 @@ pub struct CustomDomain {
 
 // Provides a list of custom domains
 #[async_trait]
-pub trait ProvidesCustomDomains: Sync + Send {
+pub trait ProvidesCustomDomains: Sync + Send + std::fmt::Debug {
     async fn get_custom_domains(&self) -> Result<Vec<CustomDomain>, Error>;
 }
 
@@ -85,50 +87,89 @@ impl FromStr for CanisterAlias {
 struct CustomDomainStorageInner(BTreeMap<FQDN, DomainLookup>);
 
 /// Custom domain storage.
-/// Fetches custom domains from several providers and stores them as `DomainLookups`
-#[derive(new)]
+/// Fetches custom domains from several providers and stores them as `DomainLookup`
 pub struct CustomDomainStorage {
     providers: Vec<Arc<dyn ProvidesCustomDomains>>,
-    #[new(default)]
     inner: ArcSwapOption<CustomDomainStorageInner>,
+    snapshot: Mutex<Vec<Option<Vec<CustomDomain>>>>,
 }
 
 impl CustomDomainStorage {
-    async fn refresh(&self) -> Result<(), Error> {
-        let mut buf = vec![];
-        for p in &self.providers {
-            buf.push(p.get_custom_domains().await?);
+    pub fn new(providers: Vec<Arc<dyn ProvidesCustomDomains>>) -> Self {
+        Self {
+            inner: ArcSwapOption::empty(),
+            snapshot: Mutex::new(vec![None; providers.len()]),
+            providers,
+        }
+    }
+
+    // Fetches the new set of domains from each provider on top of the provided snapshot
+    async fn fetch(
+        &self,
+        mut snapshot: Vec<Option<Vec<CustomDomain>>>,
+    ) -> Vec<Option<Vec<CustomDomain>>> {
+        for (i, p) in self.providers.iter().enumerate() {
+            match p.get_custom_domains().await {
+                Ok(mut v) => {
+                    v.sort_by(|a, b| a.name.cmp(&b.name));
+                    snapshot[i] = Some(v);
+                }
+
+                Err(e) => {
+                    warn!("CustomDomainStorage: unable to fetch domains from provider '{p:?}': {e}")
+                }
+            }
         }
 
-        let domains = buf.into_iter().flatten().map(|x| {
-            (
-                x.name.clone(),
-                DomainLookup {
-                    domain: Domain {
-                        name: x.name,
-                        custom: true,
-                        http: true,
-                        api: true,
+        snapshot
+    }
+
+    async fn refresh(&self) {
+        let snapshot_old = self.snapshot.lock().unwrap().clone();
+        let snapshot = self.fetch(snapshot_old.clone()).await;
+
+        // Check if the new set is different
+        if snapshot == snapshot_old {
+            debug!("CustomDomainStorage: domains haven't changed, not updating");
+            return;
+        }
+
+        // Store the new snapshot
+        *self.snapshot.lock().unwrap() = snapshot.clone();
+
+        // Convert the snapshot into new lookup structure
+        let domains = snapshot
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|x| {
+                (
+                    x.name.clone(),
+                    DomainLookup {
+                        domain: Domain {
+                            name: x.name,
+                            custom: true,
+                            http: true,
+                            api: true,
+                        },
+                        canister_id: Some(x.canister_id),
+                        verify: true,
                     },
-                    canister_id: Some(x.canister_id),
-                    verify: true,
-                },
-            )
-        });
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
 
-        let inner = CustomDomainStorageInner(domains.collect::<BTreeMap<_, _>>());
+        // Store it
+        let inner = CustomDomainStorageInner(domains);
         self.inner.store(Some(Arc::new(inner)));
-
-        Ok(())
     }
 }
 
 #[async_trait]
 impl Run for CustomDomainStorage {
     async fn run(&self, _: CancellationToken) -> Result<(), Error> {
-        self.refresh()
-            .await
-            .context("unable to refresh custom domains")
+        self.refresh().await;
+        Ok(())
     }
 }
 
@@ -307,12 +348,23 @@ mod test {
         Ok(())
     }
 
+    #[derive(Debug)]
     struct TestCustomDomainProvider(CustomDomain);
 
     #[async_trait]
     impl ProvidesCustomDomains for TestCustomDomainProvider {
         async fn get_custom_domains(&self) -> Result<Vec<CustomDomain>, Error> {
             Ok(vec![self.0.clone()])
+        }
+    }
+
+    #[derive(Debug)]
+    struct TestCustomDomainProviderBroken;
+
+    #[async_trait]
+    impl ProvidesCustomDomains for TestCustomDomainProviderBroken {
+        async fn get_custom_domains(&self) -> Result<Vec<CustomDomain>, Error> {
+            Err(anyhow!("I'm dead"))
         }
     }
 
@@ -334,9 +386,12 @@ mod test {
             canister_id: principal!(TEST_CANISTER_ID),
         });
 
-        let custom_domain_storage =
-            CustomDomainStorage::new(vec![Arc::new(custom_domain_provider)]);
-        custom_domain_storage.refresh().await?;
+        // Add one working and one broken provider to make sure that broken one doesn't affect the outcome
+        let custom_domain_storage = CustomDomainStorage::new(vec![
+            Arc::new(custom_domain_provider),
+            Arc::new(TestCustomDomainProviderBroken),
+        ]);
+        custom_domain_storage.refresh().await;
 
         let resolver = DomainResolver::new(
             domains_base.clone(),

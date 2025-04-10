@@ -63,7 +63,53 @@ async fn get_custom_domains_from_url(
         .collect::<Vec<_>>())
 }
 
-#[derive(new)]
+// Gets the body of the given URL
+async fn get_url_body(
+    cli: &Arc<dyn http::Client>,
+    url: &Url,
+    timeout: Duration,
+) -> Result<Bytes, Error> {
+    let mut req = Request::new(Method::GET, url.clone());
+    *req.timeout_mut() = Some(timeout);
+
+    let response = cli
+        .execute(req)
+        .await
+        .context("failed to make HTTP request")?;
+
+    if !response.status().is_success() {
+        return Err(anyhow!("unsuccessful response code: {}", response.status()));
+    }
+
+    response
+        .bytes()
+        .await
+        .context("failed to fetch response body")
+}
+
+// Fetches a list of custom domains from the given URL in JSON format
+async fn get_custom_domains_from_url(
+    cli: &Arc<dyn http::Client>,
+    url: &Url,
+    timeout: Duration,
+) -> Result<Vec<CustomDomain>, Error> {
+    let body = get_url_body(cli, url, timeout)
+        .await
+        .context("unable to fetch custom domains list JSON")?;
+
+    let domains: HashMap<FQDN, Principal> =
+        serde_json::from_slice(&body).context("failed to parse JSON body")?;
+
+    Ok(domains
+        .into_iter()
+        .map(|(k, v)| CustomDomain {
+            name: k,
+            canister_id: v,
+        })
+        .collect::<Vec<_>>())
+}
+
+#[derive(new, Debug)]
 pub struct GenericProvider {
     http_client: Arc<dyn http::Client>,
     url: Url,
