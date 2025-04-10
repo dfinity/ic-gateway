@@ -1,9 +1,13 @@
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::Duration,
+};
 
 use ahash::HashMap;
-use anyhow::Error;
-use anyhow::{Context as AnyhowContext, anyhow};
+use anyhow::{Context as AnyhowContext, Error, anyhow};
 use arc_swap::ArcSwapOption;
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -13,7 +17,7 @@ use fqdn::FQDN;
 use ic_bn_lib::http;
 use reqwest::{Method, Request, Url};
 use serde::Deserialize;
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::routing::domain::{CustomDomain, ProvidesCustomDomains};
 
@@ -63,57 +67,17 @@ async fn get_custom_domains_from_url(
         .collect::<Vec<_>>())
 }
 
-// Gets the body of the given URL
-async fn get_url_body(
-    cli: &Arc<dyn http::Client>,
-    url: &Url,
-    timeout: Duration,
-) -> Result<Bytes, Error> {
-    let mut req = Request::new(Method::GET, url.clone());
-    *req.timeout_mut() = Some(timeout);
-
-    let response = cli
-        .execute(req)
-        .await
-        .context("failed to make HTTP request")?;
-
-    if !response.status().is_success() {
-        return Err(anyhow!("unsuccessful response code: {}", response.status()));
-    }
-
-    response
-        .bytes()
-        .await
-        .context("failed to fetch response body")
-}
-
-// Fetches a list of custom domains from the given URL in JSON format
-async fn get_custom_domains_from_url(
-    cli: &Arc<dyn http::Client>,
-    url: &Url,
-    timeout: Duration,
-) -> Result<Vec<CustomDomain>, Error> {
-    let body = get_url_body(cli, url, timeout)
-        .await
-        .context("unable to fetch custom domains list JSON")?;
-
-    let domains: HashMap<FQDN, Principal> =
-        serde_json::from_slice(&body).context("failed to parse JSON body")?;
-
-    Ok(domains
-        .into_iter()
-        .map(|(k, v)| CustomDomain {
-            name: k,
-            canister_id: v,
-        })
-        .collect::<Vec<_>>())
-}
-
-#[derive(new, Debug)]
+#[derive(new)]
 pub struct GenericProvider {
     http_client: Arc<dyn http::Client>,
     url: Url,
     timeout: Duration,
+}
+
+impl std::fmt::Debug for GenericProvider {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "GenericProvider({})", self.url)
+    }
 }
 
 #[async_trait]
@@ -140,6 +104,12 @@ pub struct GenericProviderTimestamped {
     cache: ArcSwapOption<Vec<CustomDomain>>,
 }
 
+impl std::fmt::Debug for GenericProviderTimestamped {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "GenericProviderTimestamped({})", self.url)
+    }
+}
+
 #[async_trait]
 impl ProvidesCustomDomains for GenericProviderTimestamped {
     async fn get_custom_domains(&self) -> Result<Vec<CustomDomain>, Error> {
@@ -156,6 +126,7 @@ impl ProvidesCustomDomains for GenericProviderTimestamped {
         // Return the cached value if we have one & the timestamps are the same
         if ts == resp.timestamp {
             if let Some(v) = self.cache.load_full() {
+                info!("{self:?}: timestamp unchanged ({} domains)", v.len());
                 return Ok(v.as_ref().clone());
             }
         }
@@ -163,11 +134,7 @@ impl ProvidesCustomDomains for GenericProviderTimestamped {
         // Otherwise fetch a fresh version from the provided URL
         let url = Url::parse(&resp.url).context("unable to parse source URL")?;
         let domains = get_custom_domains_from_url(&self.http_client, &url, self.timeout).await?;
-        warn!(
-            "GenericProviderTimestamped({}): got new set of domains ({})",
-            self.url,
-            domains.len()
-        );
+        warn!("{self:?}: new timestamp, got {} domains", domains.len());
 
         // Store the new version in cache
         self.cache.store(Some(Arc::new(domains.clone())));
