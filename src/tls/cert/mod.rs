@@ -298,6 +298,16 @@ pub mod test {
         }
     }
 
+    #[derive(Debug)]
+    struct TestProviderBroken;
+
+    #[async_trait]
+    impl ProvidesCertificates for TestProviderBroken {
+        async fn get_certificates(&self) -> Result<Vec<Pem>, Error> {
+            Err(anyhow!("I'm dead"))
+        }
+    }
+
     #[test]
     fn test_pem_convert_to_certkey() -> Result<(), Error> {
         let cert = pem_convert_to_certkey(KEY_1, CERT_1)?;
@@ -328,7 +338,14 @@ pub mod test {
             None,
             storage::Metrics::new(&Registry::new()),
         ));
-        let aggregator = Aggregator::new(vec![Arc::new(prov1), Arc::new(prov2)], storage);
+        let aggregator = Aggregator::new(
+            vec![
+                Arc::new(prov1),
+                Arc::new(prov2),
+                Arc::new(TestProviderBroken),
+            ],
+            storage,
+        );
         aggregator.refresh().await;
 
         let certs = aggregator.snapshot.lock().unwrap().clone().flatten();
