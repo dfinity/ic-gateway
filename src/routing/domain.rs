@@ -94,6 +94,12 @@ pub struct CustomDomainStorage {
     snapshot: Mutex<Vec<Option<Vec<CustomDomain>>>>,
 }
 
+impl std::fmt::Debug for CustomDomainStorage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "CustomDomainStorage")
+    }
+}
+
 impl CustomDomainStorage {
     pub fn new(providers: Vec<Arc<dyn ProvidesCustomDomains>>) -> Self {
         Self {
@@ -116,7 +122,7 @@ impl CustomDomainStorage {
                 }
 
                 Err(e) => {
-                    warn!("CustomDomainStorage: unable to fetch domains from provider '{p:?}': {e}")
+                    warn!("{self:?}: unable to fetch domains from provider '{p:?}': {e}")
                 }
             }
         }
@@ -130,7 +136,7 @@ impl CustomDomainStorage {
 
         // Check if the new set is different
         if snapshot == snapshot_old {
-            debug!("CustomDomainStorage: domains haven't changed, not updating");
+            debug!("{self:?}: domains haven't changed, not updating");
             return;
         }
 
@@ -158,6 +164,8 @@ impl CustomDomainStorage {
                 )
             })
             .collect::<BTreeMap<_, _>>();
+
+        warn!("{self:?}: got new set of domains: {}", domains.len());
 
         // Store it
         let inner = CustomDomainStorageInner(domains);

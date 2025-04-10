@@ -79,6 +79,12 @@ pub struct Aggregator {
     snapshot: Mutex<AggregatorSnapshot>,
 }
 
+impl std::fmt::Debug for Aggregator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "CertificateAggregator")
+    }
+}
+
 impl Aggregator {
     pub fn new(
         providers: Vec<Arc<dyn ProvidesCertificates>>,
@@ -117,12 +123,12 @@ impl Aggregator {
                         }
 
                         Err(e) => warn!(
-                            "CertAggregator: failed to parse certificates from provider {p:?}: {e:#}"
+                            "{self:?}: failed to parse certificates from provider {p:?}: {e:#}"
                         ),
                     }
                 }
 
-                Err(e) => warn!("CertAggregator: failed to fetch from provider {p:?}: {e:#}"),
+                Err(e) => warn!("{self:?}: failed to fetch from provider {p:?}: {e:#}"),
             }
         }
 
@@ -139,19 +145,19 @@ impl Aggregator {
 
         // Check if the new set is different
         if snapshot == snapshot_old {
-            debug!("CertAggregator: certs haven't changed, not updating");
+            debug!("{self:?}: certs haven't changed, not updating");
             return;
         }
 
         let certs = snapshot.flatten();
         warn!(
-            "CertAggregator: publishing new snapshot with {} certs",
+            "{self:?}: publishing new snapshot with {} certs",
             certs.len()
         );
 
-        debug!("CertAggregator: {} certs fetched:", certs.len());
+        debug!("{self:?}: {} certs fetched:", certs.len());
         for v in &certs {
-            debug!("CertAggregator: {:?}", v.san);
+            debug!("{self:?}: {:?}", v.san);
         }
 
         // Store the new snapshot
@@ -159,7 +165,7 @@ impl Aggregator {
 
         // Publish to storage
         if let Err(e) = self.storage.store(certs) {
-            warn!("CertAggregator: error storing certificates: {e:#}");
+            warn!("{self:?}: error storing certificates: {e:#}");
         }
     }
 }

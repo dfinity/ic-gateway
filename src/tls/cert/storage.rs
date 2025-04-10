@@ -1,12 +1,12 @@
 use core::fmt;
 use std::{collections::BTreeMap, str::FromStr, sync::Arc};
 
-use anyhow::{anyhow, Context, Error};
+use anyhow::{Context, Error, anyhow};
 use arc_swap::ArcSwapOption;
 use derive_new::new;
-use fqdn::{Fqdn, FQDN};
+use fqdn::{FQDN, Fqdn};
 use ic_bn_lib::http::ALPN_ACME;
-use prometheus::{register_int_gauge_vec_with_registry, IntGaugeVec, Registry};
+use prometheus::{IntGaugeVec, Registry, register_int_gauge_vec_with_registry};
 use rustls::{server::ClientHello, sign::CertifiedKey};
 
 use super::Cert;
@@ -114,7 +114,7 @@ impl<T: Clone + Send + Sync> StoresCertificates<T> for Storage<T> {
                     FQDN::from_str(key).context(format!("unable to parse '{san}' as FQDN"))?;
 
                 if tree.insert(key, cert.clone()).is_some() {
-                    return Err(anyhow!("Duplicate SAN detected: {san}"));
+                    return Err(anyhow!("duplicate SAN detected: {san}"));
                 };
             }
         }

@@ -239,6 +239,13 @@ pub struct Domain {
     #[clap(env, long, value_delimiter = ',')]
     pub domain_custom_provider: Vec<Url>,
 
+    /// List of generic timestamped custom domain provider URLs.
+    /// Expects a JSON object in form '{"timestamp": 1234, "url": "https://foo/bar"}' in response to a GET request.
+    /// When the timestamp changes - the provider gets the list of domains from the URL provided in response.
+    /// The JSON format there should be the same as for the normal generic provider (see above).
+    #[clap(env, long, value_delimiter = ',')]
+    pub domain_custom_provider_timestamped: Vec<Url>,
+
     /// How frequently to poll custom domain providers for updates
     #[clap(env, long, default_value = "30s", value_parser = parse_duration)]
     pub domain_custom_provider_poll_interval: Duration,
