@@ -1,23 +1,23 @@
 use std::{sync::Arc, time::Duration};
 
 use axum::{
+    Extension,
     extract::{Request, State},
     response::{IntoResponse, Response},
-    Extension,
 };
 use bytes::Bytes;
 use http::HeaderValue;
-use ic_bn_lib::http::{body::buffer_body, headers::X_REQUEST_ID, ConnInfo, Error as IcBnError};
+use ic_bn_lib::http::{ConnInfo, Error as IcBnError, body::buffer_body, headers::X_REQUEST_ID};
 use ic_http_gateway::{CanisterRequest, HttpGatewayClient, HttpGatewayRequestArgs};
 
 use crate::routing::{
+    CanisterId, RequestCtx,
     error_cause::ErrorCause,
     ic::{
-        http_service::{Context, CONTEXT},
         IcResponseStatus,
+        http_service::{CONTEXT, Context},
     },
     middleware::request_id::RequestId,
-    CanisterId, RequestCtx,
 };
 
 use super::{BNRequestMetadata, BNResponseMetadata};
@@ -86,7 +86,7 @@ pub async fn handler(
 
                 (
                     BNRequestMetadata {
-                        backend: x.hostname.clone(),
+                        upstream: x.hostname.clone(),
                     },
                     BNResponseMetadata::from(&mut x.headers_in),
                 )
