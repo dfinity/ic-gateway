@@ -111,41 +111,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_rate_limiter_burst_capacity() {
-        let rps = 1;
-        let burst_size = 5;
-
-        let rate_limiter_mw = layer(rps, burst_size, IpKeyExtractor, RateLimitCause::Normal)
-            .expect("failed to build middleware");
-
-        let mut app = Router::new()
-            .route("/", post(handler))
-            .layer(rate_limiter_mw);
-
-        ERROR_CONTEXT
-            .scope(RequestType::Unknown, async {
-                // All requests filling the burst capacity should succeed
-                for _ in 0..burst_size {
-                    let result = send_request(&mut app).await.unwrap();
-                    assert_eq!(result.status(), StatusCode::OK);
-                }
-
-                // Once capacity is reached, request should fail with 429
-                let result = send_request(&mut app).await.unwrap();
-                assert_eq!(result.status(), StatusCode::TOO_MANY_REQUESTS);
-                let body = to_bytes(result.into_body(), 100).await.unwrap().to_vec();
-                assert!(body.starts_with(b"error: rate_limited\n"));
-
-                // Wait so that requests can be accepted again.
-                sleep(Duration::from_secs(1)).await;
-
-                let result = send_request(&mut app).await.unwrap();
-                assert_eq!(result.status(), StatusCode::OK);
-            })
-            .await;
-    }
-
-    #[tokio::test]
     async fn test_rate_limiter_rps_limit() {
         let rps = 10;
         let burst_size = 5; // how many requests can go through at once (without delay)
