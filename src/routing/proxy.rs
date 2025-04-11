@@ -29,7 +29,10 @@ use regex::Regex;
 use tokio::time::sleep;
 use url::Url;
 
-use super::{error_cause::ErrorCause, ic::BNResponseMetadata};
+use super::{
+    error_cause::ErrorCause,
+    ic::{BNRequestMetadata, BNResponseMetadata},
+};
 
 lazy_static::lazy_static! {
     pub static ref REGEX_REG_ID: Regex = Regex::new(r"^[a-zA-Z0-9]+$").unwrap();
@@ -108,10 +111,11 @@ pub async fn api_proxy(
     let mut retry_interval = state.retry_interval;
     let mut retries = state.retries;
 
-    let outcome = loop {
+    let (upstream, result) = loop {
         // Pick the next URL, wrapping around if not enough are available
         let idx = (state.retries - retries) % urls.len();
         let url = urls[idx].clone();
+        let upstream = url.authority().to_string();
 
         // Append the query URL to the IC url
         let url = url_join(url, original_uri.path())
@@ -122,7 +126,7 @@ pub async fn api_proxy(
         // Proxy the request
         let result = proxy(url, request, &state.http_client).await;
         if !request_needs_retrying(&result) {
-            break result;
+            break (upstream, result);
         }
 
         sleep(retry_interval).await;
@@ -130,11 +134,11 @@ pub async fn api_proxy(
         retries -= 1;
 
         if retries == 0 {
-            break result;
+            break (upstream, result);
         }
     };
 
-    match outcome {
+    let mut response = match result {
         // If there was some response - use it
         Ok(mut v) => {
             // Set the correct content-type for all replies if it's not an error
@@ -155,6 +159,13 @@ pub async fn api_proxy(
 
         Err(e) => Err(ErrorCause::from_backend_error(e)),
     }
+    .into_response();
+
+    response.extensions_mut().insert(BNRequestMetadata {
+        upstream: Some(upstream),
+    });
+
+    Ok(response)
 }
 
 #[derive(new)]

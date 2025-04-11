@@ -8,12 +8,12 @@ use std::{
 };
 
 use axum::{
+    Router,
     body::Body,
     extract::{Extension, Request, State},
     middleware::Next,
     response::{IntoResponse, Response},
     routing::get,
-    Router,
 };
 use http::header::{CONTENT_TYPE, ORIGIN, REFERER, USER_AGENT};
 use ic_agent::agent::route_provider::RouteProvider;
@@ -27,8 +27,8 @@ use ic_bn_lib::{
     tasks::TaskManager,
 };
 use prometheus::{
-    register_histogram_vec_with_registry, register_int_counter_vec_with_registry, HistogramVec,
-    IntCounterVec, Registry,
+    HistogramVec, IntCounterVec, Registry, register_histogram_vec_with_registry,
+    register_int_counter_vec_with_registry,
 };
 use serde_json::json;
 use tower_http::compression::CompressionLayer;
@@ -37,10 +37,10 @@ use tracing::info;
 use crate::{
     core::{ENV, HOSTNAME},
     routing::{
+        CanisterId, RequestCtx,
         error_cause::ErrorCause,
         ic::{BNRequestMetadata, BNResponseMetadata, IcResponseStatus},
         middleware::{geoip::CountryCode, request_id::RequestId},
-        CanisterId, RequestCtx,
     },
 };
 
@@ -55,9 +55,17 @@ pub const HTTP_DURATION_BUCKETS: &[f64] = &[0.05, 0.2, 1.0, 2.0];
 pub const HTTP_REQUEST_SIZE_BUCKETS: &[f64] = &[128.0, KB, 2.0 * KB, 4.0 * KB, 8.0 * KB];
 pub const HTTP_RESPONSE_SIZE_BUCKETS: &[f64] = &[1.0 * KB, 8.0 * KB, 64.0 * KB, 256.0 * KB];
 
-pub fn setup(registry: &Registry, tasks: &mut TaskManager, route_provider: Arc<dyn RouteProvider>) -> Router {
+pub fn setup(
+    registry: &Registry,
+    tasks: &mut TaskManager,
+    route_provider: Arc<dyn RouteProvider>,
+) -> Router {
     let cache = Arc::new(runner::MetricsCache::new());
-    let runner = Arc::new(runner::MetricsRunner::new(cache.clone(), registry, route_provider));
+    let runner = Arc::new(runner::MetricsRunner::new(
+        cache.clone(),
+        registry,
+        route_provider,
+    ));
     tasks.add_interval("metrics_runner", runner, Duration::from_secs(5));
 
     Router::new()
@@ -270,8 +278,6 @@ pub async fn middleware(
         let response_size = rx.await.unwrap_or(Ok(0)).unwrap_or(0);
 
         let duration_full = start.elapsed();
-        let req_meta = req_meta.clone();
-        let resp_meta = resp_meta.clone();
 
         let (tls_version, tls_cipher, tls_handshake) =
             tls_info.as_ref().map_or(("", "", Duration::ZERO), |x| {
@@ -288,7 +294,8 @@ pub async fn middleware(
             .clone()
             .map_or_else(String::new, |x| x.to_string());
 
-        let backend_host = req_meta.backend
+        let upstream = req_meta
+            .upstream
             .as_ref()
             .and_then(|s| s.split_once(':').map(|(host, _)| host))
             .unwrap_or_default();
@@ -302,7 +309,7 @@ pub async fn middleware(
             cache_status_str,
             cache_bypass_reason_str,
             &response_verification_version,
-            backend_host,
+            upstream,
         ];
 
         // Update metrics
@@ -374,7 +381,7 @@ pub async fn middleware(
                 conn_reqs = conn_req_count,
                 cache_status = cache_status_str,
                 cache_bypass_reason = cache_bypass_reason_str,
-                upstream = backend_host,
+                upstream,
             );
         }
 
@@ -419,7 +426,7 @@ pub async fn middleware(
                 duration_conn: conn_info.accepted_at.elapsed().as_secs_f64(),
                 cache_status: cache_status_str,
                 cache_bypass_reason: cache_bypass_reason_str,
-                upstream: backend_host.into(),
+                upstream: upstream.into(),
             };
 
             v.send(row);
@@ -467,7 +474,7 @@ pub async fn middleware(
                 "cache_status": resp_meta.cache_status,
                 "cache_status_nginx": cache_status_str,
                 "cache_bypass_reason": resp_meta.cache_bypass_reason,
-                "upstream": backend_host,
+                "upstream": upstream,
             });
 
             v.send(val);

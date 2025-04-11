@@ -10,16 +10,16 @@ pub mod route_provider;
 use std::{fs, sync::Arc};
 
 use anyhow::{Context, Error};
-use http::{header::HeaderName, HeaderMap};
+use http::{HeaderMap, header::HeaderName};
 use http_body_util::Either;
 use ic_agent::agent::route_provider::RouteProvider;
 use ic_bn_lib::http::{
+    Client as HttpClient,
     headers::{
         X_IC_CACHE_BYPASS_REASON, X_IC_CACHE_STATUS, X_IC_CANISTER_ID_CBOR, X_IC_ERROR_CAUSE,
         X_IC_METHOD_NAME, X_IC_NODE_ID, X_IC_RETRIES, X_IC_SENDER, X_IC_SUBNET_ID,
         X_IC_SUBNET_TYPE,
     },
-    Client as HttpClient,
 };
 use ic_http_gateway::{
     HttpGatewayClient, HttpGatewayClientBuilder, HttpGatewayResponse, HttpGatewayResponseMetadata,
@@ -30,7 +30,7 @@ use crate::Cli;
 /// Metadata about the request to a Boundary Node (ic-boundary)
 #[derive(Clone, Default)]
 pub struct BNRequestMetadata {
-    pub backend: Option<String>,
+    pub upstream: Option<String>,
 }
 
 /// Metadata about the response from a Boundary Node (ic-boundary)
