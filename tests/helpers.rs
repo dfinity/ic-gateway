@@ -3,6 +3,7 @@ use std::{
     fs::File,
     io::Read,
     path::PathBuf,
+    process::{Child, Command},
     time::{Duration, Instant},
 };
 
@@ -13,10 +14,16 @@ use ic_certified_assets::types::{
     BatchOperation, CommitBatchArguments, CreateAssetArguments, CreateBatchResponse,
     CreateChunkArg, CreateChunkResponse, SetAssetContentArguments,
 };
+use nix::{
+    sys::signal::{self, Signal},
+    unistd::Pid,
+};
 use pocket_ic::{PocketIc, update_candid_as};
 use reqwest::Client;
 use tokio::time::sleep;
 use tracing::info;
+
+const IC_GATEWAY_BIN: &str = "ic-gateway";
 
 pub async fn retry_async<S: AsRef<str>, F, Fut, R>(
     msg: S,
@@ -195,4 +202,31 @@ pub fn upload_asset_to_asset_canister(
         (commit_batch_args,),
     )
     .unwrap();
+}
+
+pub fn start_ic_gateway(addr: &str, domain: &str, ic_url: &str) -> Child {
+    info!("ic-gateway service starting ...");
+    let child = Command::new(get_binary_path(IC_GATEWAY_BIN))
+        .arg("--listen-plain")
+        .arg(addr)
+        .arg("--ic-url")
+        .arg(ic_url)
+        .arg("--domain")
+        .arg(domain)
+        .arg("--listen-insecure-serve-http-only")
+        .spawn()
+        .expect("failed to start ic-gateway service");
+    info!("ic-gateway service started");
+    child
+}
+
+pub fn stop_ic_gateway(mut process: Child) {
+    info!("gracefully terminating ic-gateway process");
+    let pid = process.id() as i32;
+    match signal::kill(Pid::from_raw(pid), Signal::SIGINT) {
+        Ok(_) => info!("Sent SIGINT to process {pid}"),
+        Err(e) => info!("Failed to send SIGINT: {}", e),
+    }
+    let exit_status = process.wait().expect("failed to wait on child process");
+    info!("ic-gateway process exited with: {:?}", exit_status);
 }

@@ -1,17 +1,16 @@
 use candid::{Encode, Principal};
 use helpers::{
-    create_canister_with_cycles, get_asset_canister_wasm, get_binary_path, retry_async,
-    upload_asset_to_asset_canister, verify_canister_asset,
+    create_canister_with_cycles, get_asset_canister_wasm, retry_async, start_ic_gateway,
+    stop_ic_gateway, upload_asset_to_asset_canister, verify_canister_asset,
 };
 use hex::encode;
 use pocket_ic::PocketIcBuilder;
 use reqwest::Client;
-use std::{net::SocketAddr, process::Command, str::FromStr, time::Duration};
+use std::{net::SocketAddr, str::FromStr, time::Duration};
 use tokio::runtime::Runtime;
 use tracing::info;
 mod helpers;
 
-const IC_GATEWAY_BIN: &str = "ic-gateway";
 const IC_GATEWAY_DOMAIN: &str = "gateway.icp";
 const IC_GATEWAY_ADDR: &str = "127.0.0.1:8080";
 const CANISTER_INITIAL_CYCLES: u128 = 100_000_000_000_000;
@@ -42,20 +41,9 @@ fn asset_canister_test() {
     let pic = PocketIcBuilder::new().with_nns_subnet().build();
     info!("pocket-ic server started");
 
-    info!("ic-gateway service starting ...");
     let ic_gateway_addr = SocketAddr::from_str(IC_GATEWAY_ADDR).expect("failed to parse address");
     let ic_url = format!("{}instances/{}/", pic.get_server_url(), pic.instance_id());
-    let mut child = Command::new(get_binary_path(IC_GATEWAY_BIN))
-        .arg("--listen-plain")
-        .arg(IC_GATEWAY_ADDR)
-        .arg("--ic-url")
-        .arg(ic_url)
-        .arg("--domain")
-        .arg(IC_GATEWAY_DOMAIN)
-        .arg("--listen-insecure-serve-http-only")
-        .spawn()
-        .expect("failed to start ic-gateway service");
-    info!("ic-gateway service started");
+    let process = start_ic_gateway(IC_GATEWAY_ADDR, IC_GATEWAY_DOMAIN, &ic_url);
 
     info!("asset canister installation start ...");
     let asset_canister_id =
@@ -105,8 +93,5 @@ fn asset_canister_test() {
     ))
     .expect("failed to verify stored asset");
 
-    info!("gracefulyy terminating ic-gateway process");
-    child.kill().expect("failed to kill process");
-    let exit_status = child.wait().expect("failed to wait on child process");
-    info!("ic-gateway process exited with: {:?}", exit_status);
+    stop_ic_gateway(process);
 }

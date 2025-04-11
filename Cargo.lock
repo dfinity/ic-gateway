@@ -2535,6 +2535,7 @@ dependencies = [
  "maxminddb",
  "mockall",
  "moka",
+ "nix",
  "ocsp-stapler",
  "pocket-ic",
  "prometheus",
