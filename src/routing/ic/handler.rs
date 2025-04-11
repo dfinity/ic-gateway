@@ -6,7 +6,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use bytes::Bytes;
-use http::HeaderValue;
+use http::{HeaderValue, header::HOST};
 use ic_bn_lib::http::{ConnInfo, Error as IcBnError, body::buffer_body, headers::X_REQUEST_ID};
 use ic_http_gateway::{CanisterRequest, HttpGatewayClient, HttpGatewayRequestArgs};
 
@@ -45,7 +45,7 @@ pub async fn handler(
         .ok_or(ErrorCause::CanisterIdNotFound)?
         .0;
 
-    let (parts, body) = request.into_parts();
+    let (mut parts, body) = request.into_parts();
 
     let body = buffer_body(body, state.request_max_size, state.body_read_timeout).await;
     let body = match body {
@@ -59,6 +59,14 @@ pub async fn handler(
             return Err(ErrorCause::from_client_error(e));
         }
     };
+
+    // Inject Host header into inner HTTP request.
+    // HTTP2 lacks it, but canisters might expect it to be present.
+    if parts.headers.get(HOST).is_none() {
+        if let Ok(v) = HeaderValue::from_bytes(ctx.authority.as_bytes()) {
+            parts.headers.insert(HOST, v);
+        }
+    }
 
     let args = HttpGatewayRequestArgs {
         canister_request: CanisterRequest::from_parts(parts, body),
