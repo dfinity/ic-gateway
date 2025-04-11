@@ -23,5 +23,6 @@ jobs:
       - name: Install protoc
         run: sudo apt-get update && sudo apt-get -y install protobuf-compiler
 
-      - name: Run tests
-        run: cargo test
+      - name: Run all unit and integration tests
+        run: |
+          ./run-tests.sh
