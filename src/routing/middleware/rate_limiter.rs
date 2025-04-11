@@ -112,7 +112,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_rate_limiter_rps_limit() {
-        let rps = 10;
+        let rps = 5;
         let burst_size = 5; // how many requests can go through at once (without delay)
 
         let rate_limiter_mw = layer(rps, burst_size, IpKeyExtractor, RateLimitCause::Normal)
@@ -125,7 +125,7 @@ mod tests {
         ERROR_CONTEXT
             .scope(RequestType::Unknown, async {
                 // Test cases: (delay_ms, expected_status)
-                let delay_for_token = 110; // when a token should become available ~ 1000ms/rps + delta=100+10=110ms
+                let delay_for_token_ms = 230; // when a token should become available ~ 1000ms/rps=200ms (we add some delta=30 ms to avoid flakiness)
                 let test_cases = vec![
                     // Initial burst of 5 requests should succeed and fills full burst capacity
                     (0, StatusCode::OK),
@@ -136,16 +136,16 @@ mod tests {
                     // For 6th request no tokens left => 429
                     (0, StatusCode::TOO_MANY_REQUESTS),
                     // Wait for 1 token to be available
-                    (delay_for_token, StatusCode::OK),
+                    (delay_for_token_ms, StatusCode::OK),
                     // Bucket is empty again, request should fail
                     (0, StatusCode::TOO_MANY_REQUESTS),
                     // Wait for 2 tokens to be available, next 2 requests succeed
-                    (2 * delay_for_token, StatusCode::OK),
+                    (2 * delay_for_token_ms, StatusCode::OK),
                     (0, StatusCode::OK),
                     // Bucket is empty again, request should fail
                     (0, StatusCode::TOO_MANY_REQUESTS),
                     // Wait for 5 tokens, next 5 requests succeed
-                    (5 * delay_for_token, StatusCode::OK),
+                    (5 * delay_for_token_ms, StatusCode::OK),
                     (0, StatusCode::OK),
                     (0, StatusCode::OK),
                     (0, StatusCode::OK),
