@@ -2,8 +2,10 @@ use std::{
     env,
     fs::File,
     io::Read,
+    net::SocketAddr,
     path::PathBuf,
     process::{Child, Command},
+    str::FromStr,
     time::{Duration, Instant},
 };
 
@@ -18,7 +20,7 @@ use nix::{
     sys::signal::{self, Signal},
     unistd::Pid,
 };
-use pocket_ic::{PocketIc, update_candid_as};
+use pocket_ic::{PocketIc, PocketIcBuilder, update_candid_as};
 use reqwest::Client;
 use tokio::time::sleep;
 use tracing::info;
@@ -140,7 +142,10 @@ pub async fn verify_status_call_headers(http_client: &Client, url: &str) -> anyh
     ];
 
     for (key, value) in expected_headers {
-        let header = response.headers().get(key).expect("expected header {key} is missing");
+        let header = response
+            .headers()
+            .get(key)
+            .expect("expected header {key} is missing");
         assert_eq!(header, value, "header doesn't match expectation");
     }
 
@@ -265,7 +270,7 @@ pub fn start_ic_gateway(addr: &str, domain: &str, ic_url: &str) -> Child {
 }
 
 #[allow(dead_code)]
-pub fn stop_ic_gateway(mut process: Child) {
+pub fn stop_ic_gateway(process: &mut Child) {
     info!("gracefully terminating ic-gateway process");
     let pid = process.id() as i32;
     match signal::kill(Pid::from_raw(pid), Signal::SIGINT) {
@@ -274,4 +279,39 @@ pub fn stop_ic_gateway(mut process: Child) {
     }
     let exit_status = process.wait().expect("failed to wait on child process");
     info!("ic-gateway process exited with: {:?}", exit_status);
+}
+
+pub struct TestEnv {
+    pub pic: PocketIc,
+    pub ic_gateway_process: Child,
+    pub ic_gateway_addr: SocketAddr,
+    pub ic_gateway_domain: String,
+}
+
+impl TestEnv {
+    pub fn new(ic_gateway_addr: &str, ic_gateway_domain: &str) -> Self {
+        init_logging();
+
+        info!("pocket-ic server starting ...");
+        let pic = PocketIcBuilder::new().with_nns_subnet().build();
+        info!("pocket-ic server started");
+
+        let ic_gateway_addr =
+            SocketAddr::from_str(ic_gateway_addr).expect("failed to parse address");
+        let ic_url = format!("{}instances/{}/", pic.get_server_url(), pic.instance_id());
+        let process = start_ic_gateway(&ic_gateway_addr.to_string(), ic_gateway_domain, &ic_url);
+
+        Self {
+            ic_gateway_process: process,
+            ic_gateway_addr,
+            ic_gateway_domain: ic_gateway_domain.to_string(),
+            pic,
+        }
+    }
+}
+
+impl Drop for TestEnv {
+    fn drop(&mut self) {
+        stop_ic_gateway(&mut self.ic_gateway_process);
+    }
 }
