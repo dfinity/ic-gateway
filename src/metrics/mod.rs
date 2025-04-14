@@ -297,7 +297,7 @@ pub async fn middleware(
         let upstream = req_meta
             .upstream
             .as_ref()
-            .and_then(|s| s.split_once(':').map(|(host, _)| host))
+            .and_then(|s| s.split(':').next())
             .unwrap_or_default();
 
         let labels = &[
