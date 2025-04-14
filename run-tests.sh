@@ -39,7 +39,7 @@ curl -fsSL --retry 3 --retry-delay 5 "${ASSET_WASM_URL}" -o "${CANISTER_DIR}/ass
   log "Failed to download asset canister WASM"
   exit 1
 }
-echo "${ASSET_WASM_CHECKSUM} assetstorage.wasm.gz" | sha256sum -c - || {
+echo "${ASSET_WASM_CHECKSUM} ${CANISTER_DIR}/assetstorage.wasm.gz" | sha256sum -c - || {
   log "Asset canister WASM checksum verification failed"
   exit 1
 }
