@@ -25,6 +25,16 @@ use tracing::info;
 
 const IC_GATEWAY_BIN: &str = "ic-gateway";
 
+#[allow(dead_code)]
+pub fn init_logging() {
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .with_test_writer()
+        .try_init()
+        .expect("failed to init logger")
+}
+
+#[allow(dead_code)]
 pub async fn retry_async<S: AsRef<str>, F, Fut, R>(
     msg: S,
     timeout: Duration,
@@ -69,6 +79,7 @@ where
     }
 }
 
+#[allow(dead_code)]
 fn truncate_error_msg(err_str: String) -> String {
     let mut short_e = err_str.replace('\n', "\\n ");
     short_e.truncate(200);
@@ -76,6 +87,7 @@ fn truncate_error_msg(err_str: String) -> String {
     short_e
 }
 
+#[allow(dead_code)]
 pub async fn verify_canister_asset(
     http_client: &Client,
     asset_url: &str,
@@ -108,12 +120,41 @@ pub async fn verify_canister_asset(
     Ok(())
 }
 
+#[allow(dead_code)]
+pub async fn verify_status_call_headers(http_client: &Client, url: &str) -> anyhow::Result<()> {
+    let response = http_client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to send request to {}: {}", url, e))?;
+
+    let status = response.status();
+    if status != StatusCode::OK {
+        bail!("Received unexpected status code: {}", status);
+    }
+
+    let expected_headers = vec![
+        ("content-type", "application/cbor"),
+        ("x-content-type-options", "nosniff"),
+        ("x-frame-options", "DENY"),
+    ];
+
+    for (key, value) in expected_headers {
+        let header = response.headers().get(key).expect("expected header {key} is missing");
+        assert_eq!(header, value, "header doesn't match expectation");
+    }
+
+    Ok(())
+}
+
+#[allow(dead_code)]
 pub fn get_binary_path(name: &str) -> PathBuf {
     let mut path = PathBuf::from(env::var("CARGO_TARGET_DIR").expect("env variable is not set"));
     path.push(name);
     path
 }
 
+#[allow(dead_code)]
 pub fn create_canister_with_cycles(
     env: &PocketIc,
     controller: Principal,
@@ -124,6 +165,7 @@ pub fn create_canister_with_cycles(
     canister_id
 }
 
+#[allow(dead_code)]
 pub fn get_asset_canister_wasm() -> Vec<u8> {
     let mut file_path =
         PathBuf::from(env::var("ASSET_CANISTER_DIR").expect("env variable is not set"));
@@ -135,6 +177,7 @@ pub fn get_asset_canister_wasm() -> Vec<u8> {
     bytes
 }
 
+#[allow(dead_code)]
 pub fn upload_asset_to_asset_canister(
     asset_canister_id: Principal,
     asset_name: String,
@@ -204,6 +247,7 @@ pub fn upload_asset_to_asset_canister(
     .unwrap();
 }
 
+#[allow(dead_code)]
 pub fn start_ic_gateway(addr: &str, domain: &str, ic_url: &str) -> Child {
     info!("ic-gateway service starting ...");
     let child = Command::new(get_binary_path(IC_GATEWAY_BIN))
@@ -220,6 +264,7 @@ pub fn start_ic_gateway(addr: &str, domain: &str, ic_url: &str) -> Child {
     child
 }
 
+#[allow(dead_code)]
 pub fn stop_ic_gateway(mut process: Child) {
     info!("gracefully terminating ic-gateway process");
     let pid = process.id() as i32;

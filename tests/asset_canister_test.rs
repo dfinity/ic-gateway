@@ -1,7 +1,7 @@
 use candid::{Encode, Principal};
 use helpers::{
-    create_canister_with_cycles, get_asset_canister_wasm, retry_async, start_ic_gateway,
-    stop_ic_gateway, upload_asset_to_asset_canister, verify_canister_asset,
+    create_canister_with_cycles, get_asset_canister_wasm, init_logging, retry_async,
+    start_ic_gateway, stop_ic_gateway, upload_asset_to_asset_canister, verify_canister_asset,
 };
 use hex::encode;
 use pocket_ic::PocketIcBuilder;
@@ -16,14 +16,6 @@ const IC_GATEWAY_ADDR: &str = "127.0.0.1:8080";
 const CANISTER_INITIAL_CYCLES: u128 = 100_000_000_000_000;
 const FETCH_ASSET_RETRY_TIMEOUT: Duration = Duration::from_secs(50);
 const FETCH_ASSET_RETRY_INTERVAL: Duration = Duration::from_secs(10);
-
-fn init_logging() {
-    tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::INFO)
-        .with_test_writer()
-        .try_init()
-        .expect("failed to init logger")
-}
 
 // Test scenario:
 // - start pocket-ic server with one nns subnet
