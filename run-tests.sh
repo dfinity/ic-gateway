@@ -29,7 +29,7 @@ export POCKET_IC_BIN="${POCKETIC_BIN}"
 log "PocketIC setup completed"
 
 log "Building ic-gateway"
-cargo build --verbose || { log "ic-gateway build failed"; exit 1; }
+cargo build || { log "ic-gateway build failed"; exit 1; }
 export CARGO_TARGET_DIR
 log "ic-gateway build completed"
 
@@ -47,5 +47,5 @@ export ASSET_CANISTER_DIR="${CANISTER_DIR}"
 log "Asset canister WASM downloaded"
 
 log "Running all tests"
-cargo test --all -- --nocapture || { log "Tests failed"; exit 1; }
+cargo test --profile dev --workspace -- --nocapture || { log "Tests failed"; exit 1; }
 log "All tests completed successfully"
