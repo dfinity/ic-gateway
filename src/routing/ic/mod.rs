@@ -28,13 +28,13 @@ use ic_http_gateway::{
 use crate::Cli;
 
 /// Metadata about the request to a Boundary Node (ic-boundary)
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct BNRequestMetadata {
     pub upstream: Option<String>,
 }
 
 /// Metadata about the response from a Boundary Node (ic-boundary)
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct BNResponseMetadata {
     pub node_id: String,
     pub subnet_id: String,

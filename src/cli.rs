@@ -38,6 +38,9 @@ pub struct Cli {
     #[command(flatten, next_help_heading = "Listening")]
     pub listen: Listen,
 
+    #[command(flatten, next_help_heading = "Network")]
+    pub network: Network,
+
     #[command(flatten, next_help_heading = "HTTP Client")]
     pub http_client: http::client::cli::HttpClient,
 
@@ -82,6 +85,13 @@ pub struct Cli {
 
     #[command(flatten, next_help_heading = "Shedding Latency")]
     pub shed_latency: ShedSharded<RequestType>,
+}
+
+#[derive(Args)]
+pub struct Network {
+    /// Number of HTTP clients to create to spread the load over
+    #[clap(env, long, default_value = "16", value_parser = clap::value_parser!(u16).range(1..))]
+    pub network_http_client_count: u16,
 }
 
 #[derive(Args)]

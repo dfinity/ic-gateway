@@ -2,10 +2,10 @@ use std::error::Error as StdError;
 
 use crate::routing::RequestType;
 use axum::response::{IntoResponse, Response};
-use hickory_resolver::error::ResolveError;
-use http::{header::CONTENT_TYPE, StatusCode};
+use hickory_resolver::ResolveError;
+use http::{StatusCode, header::CONTENT_TYPE};
 use ic_agent::AgentError;
-use ic_bn_lib::http::{headers::CONTENT_TYPE_HTML, Error as IcBnError};
+use ic_bn_lib::http::{Error as IcBnError, headers::CONTENT_TYPE_HTML};
 use ic_http_gateway::HttpGatewayError;
 use ic_transport_types::RejectCode;
 use strum::{Display, IntoStaticStr};
@@ -335,7 +335,7 @@ impl IntoResponse for ErrorClientFacing {
 #[cfg(test)]
 mod test {
     use super::*;
-    use ic_agent::{agent_error::HttpErrorPayload, AgentError};
+    use ic_agent::{AgentError, agent_error::HttpErrorPayload};
     use std::sync::Arc;
 
     #[test]

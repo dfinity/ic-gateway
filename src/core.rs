@@ -74,8 +74,13 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         &rustls::version::TLS13,
         &rustls::version::TLS12,
     ]));
-    let http_client = Arc::new(http::ReqwestClient::new(http_client_opts.clone())?);
+    let http_client = Arc::new(http::client::ReqwestClientLeastLoaded::new(
+        http_client_opts.clone(),
+        cli.network.network_http_client_count as usize,
+        Some(&registry),
+    )?);
     // Bare reqwest client is for now needed for Discovery Library
+    // TODO improve
     let reqwest_client = http::client::new(http_client_opts)?;
 
     // Event sinks
