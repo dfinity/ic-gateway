@@ -9,9 +9,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::bail;
+use anyhow::{anyhow, bail};
 use candid::Principal;
-use http::StatusCode;
+use http::{Method, StatusCode};
 use ic_certified_assets::types::{
     BatchOperation, CommitBatchArguments, CreateAssetArguments, CreateBatchResponse,
     CreateChunkArg, CreateChunkResponse, SetAssetContentArguments,
@@ -142,6 +142,72 @@ pub async fn verify_status_call_headers(http_client: &Client, url: &str) -> anyh
             .get(key)
             .expect("expected header {key} is missing");
         assert_eq!(header, value, "header doesn't match expectation");
+    }
+
+    Ok(())
+}
+
+#[derive(Clone)]
+pub struct TestCase {
+    pub name: String,
+    pub path: String,
+    pub method: Method,
+    pub expect: StatusCode,
+    pub allowed_methods: String,
+}
+
+pub async fn verify_options_call_headers(
+    http_client: &Client,
+    url: &str,
+    testcase: TestCase,
+) -> anyhow::Result<()> {
+    let response = http_client
+        .request(Method::OPTIONS, url)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to send request to {}: {}", url, e))?;
+
+    let status = response.status();
+    if status != StatusCode::OK {
+        bail!("Received unexpected status code: {}", status);
+    }
+
+    // Check pre-flight CORS headers
+    for (k, v) in [
+        ("Access-Control-Allow-Origin", "*"),
+        ("Access-Control-Allow-Methods", &testcase.allowed_methods),
+        (
+            "Access-Control-Allow-Headers",
+            "DNT,User-Agent,X-Requested-With,If-None-Match,If-Modified-Since,Cache-Control,Content-Type,Range,Cookie,X-Ic-Canister-Id",
+        ),
+        // ("Access-Control-Max-Age", "600"),
+    ] {
+        let header = response
+            .headers()
+            .get(k)
+            .ok_or_else(|| anyhow!("{} OPTIONS failed: missing {k} header", testcase.name))?
+            .to_str()?;
+
+        // Normalize & sort header values so that they can be compared regardless of their order
+        fn normalize(header: &str) -> String {
+            let mut hdr = header
+                .split(',')
+                .map(|x| x.trim().to_ascii_lowercase())
+                .collect::<Vec<_>>();
+            hdr.sort();
+            hdr.join(",")
+        }
+
+        let header = normalize(header);
+        let expect = normalize(v);
+
+        if header != expect {
+            bail!(
+                "{} OPTIONS failed: wrong {k} header: {header} expected {}",
+                testcase.name,
+                expect
+            )
+        }
     }
 
     Ok(())
@@ -304,3 +370,37 @@ impl Drop for TestEnv {
         stop_ic_gateway(&mut self.ic_gateway_process);
     }
 }
+
+pub const COUNTER_WAT: &str = r#"
+(module
+  (import "ic0" "msg_reply" (func $msg_reply))
+  (import "ic0" "msg_reply_data_append"
+    (func $msg_reply_data_append (param i32 i32)))
+
+  (func $read
+    (i32.store
+      (i32.const 0)
+      (global.get 0)
+    )
+    (call $msg_reply_data_append
+      (i32.const 0)
+      (i32.const 4))
+    (call $msg_reply))
+
+  (func $write
+    (global.set 0
+      (i32.add
+        (global.get 0)
+        (i32.const 1)
+      )
+    )
+    (call $read)
+  )
+
+  (memory $memory 1)
+  (export "memory" (memory $memory))
+  (global (export "counter_global") (mut i32) (i32.const 0))
+  (export "canister_query read" (func $read))
+  (export "canister_query inc_read" (func $write))
+  (export "canister_update write" (func $write))
+)"#;

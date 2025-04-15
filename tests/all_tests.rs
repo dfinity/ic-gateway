@@ -1,6 +1,7 @@
 use helpers::TestEnv;
 use integration_tests::{
     asset_canister_test::asset_canister_test, content_type_headers_test::content_type_headers_test,
+    cors_headers_test::cors_headers_test,
 };
 
 const IC_GATEWAY_DOMAIN: &str = "ic0.app";
@@ -15,4 +16,5 @@ fn all_intergration_tests() {
     // run all tests
     asset_canister_test(&env).unwrap();
     content_type_headers_test(&env).unwrap();
+    cors_headers_test(&env).unwrap();
 }
