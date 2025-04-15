@@ -112,6 +112,7 @@ pocket-ic = "7.0.0"
 rand_regex = "0.17.0"
 serde_cbor = "0.11.2"
 tempfile = "3.18.0"
+wat = "1.228.0"
 
 [profile.release]
 strip = "symbols"
