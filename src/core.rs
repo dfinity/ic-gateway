@@ -12,7 +12,7 @@ use crate::{
     cli::Cli,
     metrics,
     routing::{self, domain::ProvidesCustomDomains, ic::route_provider::setup_route_provider},
-    tls,
+    tls::{self, NoopServerVerifier},
 };
 
 pub const SERVICE_NAME: &str = "ic_gateway";
@@ -70,10 +70,22 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     // HTTP client
     let mut http_client_opts: http::client::Options<_> = (&cli.http_client).into();
     http_client_opts.dns_resolver = Some(dns_resolver.clone());
-    http_client_opts.tls_config = Some(prepare_client_config(&[
-        &rustls::version::TLS13,
-        &rustls::version::TLS12,
-    ]));
+
+    // Prepare TLS client config
+    let mut tls_config = prepare_client_config(&[&rustls::version::TLS13, &rustls::version::TLS12]);
+
+    // Disable TLS certificate verification if instructed
+    if cli
+        .network
+        .network_http_client_insecure_bypass_tls_verification
+    {
+        tls_config
+            .dangerous()
+            .set_certificate_verifier(Arc::new(NoopServerVerifier));
+    }
+
+    http_client_opts.tls_config = Some(tls_config);
+
     let http_client = Arc::new(http::client::ReqwestClientLeastLoaded::new(
         http_client_opts.clone(),
         cli.network.network_http_client_count as usize,
