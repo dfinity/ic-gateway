@@ -92,6 +92,11 @@ pub struct Network {
     /// Number of HTTP clients to create to spread the load over
     #[clap(env, long, default_value = "16", value_parser = clap::value_parser!(u16).range(1..))]
     pub network_http_client_count: u16,
+
+    /// Bypass verification of TLS certificates for all outgoing requests.
+    /// *** Dangerous *** - use only for testing.
+    #[clap(env, long)]
+    pub network_http_client_insecure_bypass_tls_verification: bool,
 }
 
 #[derive(Args)]
