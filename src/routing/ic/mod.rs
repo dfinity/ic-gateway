@@ -27,6 +27,9 @@ use ic_http_gateway::{
 
 use crate::Cli;
 
+/// Maximum number of requests that can be executed in parallel with the IC.
+const IC_MAX_CONCURRENT_REQUESTS: usize = 20_000;
+
 /// Metadata about the request to a Boundary Node (ic-boundary)
 #[derive(Clone, Debug, Default)]
 pub struct BNRequestMetadata {
@@ -108,7 +111,7 @@ pub fn setup(
 
     let agent = ic_agent::Agent::builder()
         .with_arc_http_middleware(http_service)
-        .with_max_concurrent_requests(cli.ic.ic_max_concurrent_requests)
+        .with_max_concurrent_requests(IC_MAX_CONCURRENT_REQUESTS)
         .with_max_response_body_size(cli.ic.ic_response_max_size)
         .with_max_tcp_error_retries(cli.ic.ic_request_retries)
         .with_arc_route_provider(route_provider)
