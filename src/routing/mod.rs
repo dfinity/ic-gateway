@@ -34,7 +34,11 @@ use ic_bn_lib::{
     tasks::TaskManager,
     types::RequestType as RequestTypeApi,
 };
-use middleware::{cache, validate::ValidateState};
+use middleware::{
+    cache,
+    cors::{ALLOW_HEADERS, ALLOW_HEADERS_HTTP, ALLOW_METHODS_HTTP},
+    validate::ValidateState,
+};
 use prometheus::Registry;
 use strum::{Display, IntoStaticStr};
 use tower::{ServiceBuilder, ServiceExt, limit::ConcurrencyLimitLayer, util::MapResponseLayer};
@@ -413,7 +417,12 @@ pub fn setup_router(
             cors::middleware,
         ))
     } else {
-        Either::E2(cors_base.clone().allow_methods(cors::ALLOW_METHODS_HTTP))
+        Either::E2(
+            cors_base
+                .clone()
+                .allow_methods(ALLOW_METHODS_HTTP)
+                .allow_headers([ALLOW_HEADERS.as_slice(), ALLOW_HEADERS_HTTP.as_slice()].concat()),
+        )
     };
 
     // Layers for the main HTTP->IC route
