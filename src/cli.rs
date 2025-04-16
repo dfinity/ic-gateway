@@ -164,6 +164,10 @@ pub struct Ic {
     #[clap(env, long, default_value = "5")]
     pub ic_request_retries: usize,
 
+    /// Maximum number of requests that can be executed in parallel.
+    #[clap(env, long, default_value = "2000")]
+    pub ic_max_concurrent_requests: usize,
+
     /// How long to wait between retries.
     /// With each retry this duration will be doubled.
     /// E.g. first delay 25ms, next 50ms and so on.

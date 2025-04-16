@@ -108,6 +108,7 @@ pub fn setup(
 
     let agent = ic_agent::Agent::builder()
         .with_arc_http_middleware(http_service)
+        .with_max_concurrent_requests(cli.ic.ic_max_concurrent_requests)
         .with_max_response_body_size(cli.ic.ic_response_max_size)
         .with_max_tcp_error_retries(cli.ic.ic_request_retries)
         .with_arc_route_provider(route_provider)
