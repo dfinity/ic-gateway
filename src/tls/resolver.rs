@@ -1,8 +1,8 @@
 use std::{fmt::Debug, sync::Arc, time::Instant};
 
 use prometheus::{
-    register_histogram_vec_with_registry, register_int_counter_vec_with_registry, HistogramVec,
-    IntCounterVec, Registry,
+    HistogramVec, IntCounterVec, Registry, register_histogram_vec_with_registry,
+    register_int_counter_vec_with_registry,
 };
 use rustls::{
     server::{ClientHello, ResolvesServerCert as ResolvesServerCertRustls},

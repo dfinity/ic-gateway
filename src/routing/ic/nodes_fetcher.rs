@@ -1,10 +1,10 @@
 use async_trait::async_trait;
 use candid::Principal;
 use ic_agent::{
+    Agent,
     agent::route_provider::dynamic_routing::{
         dynamic_route_provider::DynamicRouteProviderError, node::Node, nodes_fetch::Fetch,
     },
-    Agent,
 };
 use reqwest::Client;
 use url::Url;

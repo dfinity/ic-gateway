@@ -1,7 +1,7 @@
 use std::{fs, path::PathBuf, sync::Arc};
 
 use ahash::{AHashMap, AHashSet};
-use anyhow::{anyhow, Context, Error};
+use anyhow::{Context, Error, anyhow};
 use arc_swap::ArcSwapOption;
 use candid::Principal;
 use ic_bn_lib::http::Client;
@@ -162,7 +162,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_update() -> Result<(), Error> {
-        use httptest::{matchers::*, responders::*, Expectation, Server};
+        use httptest::{Expectation, Server, matchers::*, responders::*};
         use serde_json::json;
 
         let denylist_json = json!({
@@ -237,7 +237,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_corrupted() -> Result<(), Error> {
-        use httptest::{matchers::*, responders::*, Expectation, Server};
+        use httptest::{Expectation, Server, matchers::*, responders::*};
         use serde_json::json;
 
         let denylist_json = json!({

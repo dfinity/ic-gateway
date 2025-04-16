@@ -2,7 +2,11 @@ use std::sync::{Arc, OnceLock};
 
 use anyhow::{Context, Error, anyhow};
 use axum::Router;
-use ic_bn_lib::{http, tasks::TaskManager, tls::prepare_client_config};
+use ic_bn_lib::{
+    http,
+    tasks::TaskManager,
+    tls::{prepare_client_config, verify::NoopServerCertVerifier},
+};
 use itertools::Itertools;
 use prometheus::Registry;
 use tokio_util::sync::CancellationToken;
@@ -12,7 +16,7 @@ use crate::{
     cli::Cli,
     metrics,
     routing::{self, domain::ProvidesCustomDomains, ic::route_provider::setup_route_provider},
-    tls::{self, NoopServerVerifier},
+    tls::{self},
 };
 
 pub const SERVICE_NAME: &str = "ic_gateway";
@@ -81,7 +85,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     {
         tls_config
             .dangerous()
-            .set_certificate_verifier(Arc::new(NoopServerVerifier));
+            .set_certificate_verifier(Arc::new(NoopServerCertVerifier::default()));
     }
 
     http_client_opts.tls_config = Some(tls_config);

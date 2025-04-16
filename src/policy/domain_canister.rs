@@ -1,6 +1,6 @@
 use ahash::AHashSet;
 use candid::Principal;
-use fqdn::{Fqdn, FQDN};
+use fqdn::{FQDN, Fqdn};
 
 // System subnets routing table
 pub const SYSTEM_SUBNETS: [(Principal, Principal); 5] = [
