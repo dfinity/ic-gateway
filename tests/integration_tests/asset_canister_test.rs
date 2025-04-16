@@ -1,14 +1,16 @@
 use crate::helpers::{
-    TestEnv, create_canister_with_cycles, get_asset_canister_wasm, retry_async,
-    upload_asset_to_asset_canister, verify_canister_asset,
+    ExpectedResponse, TestEnv, check_response, create_canister_with_cycles,
+    get_asset_canister_wasm, retry_async, upload_asset_to_asset_canister,
 };
-use anyhow::anyhow;
+use anyhow::{Context, anyhow};
 use candid::{Encode, Principal};
 use hex::encode;
-use reqwest::Client;
+use http::{Method, StatusCode};
+use reqwest::{Client, Request};
 use std::time::Duration;
 use tokio::runtime::Runtime;
 use tracing::info;
+use url::Url;
 
 const CANISTER_INITIAL_CYCLES: u128 = 100_000_000_000_000;
 const FETCH_ASSET_RETRY_TIMEOUT: Duration = Duration::from_secs(50);
@@ -52,25 +54,39 @@ pub fn asset_canister_test(env: &TestEnv) -> anyhow::Result<()> {
     info!("asset with name={asset_name} is uploaded to asset canister");
 
     info!("downloading asset from canister via ic-gateway service");
+
     let asset_domain = format!("{asset_canister_id}.raw.{}", env.ic_gateway_domain);
-    let asset_url = format!(
-        "http://{asset_domain}:{}{asset_name}",
-        env.ic_gateway_addr.port()
-    );
+
     let http_client = Client::builder()
         .resolve(asset_domain.as_str(), env.ic_gateway_addr)
         .build()
-        .map_err(|e| anyhow!("failed to build http client: {e}"))?;
+        .context(anyhow!("failed to build http client"))?;
 
-    let rt = Runtime::new().map_err(|e| anyhow!("failed to start tokio runtime: {e}"))?;
+    let rt = Runtime::new().context(anyhow!("failed to start tokio runtime"))?;
+
+    let request = {
+        let asset_url = Url::parse(&format!(
+            "http://{asset_domain}:{}{asset_name}",
+            env.ic_gateway_addr.port()
+        ))
+        .expect("failed to parse url");
+        Request::new(Method::GET, asset_url)
+    };
+    let expected_response = ExpectedResponse::new(Some(StatusCode::OK), Some(asset_bytes), None);
 
     rt.block_on(retry_async(
         "downloading and verifying stored asset",
         FETCH_ASSET_RETRY_TIMEOUT,
         FETCH_ASSET_RETRY_INTERVAL,
-        || verify_canister_asset(&http_client, &asset_url, &asset_bytes),
+        || {
+            check_response(
+                &http_client,
+                request.try_clone().unwrap(),
+                &expected_response,
+            )
+        },
     ))
-    .map_err(|e| anyhow!("failed to verify stored asset: {e}"))?;
+    .context(anyhow!("failed to verify stored asset"))?;
 
     Ok(())
 }

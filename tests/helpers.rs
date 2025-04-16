@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     env,
     fs::File,
     io::Read,
@@ -9,9 +10,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::{anyhow, bail};
+use anyhow::{Context, anyhow, bail};
 use candid::Principal;
-use http::{Method, StatusCode};
+use http::StatusCode;
 use ic_certified_assets::types::{
     BatchOperation, CommitBatchArguments, CreateAssetArguments, CreateBatchResponse,
     CreateChunkArg, CreateChunkResponse, SetAssetContentArguments,
@@ -21,7 +22,7 @@ use nix::{
     unistd::Pid,
 };
 use pocket_ic::{PocketIc, PocketIcBuilder, update_candid_as};
-use reqwest::Client;
+use reqwest::{Client, Request};
 use tokio::time::sleep;
 use tracing::info;
 
@@ -86,38 +87,6 @@ fn truncate_error_msg(err_str: String) -> String {
     short_e
 }
 
-pub async fn verify_canister_asset(
-    http_client: &Client,
-    asset_url: &str,
-    expected_body: &[u8],
-) -> anyhow::Result<()> {
-    let response = http_client
-        .get(asset_url)
-        .send()
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to send request to {}: {}", asset_url, e))?;
-
-    let status = response.status();
-    if status != StatusCode::OK {
-        bail!("Received unexpected status code: {}", status);
-    }
-
-    let body = response
-        .bytes()
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to read response body: {}", e))?;
-
-    if body.as_ref() != expected_body {
-        bail!(
-            "Response body does not match expected content. Got {} bytes, expected {} bytes",
-            body.len(),
-            expected_body.len()
-        );
-    }
-
-    Ok(())
-}
-
 pub async fn verify_status_call_headers(http_client: &Client, url: &str) -> anyhow::Result<()> {
     let response = http_client
         .get(url)
@@ -142,72 +111,6 @@ pub async fn verify_status_call_headers(http_client: &Client, url: &str) -> anyh
             .get(key)
             .expect("expected header {key} is missing");
         assert_eq!(header, value, "header doesn't match expectation");
-    }
-
-    Ok(())
-}
-
-#[derive(Clone)]
-pub struct TestCase {
-    pub name: String,
-    pub path: String,
-    pub method: Method,
-    pub expect: StatusCode,
-    pub allowed_methods: String,
-}
-
-pub async fn verify_options_call_headers(
-    http_client: &Client,
-    url: &str,
-    testcase: TestCase,
-) -> anyhow::Result<()> {
-    let response = http_client
-        .request(Method::OPTIONS, url)
-        .send()
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to send request to {}: {}", url, e))?;
-
-    let status = response.status();
-    if status != StatusCode::OK {
-        bail!("Received unexpected status code: {}", status);
-    }
-
-    // Check pre-flight CORS headers
-    for (k, v) in [
-        ("Access-Control-Allow-Origin", "*"),
-        ("Access-Control-Allow-Methods", &testcase.allowed_methods),
-        (
-            "Access-Control-Allow-Headers",
-            "DNT,User-Agent,X-Requested-With,If-None-Match,If-Modified-Since,Cache-Control,Content-Type,Range,Cookie,X-Ic-Canister-Id",
-        ),
-        // ("Access-Control-Max-Age", "600"),
-    ] {
-        let header = response
-            .headers()
-            .get(k)
-            .ok_or_else(|| anyhow!("{} OPTIONS failed: missing {k} header", testcase.name))?
-            .to_str()?;
-
-        // Normalize & sort header values so that they can be compared regardless of their order
-        fn normalize(header: &str) -> String {
-            let mut hdr = header
-                .split(',')
-                .map(|x| x.trim().to_ascii_lowercase())
-                .collect::<Vec<_>>();
-            hdr.sort();
-            hdr.join(",")
-        }
-
-        let header = normalize(header);
-        let expect = normalize(v);
-
-        if header != expect {
-            bail!(
-                "{} OPTIONS failed: wrong {k} header: {header} expected {}",
-                testcase.name,
-                expect
-            )
-        }
     }
 
     Ok(())
@@ -369,6 +272,116 @@ impl Drop for TestEnv {
     fn drop(&mut self) {
         stop_ic_gateway(&mut self.ic_gateway_process);
     }
+}
+
+#[derive(Debug)]
+pub struct ExpectedResponse {
+    pub status: Option<StatusCode>,
+    pub body: Option<Vec<u8>>,
+    pub headers: Option<HashMap<String, String>>,
+}
+
+impl ExpectedResponse {
+    pub fn new(
+        status: Option<StatusCode>,
+        body: Option<Vec<u8>>,
+        headers: Option<HashMap<String, String>>,
+    ) -> Self {
+        Self {
+            status,
+            body,
+            headers,
+        }
+    }
+
+    pub fn with_header(mut self, key: &str, value: &str) -> Self {
+        if let Some(ref mut headers) = self.headers {
+            headers.insert(key.to_string(), value.to_string());
+        } else {
+            self.headers = Some(HashMap::from_iter(vec![(
+                key.to_string(),
+                value.to_string(),
+            )]));
+        }
+        self
+    }
+}
+
+pub async fn check_response(
+    http_client: &Client,
+    request: Request,
+    expected: &ExpectedResponse,
+) -> anyhow::Result<()> {
+    let response = http_client
+        .execute(request)
+        .await
+        .context("failed to execute request")?;
+
+    let status = response.status();
+    let headers = response.headers().clone();
+    let body_bytes = response.bytes().await?.to_vec();
+
+    if let Some(expected_status) = expected.status {
+        if expected_status != status {
+            anyhow::bail!("unexpected status code: got {status}, expected {expected_status}",);
+        }
+    }
+
+    if let Some(ref expected_body) = expected.body {
+        if &body_bytes != expected_body {
+            anyhow::bail!(
+                "unexpected response body: got size={}, expected={}",
+                body_bytes.len(),
+                expected_body.len()
+            );
+        }
+    }
+
+    if let Some(ref expected_headers) = expected.headers {
+        let mut expected_headers_sorted = HashMap::<String, Vec<String>>::new();
+        // sort values in the expected headers for comparison
+        for (key, values) in expected_headers {
+            let mut values: Vec<String> = values
+                .split(',')
+                .map(|x| x.trim().to_ascii_lowercase())
+                .collect();
+
+            values.sort();
+
+            expected_headers_sorted.insert(key.trim().to_ascii_lowercase(), values);
+        }
+
+        let mut actual_headers_sorted: HashMap<String, Vec<String>> = HashMap::new();
+
+        for (header_name, header_value) in headers.iter() {
+            let mut values: Vec<String> = header_value
+                .to_str()
+                .context("invalid UTF-8 in header value")?
+                .split(',')
+                .map(|x| x.trim().to_ascii_lowercase())
+                .collect();
+
+            values.sort();
+
+            actual_headers_sorted
+                .insert(header_name.to_string().trim().to_ascii_lowercase(), values);
+        }
+
+        for (key, expected_values) in expected_headers_sorted.iter() {
+            let actual_values = actual_headers_sorted
+                .get(key)
+                .ok_or_else(|| anyhow!("{key} is not present in response header"))?;
+            if actual_values != expected_values {
+                anyhow::bail!(
+                    "Headers for `{key}` not match: got: {:?}, expected {:?}",
+                    actual_values,
+                    expected_values
+                );
+            }
+        }
+    }
+
+    Ok(())
 }
 
 pub const COUNTER_WAT: &str = r#"
