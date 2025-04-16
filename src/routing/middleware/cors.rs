@@ -57,7 +57,7 @@ const EXPOSE_HEADERS: [HeaderName; 5] = [
     X_IC_CANISTER_ID,
 ];
 
-const ALLOW_HEADERS: [HeaderName; 10] = [
+pub const ALLOW_HEADERS: [HeaderName; 10] = [
     USER_AGENT,
     DNT,
     IF_NONE_MATCH,
@@ -71,7 +71,7 @@ const ALLOW_HEADERS: [HeaderName; 10] = [
 ];
 
 // Additional headers to allow for HTTP calls
-const ALLOW_HEADERS_HTTP: [HeaderName; 2] = [X_OC_JWT, X_OC_API_KEY];
+pub const ALLOW_HEADERS_HTTP: [HeaderName; 2] = [X_OC_JWT, X_OC_API_KEY];
 
 pub struct CorsStateHttp {
     allow_methods: HeaderValue,
