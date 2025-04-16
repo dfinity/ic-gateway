@@ -4,26 +4,26 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::{anyhow, Context, Error};
-use async_channel::{bounded, Receiver, Sender};
+use anyhow::{Context, Error, anyhow};
+use async_channel::{Receiver, Sender, bounded};
 use bytes::{Buf, Bytes, BytesMut};
 use ic_bn_lib::{
     http::{self, headers::CONTENT_TYPE_OCTET_STREAM},
     vector::encode_event,
 };
 use prometheus::{
-    register_int_counter_vec_with_registry, register_int_counter_with_registry,
-    register_int_gauge_with_registry, IntCounter, IntCounterVec, IntGauge, Registry,
+    IntCounter, IntCounterVec, IntGauge, Registry, register_int_counter_vec_with_registry,
+    register_int_counter_with_registry, register_int_gauge_with_registry,
 };
 use reqwest::{
-    header::{self, HeaderValue},
     Method, Request,
+    header::{self, HeaderValue},
 };
 use serde_json::Value;
 use tokio::{
     select,
     sync::mpsc,
-    time::{interval, sleep, Interval},
+    time::{Interval, interval, sleep},
 };
 use tokio_util::{
     codec::{Encoder, LengthDelimitedCodec},

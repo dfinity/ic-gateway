@@ -8,7 +8,10 @@ use bytes::{BufMut, Bytes, BytesMut};
 use http::header::CONTENT_TYPE;
 use ic_agent::agent::route_provider::RouteProvider;
 use ic_bn_lib::tasks::Run;
-use prometheus::{register_int_gauge_vec_with_registry, register_int_gauge_with_registry, Encoder, IntGauge, IntGaugeVec, Registry, TextEncoder};
+use prometheus::{
+    Encoder, IntGauge, IntGaugeVec, Registry, TextEncoder, register_int_gauge_vec_with_registry,
+    register_int_gauge_with_registry,
+};
 use tikv_jemalloc_ctl::{epoch, stats};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
@@ -66,7 +69,8 @@ impl MetricsRunner {
             "Number of API boundary nodes with status.",
             &["status"],
             registry
-        ).unwrap();
+        )
+        .unwrap();
 
         Self {
             metrics_cache,
@@ -103,8 +107,12 @@ impl MetricsRunner {
 
         // Update API boundary nodes stats
         let stats = self.route_provider.routes_stats();
-        self.api_boundary_nodes.with_label_values(&["total"]).set(stats.total as i64);
-        self.api_boundary_nodes.with_label_values(&["healthy"]).set(stats.healthy.unwrap_or(0) as i64);
+        self.api_boundary_nodes
+            .with_label_values(&["total"])
+            .set(stats.total as i64);
+        self.api_boundary_nodes
+            .with_label_values(&["healthy"])
+            .set(stats.healthy.unwrap_or(0) as i64);
 
         Ok(())
     }

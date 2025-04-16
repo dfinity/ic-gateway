@@ -10,7 +10,7 @@ use candid::Principal;
 use url::form_urlencoded;
 
 use super::extract_authority;
-use crate::routing::{domain::ResolvesDomain, CanisterId, ErrorCause, RequestCtx, RequestType};
+use crate::routing::{CanisterId, ErrorCause, RequestCtx, RequestType, domain::ResolvesDomain};
 
 #[derive(Clone)]
 pub struct ValidateState {

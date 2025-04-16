@@ -6,15 +6,15 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::{anyhow, Context as AnyhowContext};
+use anyhow::{Context as AnyhowContext, anyhow};
 use arc_swap::ArcSwapOption;
 use async_trait::async_trait;
 use candid::Principal;
 use fqdn::FQDN;
 use ic_bn_lib::{http, tasks::Run};
 use prometheus::{
-    register_histogram_vec_with_registry, register_int_gauge_vec_with_registry, HistogramVec,
-    IntGaugeVec, Registry,
+    HistogramVec, IntGaugeVec, Registry, register_histogram_vec_with_registry,
+    register_int_gauge_vec_with_registry,
 };
 use reqwest::{Method, Request, StatusCode, Url};
 use serde::Deserialize;

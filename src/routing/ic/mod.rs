@@ -28,7 +28,7 @@ use ic_http_gateway::{
 use crate::Cli;
 
 /// Maximum number of requests that can be executed in parallel with the IC.
-const IC_MAX_CONCURRENT_REQUESTS: usize = 20_000;
+const IC_MAX_CONCURRENT_REQUESTS: usize = 200_000;
 
 /// Metadata about the request to a Boundary Node (ic-boundary)
 #[derive(Clone, Debug, Default)]

@@ -1,11 +1,11 @@
 use std::time::Duration;
 
-use anyhow::{anyhow, Context, Error};
-use clickhouse::{inserter::Inserter, Client};
+use anyhow::{Context, Error, anyhow};
+use clickhouse::{Client, inserter::Inserter};
 use serde::{Deserialize, Serialize};
 use tokio::{
     select,
-    sync::mpsc::{channel, Receiver, Sender},
+    sync::mpsc::{Receiver, Sender, channel},
 };
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::{debug, error, warn};

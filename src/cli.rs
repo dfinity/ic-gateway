@@ -14,7 +14,7 @@ use ic_bn_lib::{
         self,
         shed::cli::{ShedSharded, ShedSystem},
     },
-    parse_size, parse_size_usize,
+    parse_size, parse_size_decimal, parse_size_decimal_usize, parse_size_usize,
     tls::acme,
 };
 use reqwest::Url;
@@ -416,8 +416,8 @@ pub struct Clickhouse {
     #[clap(env, long)]
     pub log_clickhouse_table: Option<String>,
 
-    /// Clickhouse batch size
-    #[clap(env, long, default_value = "250000")]
+    /// Clickhouse batch size (in number of rows)
+    #[clap(env, long, default_value = "250k", value_parser = parse_size_decimal)]
     pub log_clickhouse_batch: u64,
 
     /// Clickhouse batch flush interval
@@ -456,7 +456,7 @@ pub struct Vector {
 
     /// Vector buffer size (in number of events) to account for ingest problems.
     /// If the buffer is full then new events will be dropped.
-    #[clap(env, long, default_value = "524288")]
+    #[clap(env, long, default_value = "500k", value_parser = parse_size_decimal_usize)]
     pub log_vector_buffer: usize,
 
     /// Number of batch flusher tasks to spawn.
@@ -558,7 +558,7 @@ pub struct Cors {
     pub cors_canister_passthrough: bool,
 
     /// Maximum number of canisters to cache that replied incorrectly to the OPTIONS request
-    #[clap(env, long, default_value = "1000000")]
+    #[clap(env, long, default_value = "1m", value_parser = parse_size_decimal)]
     pub cors_invalid_canisters_max: u64,
 
     /// Timeout for expiring invalid canisters from the cache

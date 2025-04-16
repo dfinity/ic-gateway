@@ -1,11 +1,11 @@
 use std::{net::IpAddr, sync::Arc, time::Duration};
 
 use ::governor::{clock::QuantaInstant, middleware::NoOpMiddleware};
-use anyhow::{anyhow, Error};
+use anyhow::{Error, anyhow};
 use axum::{extract::Request, response::IntoResponse};
 use ic_bn_lib::http::ConnInfo;
 use tower_governor::{
-    governor::GovernorConfigBuilder, key_extractor::KeyExtractor, GovernorError, GovernorLayer,
+    GovernorError, GovernorLayer, governor::GovernorConfigBuilder, key_extractor::KeyExtractor,
 };
 
 use crate::routing::error_cause::{ErrorCause, RateLimitCause};
@@ -67,16 +67,16 @@ pub fn layer<T: KeyExtractor>(
 #[cfg(test)]
 mod tests {
     use axum::{
-        body::{to_bytes, Body},
+        Router,
+        body::{Body, to_bytes},
         extract::Request,
         response::IntoResponse,
         routing::post,
-        Router,
     };
     use http::StatusCode;
     use ic_bn_lib::http::{ConnInfo, Stats};
     use std::{
-        sync::{atomic::AtomicU64, Arc},
+        sync::{Arc, atomic::AtomicU64},
         time::Duration,
     };
     use tokio::time::sleep;
@@ -85,9 +85,9 @@ mod tests {
     use uuid::Uuid;
 
     use crate::routing::{
-        error_cause::{ErrorCause, RateLimitCause, ERROR_CONTEXT},
-        middleware::rate_limiter::{layer, IpKeyExtractor},
         RequestType,
+        error_cause::{ERROR_CONTEXT, ErrorCause, RateLimitCause},
+        middleware::rate_limiter::{IpKeyExtractor, layer},
     };
 
     async fn handler(_request: Request<Body>) -> Result<impl IntoResponse, ErrorCause> {

@@ -21,13 +21,7 @@ use ic_bn_lib::{
 };
 use ocsp_stapler::Stapler;
 use prometheus::Registry;
-use rustls::{
-    DigitallySignedStruct,
-    client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
-    crypto::{verify_tls12_signature, verify_tls13_signature},
-    pki_types::{CertificateDer, ServerName, UnixTime},
-    server::{ResolvesServerCert as ResolvesServerCertRustls, ServerConfig},
-};
+use rustls::server::{ResolvesServerCert as ResolvesServerCertRustls, ServerConfig};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
@@ -183,56 +177,4 @@ pub async fn setup(
     // Generate Rustls config
     let config = prepare_server_config(tls_opts, certificate_resolver, registry);
     Ok(config)
-}
-
-/// Certificate verifier for rustls that accepts any certificate w/o verification.
-/// Should only be used for benchmark/test purposes.
-#[derive(Debug)]
-pub struct NoopServerVerifier;
-
-impl ServerCertVerifier for NoopServerVerifier {
-    fn verify_server_cert(
-        &self,
-        _: &CertificateDer<'_>,
-        _: &[CertificateDer<'_>],
-        _: &ServerName<'_>,
-        _: &[u8],
-        _: UnixTime,
-    ) -> Result<ServerCertVerified, rustls::Error> {
-        Ok(ServerCertVerified::assertion())
-    }
-
-    fn verify_tls12_signature(
-        &self,
-        message: &[u8],
-        cert: &CertificateDer<'_>,
-        dss: &DigitallySignedStruct,
-    ) -> Result<HandshakeSignatureValid, rustls::Error> {
-        verify_tls12_signature(
-            message,
-            cert,
-            dss,
-            &rustls::crypto::ring::default_provider().signature_verification_algorithms,
-        )
-    }
-
-    fn verify_tls13_signature(
-        &self,
-        message: &[u8],
-        cert: &CertificateDer<'_>,
-        dss: &DigitallySignedStruct,
-    ) -> Result<HandshakeSignatureValid, rustls::Error> {
-        verify_tls13_signature(
-            message,
-            cert,
-            dss,
-            &rustls::crypto::ring::default_provider().signature_verification_algorithms,
-        )
-    }
-
-    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
-        rustls::crypto::ring::default_provider()
-            .signature_verification_algorithms
-            .supported_schemes()
-    }
 }

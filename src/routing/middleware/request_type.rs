@@ -4,7 +4,7 @@ use axum::{
     response::IntoResponse,
 };
 
-use crate::routing::{error_cause::ERROR_CONTEXT, ErrorCause, RequestType};
+use crate::routing::{ErrorCause, RequestType, error_cause::ERROR_CONTEXT};
 
 pub async fn middleware(mut request: Request, next: Next) -> Result<impl IntoResponse, ErrorCause> {
     let request_type = RequestType::from(request.extensions().get::<MatchedPath>());
