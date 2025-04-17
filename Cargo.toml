@@ -96,12 +96,15 @@ zstd = "0.13.2"
 tokio_console = ["console-subscriber"]
 
 [dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
 hex = "0.4.3"
 httptest = "0.16.1"
 ic-certified-assets = { git = "https://github.com/dfinity/sdk.git", rev = "d65717bd6d0c172247c37dd23395c9fb13b2ba20" }
 mockall = "0.13.0"
 nix = "0.29.0"
 pocket-ic = "7.0.0"
+rand_regex = "0.17.0"
+rand_xorshift = "0.4.0"
 tempfile = "3.18.0"
 
 [profile.release]
@@ -112,3 +115,7 @@ panic = "abort"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tokio_unstable)'] }
+
+[[bench]]
+name = "domain_lookup"
+harness = false

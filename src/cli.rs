@@ -355,8 +355,8 @@ pub struct Metrics {
 
 #[derive(Args)]
 pub struct Log {
-    /// Maximum logging level
-    #[clap(env, long, default_value = "info")]
+    /// Logging level to use
+    #[clap(env, long, default_value = "warn")]
     pub log_level: tracing::Level,
 
     /// Enables logging to stdout

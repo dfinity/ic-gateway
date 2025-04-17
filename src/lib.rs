@@ -8,7 +8,7 @@ mod cli;
 mod core;
 mod metrics;
 mod policy;
-mod routing;
+pub mod routing;
 mod tls;
 
 pub use crate::cli::Cli;

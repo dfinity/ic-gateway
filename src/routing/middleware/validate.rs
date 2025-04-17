@@ -52,7 +52,7 @@ pub async fn middleware(
     // TODO remove Arc?
     let ctx = Arc::new(RequestCtx {
         authority,
-        domain: lookup.domain.clone(),
+        domain: lookup.domain,
         verify: lookup.verify,
         request_type,
     });

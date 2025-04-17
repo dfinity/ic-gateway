@@ -28,7 +28,7 @@ const HEADERS_REMOVE: [HeaderName; 12] = [
 pub async fn middleware(request: Request, next: Next) -> Response {
     let mut response = next.run(request).await;
 
-    // Remove headers that were proxied from ic-boundary
+    // Remove headers that were added by ic-boundary
     for h in HEADERS_REMOVE {
         response.headers_mut().remove(h);
     }
@@ -37,7 +37,7 @@ pub async fn middleware(request: Request, next: Next) -> Response {
     if let Some(v) = response.extensions().get::<CanisterId>().copied() {
         response.headers_mut().insert(
             X_IC_CANISTER_ID,
-            HeaderValue::from_maybe_shared(Bytes::from(v.0.to_string())).unwrap(),
+            HeaderValue::from_maybe_shared(Bytes::from(v.to_string())).unwrap(),
         );
     }
 

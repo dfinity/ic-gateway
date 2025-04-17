@@ -5,7 +5,7 @@ pub mod ic;
 pub mod middleware;
 pub mod proxy;
 
-use std::{fmt, str::FromStr, sync::Arc, time::Duration};
+use std::{ops::Deref, str::FromStr, sync::Arc, time::Duration};
 
 use anyhow::{Context, Error};
 use axum::{
@@ -69,9 +69,11 @@ impl From<CanisterId> for Principal {
     }
 }
 
-impl fmt::Display for CanisterId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
+impl Deref for CanisterId {
+    type Target = Principal;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 

@@ -130,7 +130,7 @@ impl CustomDomainStorage {
         snapshot
     }
 
-    async fn refresh(&self) {
+    pub async fn refresh(&self) {
         let snapshot_old = self.snapshot.lock().unwrap().clone();
         let snapshot = self.fetch(snapshot_old.clone()).await;
 
