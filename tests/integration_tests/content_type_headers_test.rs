@@ -21,7 +21,7 @@ pub fn content_type_headers_test(env: &TestEnv) -> anyhow::Result<()> {
         .build()
         .map_err(|e| anyhow!("failed to build http client: {e}"))?;
 
-    let headers: HashMap<String, String> = vec![
+    let expected_headers: HashMap<String, String> = vec![
         ("content-type", "application/cbor"),
         ("x-content-type-options", "nosniff"),
         ("x-frame-options", "DENY"),
@@ -36,10 +36,11 @@ pub fn content_type_headers_test(env: &TestEnv) -> anyhow::Result<()> {
         Method::GET,
         Url::parse("http://ic0.app/api/v2/status").unwrap(),
     );
-    let expected_response = ExpectedResponse::new(Some(StatusCode::OK), None, Some(headers));
+    let expected_response =
+        ExpectedResponse::new(Some(StatusCode::OK), None, Some(expected_headers));
 
     rt.block_on(retry_async(
-        "verifying correct headers in /api/v2/status response",
+        "verifying HTTP response to /api/v2/status",
         STATUS_CALL_RETRY_TIMEOUT,
         STATUS_CALL_RETRY_INTERVAL,
         || {
