@@ -103,6 +103,7 @@ mockall = "0.13.0"
 nix = "0.29.0"
 pocket-ic = "7.0.0"
 tempfile = "3.18.0"
+wat = "1.228.0"
 
 [profile.release]
 strip = "symbols"
