@@ -19,6 +19,10 @@ const CANISTER_INITIAL_CYCLES: u128 = 100_000_000_000_000;
 const REQUEST_RETRY_TIMEOUT: Duration = Duration::from_secs(50);
 const REQUEST_RETRY_INTERVAL: Duration = Duration::from_secs(10);
 
+// Test scenario:
+// - install counter canister
+// - make various HTTP requests GET/POST/OPTIONS and verify correct status codes and headers of the responses
+
 pub fn cors_headers_test(env: &TestEnv) -> anyhow::Result<()> {
     info!("counter canister installation start ...");
     let canister_id =
@@ -38,7 +42,7 @@ pub fn cors_headers_test(env: &TestEnv) -> anyhow::Result<()> {
     let hash_str = encode(module_hash);
     info!("counter canister with id={canister_id} installed, hash={hash_str}");
 
-    info!("testing HTTP request ...");
+    info!("testing various HTTP requests ...");
     let url = Url::parse(&format!(
         "http://{}:{}",
         env.ic_gateway_domain,
@@ -49,11 +53,11 @@ pub fn cors_headers_test(env: &TestEnv) -> anyhow::Result<()> {
     let http_client = Client::builder()
         .resolve(&env.ic_gateway_domain, env.ic_gateway_addr)
         .build()
-        .map_err(|e| anyhow!("failed to build http client: {e}"))?;
+        .context("failed to build http client")?;
 
-    let rt = Runtime::new().map_err(|e| anyhow!("failed to start tokio runtime: {e}"))?;
+    let rt = Runtime::new().context("failed to start tokio runtime")?;
 
-    // Execute all test HTTP calls
+    // Execute all HTTP requests and verify responses
     for (idx, (request, expected_response)) in test_cases(url, canister_id).iter().enumerate() {
         let msg = format!("verifying HTTP response for test case {idx}");
 
@@ -76,28 +80,22 @@ pub fn cors_headers_test(env: &TestEnv) -> anyhow::Result<()> {
 }
 
 fn test_cases(url: Url, canister_id: Principal) -> Vec<(Request, ExpectedResponse)> {
-    let headers_common_opts: HashMap<String, String> = vec![
-        ("Access-Control-Allow-Origin", "*"),
+    let headers_common_opts = HashMap::from([
+        ("Access-Control-Allow-Origin".to_string(), "*".to_string()),
         (
-            "Access-Control-Allow-Headers",
-            "DNT,User-Agent,X-Requested-With,If-None-Match,If-Modified-Since,Cache-Control,Content-Type,Range,Cookie,X-Ic-Canister-Id",
+            "Access-Control-Allow-Headers".to_string(),
+            "DNT,User-Agent,X-Requested-With,If-None-Match,If-Modified-Since,Cache-Control,Content-Type,Range,Cookie,X-Ic-Canister-Id".to_string(),
         ),
-        ("Access-Control-Max-Age", "7200"),
-    ]
-    .iter()
-    .map(|(k, v)| (k.to_string(), v.to_string()))
-    .collect();
+        ("Access-Control-Max-Age".to_string(), "7200".to_string()),
+    ]);
 
-    let headers_common: HashMap<String, String> = vec![
-        ("Access-Control-Allow-Origin", "*"),
+    let headers_common = HashMap::from([
+        ("Access-Control-Allow-Origin".to_string(), "*".to_string()),
         (
-            "Access-Control-Expose-Headers",
-            "Accept-Ranges,Content-Length,Content-Range,X-Request-Id,X-Ic-Canister-Id",
+            "Access-Control-Expose-Headers".to_string(),
+            "Accept-Ranges,Content-Length,Content-Range,X-Request-Id,X-Ic-Canister-Id".to_string(),
         ),
-    ]
-    .iter()
-    .map(|(k, v)| (k.to_string(), v.to_string()))
-    .collect();
+    ]);
 
     let test_cases = [
         (

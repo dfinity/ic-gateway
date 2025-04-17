@@ -88,9 +88,7 @@ fn truncate_error_msg(err_str: String) -> String {
 }
 
 pub fn get_binary_path(name: &str) -> PathBuf {
-    let mut path = PathBuf::from(env::var("CARGO_TARGET_DIR").expect("env variable is not set"));
-    path.push(name);
-    path
+    PathBuf::from(env::var("CARGO_TARGET_DIR").expect("env variable is not set")).join(name)
 }
 
 pub fn create_canister_with_cycles(
@@ -338,6 +336,7 @@ pub async fn check_response(
                 .insert(header_name.to_string().trim().to_ascii_lowercase(), values);
         }
 
+        // check that expected headers are present in the response
         for (key, expected_values) in expected_headers_sorted.iter() {
             let actual_values = actual_headers_sorted
                 .get(key)
