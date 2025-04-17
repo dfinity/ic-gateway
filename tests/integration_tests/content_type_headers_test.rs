@@ -1,9 +1,12 @@
-use crate::helpers::retry_async;
-use crate::helpers::{TestEnv, verify_status_call_headers};
-use anyhow::anyhow;
-use reqwest::Client;
+use crate::helpers::TestEnv;
+use crate::helpers::{ExpectedResponse, check_response, retry_async};
+use anyhow::{Context, anyhow};
+use http::{Method, StatusCode};
+use reqwest::{Client, Request};
+use std::collections::HashMap;
 use std::time::Duration;
 use tokio::runtime::Runtime;
+use url::Url;
 
 const STATUS_CALL_RETRY_TIMEOUT: Duration = Duration::from_secs(50);
 const STATUS_CALL_RETRY_INTERVAL: Duration = Duration::from_secs(10);
@@ -18,15 +21,36 @@ pub fn content_type_headers_test(env: &TestEnv) -> anyhow::Result<()> {
         .build()
         .map_err(|e| anyhow!("failed to build http client: {e}"))?;
 
+    let headers: HashMap<String, String> = vec![
+        ("content-type", "application/cbor"),
+        ("x-content-type-options", "nosniff"),
+        ("x-frame-options", "DENY"),
+    ]
+    .iter()
+    .map(|(k, v)| (k.to_string(), v.to_string()))
+    .collect();
+
     let rt = Runtime::new().map_err(|e| anyhow!("failed to start tokio runtime: {e}"))?;
+
+    let request = Request::new(
+        Method::GET,
+        Url::parse("http://ic0.app/api/v2/status").unwrap(),
+    );
+    let expected_response = ExpectedResponse::new(Some(StatusCode::OK), None, Some(headers));
 
     rt.block_on(retry_async(
         "verifying correct headers in /api/v2/status response",
         STATUS_CALL_RETRY_TIMEOUT,
         STATUS_CALL_RETRY_INTERVAL,
-        || verify_status_call_headers(&http_client, "http://ic0.app/api/v2/status"),
+        || {
+            check_response(
+                &http_client,
+                request.try_clone().unwrap(),
+                &expected_response,
+            )
+        },
     ))
-    .map_err(|e| anyhow!("failed to verify correct headers: {e}"))?;
+    .context(anyhow!("failed to verify HTTP response"))?;
 
     Ok(())
 }

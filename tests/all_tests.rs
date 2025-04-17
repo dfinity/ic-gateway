@@ -7,6 +7,7 @@ use integration_tests::{
 const IC_GATEWAY_DOMAIN: &str = "ic0.app";
 const IC_GATEWAY_ADDR: &str = "127.0.0.1:8080";
 
+mod counter_canister;
 mod helpers;
 mod integration_tests;
 

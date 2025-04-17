@@ -10,7 +10,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::{Context, anyhow, bail};
+use anyhow::{Context, anyhow};
 use candid::Principal;
 use http::StatusCode;
 use ic_certified_assets::types::{
@@ -85,35 +85,6 @@ fn truncate_error_msg(err_str: String) -> String {
     short_e.truncate(200);
     short_e.push_str("...");
     short_e
-}
-
-pub async fn verify_status_call_headers(http_client: &Client, url: &str) -> anyhow::Result<()> {
-    let response = http_client
-        .get(url)
-        .send()
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to send request to {}: {}", url, e))?;
-
-    let status = response.status();
-    if status != StatusCode::OK {
-        bail!("Received unexpected status code: {}", status);
-    }
-
-    let expected_headers = vec![
-        ("content-type", "application/cbor"),
-        ("x-content-type-options", "nosniff"),
-        ("x-frame-options", "DENY"),
-    ];
-
-    for (key, value) in expected_headers {
-        let header = response
-            .headers()
-            .get(key)
-            .expect("expected header {key} is missing");
-        assert_eq!(header, value, "header doesn't match expectation");
-    }
-
-    Ok(())
 }
 
 pub fn get_binary_path(name: &str) -> PathBuf {
@@ -383,37 +354,3 @@ pub async fn check_response(
 
     Ok(())
 }
-
-pub const COUNTER_WAT: &str = r#"
-(module
-  (import "ic0" "msg_reply" (func $msg_reply))
-  (import "ic0" "msg_reply_data_append"
-    (func $msg_reply_data_append (param i32 i32)))
-
-  (func $read
-    (i32.store
-      (i32.const 0)
-      (global.get 0)
-    )
-    (call $msg_reply_data_append
-      (i32.const 0)
-      (i32.const 4))
-    (call $msg_reply))
-
-  (func $write
-    (global.set 0
-      (i32.add
-        (global.get 0)
-        (i32.const 1)
-      )
-    )
-    (call $read)
-  )
-
-  (memory $memory 1)
-  (export "memory" (memory $memory))
-  (global (export "counter_global") (mut i32) (i32.const 0))
-  (export "canister_query read" (func $read))
-  (export "canister_query inc_read" (func $write))
-  (export "canister_update write" (func $write))
-)"#;

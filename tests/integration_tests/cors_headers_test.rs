@@ -1,8 +1,10 @@
 use std::{collections::HashMap, time::Duration};
 
-use crate::helpers::{
-    COUNTER_WAT, ExpectedResponse, TestEnv, check_response, create_canister_with_cycles,
-    retry_async,
+use crate::{
+    counter_canister::COUNTER_WAT,
+    helpers::{
+        ExpectedResponse, TestEnv, check_response, create_canister_with_cycles, retry_async,
+    },
 };
 use anyhow::{Context, anyhow};
 use candid::{Encode, Principal};
