@@ -9,6 +9,8 @@ mod core;
 mod metrics;
 mod policy;
 pub mod routing;
+#[cfg(any(test, feature = "bench"))]
+pub mod test;
 mod tls;
 
 pub use crate::cli::Cli;

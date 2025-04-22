@@ -15,7 +15,7 @@ use tracing::{debug, warn};
 
 #[macro_export]
 macro_rules! principal {
-    ($id:expr) => {{ Principal::from_text($id).unwrap() }};
+    ($id:expr) => {{ candid::Principal::from_text($id).unwrap() }};
 }
 
 /// Domain entity with certain metadata

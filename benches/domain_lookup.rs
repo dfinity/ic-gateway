@@ -2,10 +2,8 @@ use std::sync::Arc;
 
 use anyhow::Error;
 use async_trait::async_trait;
-use candid::Principal;
 use criterion::{Criterion, criterion_group, criterion_main};
 use fqdn::fqdn;
-
 use rand::{Rng, seq::SliceRandom, thread_rng};
 
 use ic_gateway::{

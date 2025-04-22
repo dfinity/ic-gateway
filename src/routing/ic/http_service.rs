@@ -89,7 +89,6 @@ impl HttpService for AgentHttpService {
             match self.execute(request).await {
                 Ok(v) => {
                     let should_retry = status_code_needs_retrying(v.status()) && retries > 0;
-
                     if !should_retry {
                         return Ok(v);
                     }

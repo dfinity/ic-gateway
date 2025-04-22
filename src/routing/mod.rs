@@ -47,8 +47,11 @@ use tracing::warn;
 use crate::{
     cli::Cli,
     metrics::{self, Vector, clickhouse::Clickhouse},
-    routing::middleware::{
-        canister_match, cors, geoip, headers, rate_limiter, request_id, request_type, validate,
+    routing::{
+        middleware::{
+            canister_match, cors, geoip, headers, rate_limiter, request_id, request_type, validate,
+        },
+        proxy::ProxiesRequests,
     },
 };
 
@@ -176,11 +179,12 @@ pub async fn redirect_to_https(
 
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::cognitive_complexity)]
-pub fn setup_router(
+pub fn setup_router<P: ProxiesRequests + Clone + Send + Sync + 'static>(
     cli: &Cli,
     custom_domain_providers: Vec<Arc<dyn ProvidesCustomDomains>>,
     tasks: &mut TaskManager,
     http_client: Arc<dyn Client>,
+    proxier: P,
     route_provider: Arc<dyn RouteProvider>,
     registry: &Registry,
     clickhouse: Option<Arc<Clickhouse>>,
@@ -332,6 +336,7 @@ pub fn setup_router(
         cli.ic.ic_request_max_size,
     ));
     let state_api = Arc::new(proxy::ApiProxyState::new(
+        proxier.clone(),
         http_client.clone(),
         route_provider,
         cli.ic.ic_request_retries,
@@ -451,6 +456,7 @@ pub fn setup_router(
         lazy_static::initialize(&proxy::REGEX_REG_ID);
 
         let state = Arc::new(proxy::IssuerProxyState::new(
+            proxier,
             http_client,
             cli.cert.cert_provider_issuer_url.clone(),
         ));
@@ -541,11 +547,14 @@ pub fn setup_router(
 
 #[cfg(test)]
 mod test {
+    use crate::test::setup_test_router;
+
     use super::*;
-    use clap::Parser;
-    use ic_agent::agent::route_provider::RoundRobinRouteProvider;
-    use ic_bn_lib::tls::prepare_client_config;
+    use axum::body::{Body, to_bytes};
+    use ic_bn_lib::http::ConnInfo;
+    use rand::{seq::SliceRandom, thread_rng};
     use std::str::FromStr;
+    use tower::Service;
 
     #[test]
     fn test_request_type() {
@@ -589,38 +598,34 @@ mod test {
         );
     }
 
-    #[test]
-    fn test_setup_router() {
-        let args = vec!["", "--domain", "ic0.app"];
-        let cli = Cli::parse_from(args);
-
+    #[tokio::test]
+    async fn test_setup_router() {
         rustls::crypto::ring::default_provider()
             .install_default()
             .unwrap();
 
-        let mut http_client_opts: ic_bn_lib::http::client::Options<ic_bn_lib::http::dns::Resolver> =
-            (&cli.http_client).into();
-        http_client_opts.tls_config = Some(prepare_client_config(&[
-            &rustls::version::TLS13,
-            &rustls::version::TLS12,
-        ]));
-        let http_client =
-            Arc::new(ic_bn_lib::http::ReqwestClient::new(http_client_opts.clone()).unwrap());
+        let mut rng = thread_rng();
 
-        let route_provider = RoundRobinRouteProvider::new(vec!["https://icp-api.io"]).unwrap();
-
+        // Create the test router
         let mut tasks = TaskManager::new();
+        let (mut router, domains) = setup_test_router(&mut tasks);
+        // Start the tasks and give them some time to finish
+        tasks.start();
+        tokio::time::sleep(Duration::from_secs(1)).await;
 
-        let _ = setup_router(
-            &cli,
-            vec![],
-            &mut tasks,
-            http_client,
-            Arc::new(route_provider),
-            &Registry::new(),
-            None,
-            None,
-        )
-        .unwrap();
+        // Pick some random domain & create request
+        let domain = domains.choose(&mut rng).unwrap();
+        let mut req = axum::extract::Request::new(Body::from(""));
+        *req.uri_mut() = Uri::try_from(format!("http://{domain}")).unwrap();
+        let conn_info = Arc::new(ConnInfo::default());
+        (*req.extensions_mut()).insert(conn_info);
+
+        // Make sure that we get right answer
+        let resp = router.call(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = resp.into_body();
+        let body = to_bytes(body, 1024).await.unwrap();
+        assert_eq!(body, b"X".repeat(512));
     }
 }

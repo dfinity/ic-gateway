@@ -2675,6 +2675,7 @@ dependencies = [
  "ic-agent",
  "ic-bn-lib",
  "ic-certified-assets",
+ "ic-http-certification 3.0.3",
  "ic-http-gateway",
  "ic-transport-types 0.40.0",
  "itertools 0.14.0",
@@ -2688,11 +2689,11 @@ dependencies = [
  "prometheus",
  "rand 0.8.5",
  "rand_regex",
- "rand_xorshift",
  "regex",
  "reqwest",
  "rustls",
  "serde",
+ "serde_cbor",
  "serde_json",
  "strum 0.27.1",
  "tempfile",
@@ -4327,15 +4328,6 @@ checksum = "4bfbd599a8c757f89100e3ae559fb1ef9efa1cfd9276136862e3089dec627b31"
 dependencies = [
  "rand 0.8.5",
  "regex-syntax 0.8.5",
-]
-
-[[package]]
-name = "rand_xorshift"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "513962919efc330f829edb2535844d1b912b0fbe2ca165d613e4e8788bb05a5a"
-dependencies = [
- "rand_core 0.9.3",
 ]
 
 [[package]]

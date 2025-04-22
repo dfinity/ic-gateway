@@ -6,6 +6,7 @@ use std::{
     time::Duration,
 };
 
+use async_trait::async_trait;
 use axum::{
     body::Body,
     extract::{MatchedPath, OriginalUri, Path, Request, State},
@@ -36,6 +37,32 @@ use super::{
 
 lazy_static::lazy_static! {
     pub static ref REGEX_REG_ID: Regex = Regex::new(r"^[a-zA-Z0-9]+$").unwrap();
+}
+
+#[async_trait]
+pub trait ProxiesRequests {
+    async fn proxy(
+        &self,
+        url: Url,
+        request: Request,
+        http_client: &Arc<dyn Client>,
+    ) -> Result<Response, ic_bn_lib::http::Error>;
+}
+
+/// Default proxy implementation that just calls `proxy` function from ic-bn-lib
+#[derive(Clone, Debug)]
+pub struct Proxier;
+
+#[async_trait]
+impl ProxiesRequests for Proxier {
+    async fn proxy(
+        &self,
+        url: Url,
+        request: Request,
+        http_client: &Arc<dyn Client>,
+    ) -> Result<Response, ic_bn_lib::http::Error> {
+        proxy(url, request, http_client).await
+    }
 }
 
 fn url_join(mut base: Url, mut path: &str) -> Result<Url, url::ParseError> {
@@ -74,7 +101,8 @@ fn request_needs_retrying(result: &Result<Response, IcBnError>) -> bool {
 }
 
 #[derive(new)]
-pub struct ApiProxyState {
+pub struct ApiProxyState<P: ProxiesRequests> {
+    proxier: P,
     http_client: Arc<dyn Client>,
     route_provider: Arc<dyn RouteProvider>,
     retries: usize,
@@ -84,8 +112,8 @@ pub struct ApiProxyState {
 }
 
 // Proxies /api/v2/... and /api/v3/... endpoints to the IC
-pub async fn api_proxy(
-    State(state): State<Arc<ApiProxyState>>,
+pub async fn api_proxy<P: ProxiesRequests + Send + Sync>(
+    State(state): State<Arc<ApiProxyState<P>>>,
     OriginalUri(original_uri): OriginalUri,
     matched_path: MatchedPath,
     principal: Option<Path<String>>,
@@ -124,7 +152,7 @@ pub async fn api_proxy(
         let request = Request::from_parts(parts.clone(), Body::from(body.clone()));
 
         // Proxy the request
-        let result = proxy(url, request, &state.http_client).await;
+        let result = state.proxier.proxy(url, request, &state.http_client).await;
         if !request_needs_retrying(&result) {
             break (upstream, result);
         }
@@ -169,7 +197,8 @@ pub async fn api_proxy(
 }
 
 #[derive(new)]
-pub struct IssuerProxyState {
+pub struct IssuerProxyState<P: ProxiesRequests> {
+    proxier: P,
     http_client: Arc<dyn Client>,
     issuers: Vec<Url>,
     #[new(default)]
@@ -177,8 +206,8 @@ pub struct IssuerProxyState {
 }
 
 // Proxies /registrations endpoint to the certificate issuers if they're defined
-pub async fn issuer_proxy(
-    State(state): State<Arc<IssuerProxyState>>,
+pub async fn issuer_proxy<P: ProxiesRequests + Send + Sync>(
+    State(state): State<Arc<IssuerProxyState<P>>>,
     OriginalUri(original_uri): OriginalUri,
     matched_path: MatchedPath,
     id: Option<Path<String>>,
@@ -201,7 +230,9 @@ pub async fn issuer_proxy(
         .join(original_uri.path())
         .map_err(|_| ErrorCause::Other("Unable to parse path as URL part".into()))?;
 
-    let mut response = proxy(url, request, &state.http_client)
+    let mut response = state
+        .proxier
+        .proxy(url, request, &state.http_client)
         .await
         .map_err(ErrorCause::from_backend_error)?;
 
@@ -309,6 +340,7 @@ mod test {
         let client = Arc::new(TestClient(AtomicUsize::new(0)));
         let rp = Arc::new(RoundRobinRouteProvider::new(vec!["http://foo"]).unwrap());
         let state = Arc::new(ApiProxyState::new(
+            Proxier,
             client,
             rp,
             5,
@@ -332,6 +364,7 @@ mod test {
         let client = Arc::new(TestClientErr(AtomicUsize::new(0)));
         let rp = Arc::new(RoundRobinRouteProvider::new(vec!["http://foo"]).unwrap());
         let state = Arc::new(ApiProxyState::new(
+            Proxier,
             client,
             rp,
             5,
@@ -355,6 +388,7 @@ mod test {
         let client = Arc::new(TestClientFails5xx);
         let rp = Arc::new(RoundRobinRouteProvider::new(vec!["http://foo"]).unwrap());
         let state = Arc::new(ApiProxyState::new(
+            Proxier,
             client,
             rp,
             5,
@@ -378,6 +412,7 @@ mod test {
         let client = Arc::new(TestClientFailsErr);
         let rp = Arc::new(RoundRobinRouteProvider::new(vec!["http://foo"]).unwrap());
         let state = Arc::new(ApiProxyState::new(
+            Proxier,
             client,
             rp,
             5,

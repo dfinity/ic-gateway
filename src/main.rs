@@ -18,6 +18,8 @@ mod log;
 mod metrics;
 mod policy;
 mod routing;
+#[cfg(any(test, feature = "bench"))]
+pub mod test;
 mod tls;
 
 #[global_allocator]

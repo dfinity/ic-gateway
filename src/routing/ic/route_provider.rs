@@ -2,21 +2,25 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use candid::Principal;
-use ic_agent::agent::http_transport::reqwest_transport::reqwest::Client as AgentClient;
-use ic_agent::agent::route_provider::{
-    RoundRobinRouteProvider, RouteProvider,
-    dynamic_routing::{
-        dynamic_route_provider::DynamicRouteProviderBuilder, node::Node,
-        snapshot::latency_based_routing::LatencyRoutingSnapshot,
+use ic_agent::agent::{
+    http_transport::reqwest_transport::reqwest::Client as AgentClient,
+    route_provider::{
+        RoundRobinRouteProvider, RouteProvider,
+        dynamic_routing::{
+            dynamic_route_provider::DynamicRouteProviderBuilder, node::Node,
+            snapshot::latency_based_routing::LatencyRoutingSnapshot,
+        },
     },
 };
 use tracing::info;
 use url::Url;
 
-use crate::Cli;
-use crate::routing::ic::{
-    health_check::{CHECK_TIMEOUT, HealthChecker},
-    nodes_fetcher::{MAINNET_ROOT_SUBNET_ID, NodesFetcher},
+use crate::{
+    Cli,
+    routing::ic::{
+        health_check::{CHECK_TIMEOUT, HealthChecker},
+        nodes_fetcher::{MAINNET_ROOT_SUBNET_ID, NodesFetcher},
+    },
 };
 
 pub async fn setup_route_provider(

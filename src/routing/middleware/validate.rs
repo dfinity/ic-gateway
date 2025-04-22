@@ -49,7 +49,6 @@ pub async fn middleware(
     let request_type = request.extensions().get::<RequestType>().copied().unwrap();
 
     // Inject request context
-    // TODO remove Arc?
     let ctx = Arc::new(RequestCtx {
         authority,
         domain: lookup.domain,
@@ -59,6 +58,7 @@ pub async fn middleware(
 
     request.extensions_mut().insert(ctx.clone());
 
+    // Execute the request
     let mut response = next.run(request).await;
 
     // Inject the same into the response
