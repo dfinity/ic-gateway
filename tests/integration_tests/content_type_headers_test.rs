@@ -43,12 +43,13 @@ pub fn content_type_headers_test(env: &TestEnv) -> anyhow::Result<()> {
         "verifying HTTP response to /api/v2/status",
         STATUS_CALL_RETRY_TIMEOUT,
         STATUS_CALL_RETRY_INTERVAL,
-        || {
-            check_response(
-                &http_client,
-                request.try_clone().unwrap(),
-                &expected_response,
-            )
+        || async {
+            let response = http_client
+                .execute(request.try_clone().unwrap())
+                .await
+                .context("failed to execute request")?;
+
+            check_response(response, &expected_response).await
         },
     ))
     .context(anyhow!("failed to verify HTTP response"))?;

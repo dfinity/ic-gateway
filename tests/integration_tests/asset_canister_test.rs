@@ -62,8 +62,6 @@ pub fn asset_canister_test(env: &TestEnv) -> anyhow::Result<()> {
         .build()
         .context(anyhow!("failed to build http client"))?;
 
-    let rt = Runtime::new().context(anyhow!("failed to start tokio runtime"))?;
-
     let request = {
         let asset_url = Url::parse(&format!(
             "http://{asset_domain}:{}{asset_name}",
@@ -74,16 +72,18 @@ pub fn asset_canister_test(env: &TestEnv) -> anyhow::Result<()> {
     };
     let expected_response = ExpectedResponse::new(Some(StatusCode::OK), Some(asset_bytes), None);
 
+    let rt = Runtime::new().context(anyhow!("failed to start tokio runtime"))?;
     rt.block_on(retry_async(
         "downloading and verifying stored asset",
         FETCH_ASSET_RETRY_TIMEOUT,
         FETCH_ASSET_RETRY_INTERVAL,
-        || {
-            check_response(
-                &http_client,
-                request.try_clone().unwrap(),
-                &expected_response,
-            )
+        || async {
+            let response = http_client
+                .execute(request.try_clone().unwrap())
+                .await
+                .context("failed to execute request")?;
+
+            check_response(response, &expected_response).await
         },
     ))
     .context(anyhow!("failed to verify stored asset"))?;

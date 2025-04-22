@@ -22,7 +22,7 @@ use nix::{
     unistd::Pid,
 };
 use pocket_ic::{PocketIc, PocketIcBuilder, update_candid_as};
-use reqwest::{Client, Request};
+use reqwest::{Client, Request, Response};
 use tokio::time::sleep;
 use tracing::info;
 
@@ -276,16 +276,7 @@ impl ExpectedResponse {
     }
 }
 
-pub async fn check_response(
-    http_client: &Client,
-    request: Request,
-    expected: &ExpectedResponse,
-) -> anyhow::Result<()> {
-    let response = http_client
-        .execute(request)
-        .await
-        .context("failed to execute request")?;
-
+pub async fn check_response(response: Response, expected: &ExpectedResponse) -> anyhow::Result<()> {
     let status = response.status();
     let headers = response.headers().clone();
     let body_bytes = response.bytes().await?.to_vec();

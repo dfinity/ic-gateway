@@ -4,7 +4,6 @@ use integration_tests::{
     cors_headers_test::cors_headers_test,
 };
 
-mod counter_canister;
 mod helpers;
 mod integration_tests;
 

@@ -1,21 +1,14 @@
 use std::{collections::HashMap, time::Duration};
 
-use crate::{
-    counter_canister::COUNTER_WAT,
-    helpers::{
-        ExpectedResponse, TestEnv, check_response, create_canister_with_cycles, retry_async,
-    },
-};
+use crate::helpers::{ExpectedResponse, TestEnv, check_response, retry_async};
 use anyhow::{Context, anyhow};
-use candid::{Encode, Principal};
-use hex::encode;
+use candid::Principal;
 use http::{Method, StatusCode};
 use reqwest::{Client, Request};
 use tokio::runtime::Runtime;
 use tracing::info;
 use url::Url;
 
-const CANISTER_INITIAL_CYCLES: u128 = 100_000_000_000_000;
 const REQUEST_RETRY_TIMEOUT: Duration = Duration::from_secs(50);
 const REQUEST_RETRY_INTERVAL: Duration = Duration::from_secs(10);
 
@@ -56,12 +49,13 @@ pub fn cors_headers_test(env: &TestEnv) -> anyhow::Result<()> {
             msg,
             REQUEST_RETRY_TIMEOUT,
             REQUEST_RETRY_INTERVAL,
-            || {
-                check_response(
-                    &http_client,
-                    request.try_clone().unwrap(),
-                    &expected_response,
-                )
+            || async {
+                let response = http_client
+                    .execute(request.try_clone().unwrap())
+                    .await
+                    .context("failed to execute request")?;
+
+                check_response(response, &expected_response).await
             },
         ))
         .context(anyhow!("failed to verify HTTP response"))?;
