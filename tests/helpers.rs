@@ -343,7 +343,7 @@ pub async fn check_response(
                 .ok_or_else(|| anyhow!("{key} is not present in response header"))?;
             if actual_values != expected_values {
                 anyhow::bail!(
-                    "Headers for `{key}` not match: got: {:?}, expected {:?}",
+                    "unexpected `{key}` header: got: {:?}, expected {:?}",
                     actual_values,
                     expected_values
                 );
