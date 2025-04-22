@@ -22,7 +22,7 @@ use nix::{
     unistd::Pid,
 };
 use pocket_ic::{PocketIc, PocketIcBuilder, update_candid_as};
-use reqwest::{Client, Request, Response};
+use reqwest::Response;
 use tokio::time::sleep;
 use tracing::info;
 
@@ -221,6 +221,7 @@ impl TestEnv {
 
         info!("pocket-ic server starting ...");
         let pic = PocketIcBuilder::new().with_nns_subnet().build();
+        pic.auto_progress();
         info!("pocket-ic server started");
 
         let ic_gateway_addr =
@@ -344,3 +345,34 @@ pub async fn check_response(response: Response, expected: &ExpectedResponse) -> 
 
     Ok(())
 }
+
+pub const COUNTER_WAT: &str = r#"
+(module
+  (import "ic0" "msg_reply" (func $msg_reply))
+  (import "ic0" "msg_reply_data_append"
+    (func $msg_reply_data_append (param i32 i32)))
+  (func $read
+    (i32.store
+      (i32.const 0)
+      (global.get 0)
+    )
+    (call $msg_reply_data_append
+      (i32.const 0)
+      (i32.const 4))
+    (call $msg_reply))
+  (func $write
+    (global.set 0
+      (i32.add
+        (global.get 0)
+        (i32.const 1)
+      )
+    )
+    (call $read)
+  )
+  (memory $memory 1)
+  (export "memory" (memory $memory))
+  (global (export "counter_global") (mut i32) (i32.const 0))
+  (export "canister_query read" (func $read))
+  (export "canister_query inc_read" (func $write))
+  (export "canister_update write" (func $write))
+)"#;

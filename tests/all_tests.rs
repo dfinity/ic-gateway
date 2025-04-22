@@ -1,7 +1,7 @@
 use helpers::TestEnv;
 use integration_tests::{
-    asset_canister_test::asset_canister_test, content_type_headers_test::content_type_headers_test,
-    cors_headers_test::cors_headers_test,
+    api_proxy_test::proxy_api_calls_test, asset_canister_test::asset_canister_test,
+    content_type_headers_test::content_type_headers_test, cors_headers_test::cors_headers_test,
 };
 
 mod helpers;
@@ -17,4 +17,5 @@ fn all_intergration_tests() {
     asset_canister_test(&env).unwrap();
     content_type_headers_test(&env).unwrap();
     cors_headers_test(&env).unwrap();
+    proxy_api_calls_test(&env).unwrap();
 }
