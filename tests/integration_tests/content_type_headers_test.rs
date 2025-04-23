@@ -21,14 +21,11 @@ pub fn content_type_headers_test(env: &TestEnv) -> anyhow::Result<()> {
         .build()
         .map_err(|e| anyhow!("failed to build http client: {e}"))?;
 
-    let expected_headers: HashMap<String, String> = vec![
-        ("content-type", "application/cbor"),
-        ("x-content-type-options", "nosniff"),
-        ("x-frame-options", "DENY"),
-    ]
-    .iter()
-    .map(|(k, v)| (k.to_string(), v.to_string()))
-    .collect();
+    let expected_headers = HashMap::from([
+        ("content-type".to_string(), "application/cbor".to_string()),
+        ("x-content-type-options".to_string(), "nosniff".to_string()),
+        ("x-frame-options".to_string(), "DENY".to_string()),
+    ]);
 
     let rt = Runtime::new().map_err(|e| anyhow!("failed to start tokio runtime: {e}"))?;
 

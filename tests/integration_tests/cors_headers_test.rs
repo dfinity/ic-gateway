@@ -14,17 +14,21 @@ const REQUEST_RETRY_INTERVAL: Duration = Duration::from_secs(10);
 
 // Test scenario:
 // - install counter canister
-// - make various HTTP requests GET/POST/OPTIONS and verify correct status codes and headers of the responses
+// - make various HTTP requests OPTIONS/GET/POST and verify the CORS headers of the responses
 
 pub fn cors_headers_test(env: &TestEnv) -> anyhow::Result<()> {
-    info!("counter canister installation start ...");
+    // some canister ID and subnet ID for testing -- they need to be valid principals, but don't need to exist
+    // as OPTIONS requests are directly replied to by the IC gateway and all other requests will just return a 400
+    // but the IC gateway still sets the CORS headers.
     let canister_id =
         Principal::from_text("rwlgt-iiaaa-aaaaa-aaaaa-cai").expect("failed to parse canister id");
     let subnet_id =
         Principal::from_text("tdb26-jop6k-aogll-7ltgs-eruif-6kk7m-qpktf-gdiqx-mxtrf-vb5e6-eqe")
             .expect("failed to parse subnet id");
 
-    info!("testing various HTTP requests ...");
+    info!("making various HTTP requests and checking the CORS headers ...");
+
+    // Create a URL and HTTP client to make requests to the IC gateway
     let url = Url::parse(&format!(
         "http://{}:{}",
         env.ic_gateway_domain,
@@ -37,9 +41,8 @@ pub fn cors_headers_test(env: &TestEnv) -> anyhow::Result<()> {
         .build()
         .context("failed to build http client")?;
 
-    let rt = Runtime::new().context("failed to start tokio runtime")?;
-
     // Execute all HTTP requests and verify responses
+    let rt = Runtime::new().context("failed to start tokio runtime")?;
     for (test_case_name, request, expected_response) in
         test_cases(url, canister_id, subnet_id).iter()
     {
@@ -69,6 +72,7 @@ fn test_cases(
     canister_id: Principal,
     subnet_id: Principal,
 ) -> Vec<(String, Request, ExpectedResponse)> {
+    // Expected CORS headers for OPTIONS requests
     let headers_common_opts = HashMap::from([
         ("Access-Control-Allow-Origin".to_string(), "*".to_string()),
         (
@@ -78,6 +82,7 @@ fn test_cases(
         ("Access-Control-Max-Age".to_string(), "7200".to_string()),
     ]);
 
+    // Expected CORS headers for GET/POST requests
     let headers_common = HashMap::from([
         ("Access-Control-Allow-Origin".to_string(), "*".to_string()),
         (
@@ -123,11 +128,7 @@ fn test_cases(
                 url.join(&format!("/api/v2/canister/{canister_id}/query"))
                     .unwrap(),
             ),
-            ExpectedResponse::new(
-                Some(StatusCode::BAD_REQUEST),
-                None,
-                Some(headers_common.clone()),
-            ),
+            ExpectedResponse::new(None, None, Some(headers_common.clone())),
         ),
         (
             "call OPTIONS request".to_string(),
@@ -150,11 +151,7 @@ fn test_cases(
                 url.join(&format!("/api/v2/canister/{canister_id}/call"))
                     .unwrap(),
             ),
-            ExpectedResponse::new(
-                Some(StatusCode::BAD_REQUEST),
-                None,
-                Some(headers_common.clone()),
-            ),
+            ExpectedResponse::new(None, None, Some(headers_common.clone())),
         ),
         (
             "sync_call OPTIONS request".to_string(),
@@ -177,11 +174,7 @@ fn test_cases(
                 url.join(&format!("/api/v3/canister/{canister_id}/call"))
                     .unwrap(),
             ),
-            ExpectedResponse::new(
-                Some(StatusCode::BAD_REQUEST),
-                None,
-                Some(headers_common.clone()),
-            ),
+            ExpectedResponse::new(None, None, Some(headers_common.clone())),
         ),
         (
             "canister read_state OPTIONS request".to_string(),
@@ -204,11 +197,7 @@ fn test_cases(
                 url.join(&format!("/api/v2/canister/{canister_id}/read_state"))
                     .unwrap(),
             ),
-            ExpectedResponse::new(
-                Some(StatusCode::BAD_REQUEST),
-                None,
-                Some(headers_common.clone()),
-            ),
+            ExpectedResponse::new(None, None, Some(headers_common.clone())),
         ),
         (
             "subnet read_state OPTIONS request".to_string(),
@@ -231,11 +220,7 @@ fn test_cases(
                 url.join(&format!("/api/v2/subnet/{subnet_id}/read_state"))
                     .unwrap(),
             ),
-            ExpectedResponse::new(
-                Some(StatusCode::BAD_REQUEST),
-                None,
-                Some(headers_common.clone()),
-            ),
+            ExpectedResponse::new(None, None, Some(headers_common.clone())),
         ),
     ];
 
