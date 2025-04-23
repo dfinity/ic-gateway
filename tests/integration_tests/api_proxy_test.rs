@@ -1,14 +1,11 @@
-use crate::helpers::{COUNTER_WAT, TestEnv, create_canister_with_cycles};
+use crate::helpers::{COUNTER_WAT, TestEnv, install_canister};
 use anyhow::{Context, anyhow, bail};
-use candid::{Encode, Principal};
-use hex::encode;
+use candid::Principal;
 use ic_agent::Agent;
 use reqwest::Client;
 use tokio::runtime::Runtime;
 use tracing::info;
 use url::Url;
-
-const CANISTER_INITIAL_CYCLES: u128 = 100_000_000_000_000;
 
 // Test scenario:
 // - install a counter canister
@@ -16,23 +13,12 @@ const CANISTER_INITIAL_CYCLES: u128 = 100_000_000_000_000;
 // - make API calls (status, query, call, read_state) to the canister
 
 pub fn proxy_api_calls_test(env: &TestEnv) -> anyhow::Result<()> {
-    info!("counter canister installation start ...");
-    let canister_id =
-        create_canister_with_cycles(&env.pic, Principal::anonymous(), CANISTER_INITIAL_CYCLES);
-    env.pic.install_canister(
-        canister_id,
+    info!("install counter canister ...");
+    let canister_id = install_canister(
+        &env.pic,
+        Principal::anonymous(),
         wat::parse_str(COUNTER_WAT).unwrap(),
-        Encode!(&()).unwrap(),
-        None,
     );
-    let module_hash = env
-        .pic
-        .canister_status(canister_id, None)
-        .unwrap()
-        .module_hash
-        .unwrap();
-    let hash_str = encode(module_hash);
-    info!("counter canister with id={canister_id} installed, hash={hash_str}");
 
     info!("create agent to interact with the canister ...");
     let url = Url::parse(&format!(
@@ -52,6 +38,7 @@ pub fn proxy_api_calls_test(env: &TestEnv) -> anyhow::Result<()> {
         .with_http_client(http_client)
         .build()?;
 
+    info!("test proxying of various API calls ...");
     let rt = Runtime::new().context("failed to start tokio runtime")?;
     rt.block_on(async {
         info!("api/v2/status - implicit status to fetch the root key");

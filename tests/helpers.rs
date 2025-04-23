@@ -1,3 +1,18 @@
+use anyhow::{Context, anyhow};
+use candid::{Encode, Principal};
+use hex::encode;
+use http::StatusCode;
+use ic_certified_assets::types::{
+    BatchOperation, CommitBatchArguments, CreateAssetArguments, CreateBatchResponse,
+    CreateChunkArg, CreateChunkResponse, DeleteAssetArguments, SetAssetContentArguments,
+};
+use nix::{
+    sys::signal::{self, Signal},
+    unistd::Pid,
+};
+use pocket_ic::{PocketIc, PocketIcBuilder, update_candid_as};
+use reqwest::Response;
+use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     env,
@@ -9,24 +24,11 @@ use std::{
     str::FromStr,
     time::{Duration, Instant},
 };
-
-use anyhow::{Context, anyhow};
-use candid::Principal;
-use http::StatusCode;
-use ic_certified_assets::types::{
-    BatchOperation, CommitBatchArguments, CreateAssetArguments, CreateBatchResponse,
-    CreateChunkArg, CreateChunkResponse, SetAssetContentArguments,
-};
-use nix::{
-    sys::signal::{self, Signal},
-    unistd::Pid,
-};
-use pocket_ic::{PocketIc, PocketIcBuilder, update_candid_as};
-use reqwest::Response;
 use tokio::time::sleep;
 use tracing::info;
 
 const IC_GATEWAY_BIN: &str = "ic-gateway";
+const CANISTER_INITIAL_CYCLES: u128 = 100_000_000_000_000;
 
 pub fn init_logging() {
     tracing_subscriber::fmt()
@@ -91,13 +93,29 @@ pub fn get_binary_path(name: &str) -> PathBuf {
     PathBuf::from(env::var("CARGO_TARGET_DIR").expect("env variable is not set")).join(name)
 }
 
-pub fn create_canister_with_cycles(
-    env: &PocketIc,
+pub fn install_canister(
+    pic: &PocketIc,
     controller: Principal,
-    cycles: u128,
+    canister_wasm_module: Vec<u8>,
 ) -> Principal {
-    let canister_id = env.create_canister_with_settings(Some(controller), None);
-    env.add_cycles(canister_id, cycles);
+    info!("installing canister ...");
+    let canister_id = pic.create_canister_with_settings(Some(controller), None);
+    pic.add_cycles(canister_id, CANISTER_INITIAL_CYCLES);
+
+    pic.install_canister(
+        canister_id,
+        canister_wasm_module,
+        Encode!(&()).unwrap(),
+        None,
+    );
+    let module_hash = pic
+        .canister_status(canister_id, None)
+        .unwrap()
+        .module_hash
+        .unwrap();
+    let hash_str = encode(module_hash);
+    info!("canister with id={canister_id} installed, hash={hash_str}");
+
     canister_id
 }
 
@@ -113,32 +131,41 @@ pub fn get_asset_canister_wasm() -> Vec<u8> {
 }
 
 pub fn upload_asset_to_asset_canister(
-    asset_canister_id: Principal,
-    asset_name: String,
-    env: &PocketIc,
-    asset: Vec<u8>,
-    chunk_len: usize,
+    pic: &PocketIc,
+    canister_id: Principal,
+    name: String,
+    content: Vec<u8>,
+    content_type: String,
+    content_encoding: String,
+    sha_override: Option<Vec<u8>>,
 ) {
-    let chunks: Vec<&[u8]> = asset.chunks(chunk_len).collect();
-    info!("uploading {} chunks to asset canister", chunks.len());
+    let controller = Principal::anonymous();
+
+    // create a batch id for uploading the asset
     let batch_id = update_candid_as::<_, (CreateBatchResponse,)>(
-        env,
-        asset_canister_id,
-        Principal::anonymous(),
+        pic,
+        canister_id,
+        controller,
         "create_batch",
         ((),),
     )
     .unwrap()
     .0
     .batch_id;
-    let create_asset = CreateAssetArguments {
-        key: asset_name.clone(),
-        content_type: "application/octet-stream".to_string(),
-        max_age: None,
-        headers: None,
-        enable_aliasing: None,
-        allow_raw_access: None,
-    };
+
+    // compute the hash of the asset content (if not provided)
+    let sha = sha_override.clone().unwrap_or_else(|| {
+        let mut hasher = Sha256::new();
+        hasher.update(content.as_slice());
+        let sha = hasher.finalize();
+        sha.to_vec()
+    });
+
+    // chunk the content into smaller pieces for the upload
+    let chunk_size = 1.9 * 1024.0 * 1024.0; // 1.9mb
+    let chunks: Vec<&[u8]> = content.chunks(chunk_size as usize).collect();
+
+    // upload each chunk to the asset canister
     let mut chunk_ids = vec![];
     for chunk in chunks {
         let create_chunk_arg = CreateChunkArg {
@@ -146,9 +173,9 @@ pub fn upload_asset_to_asset_canister(
             content: chunk.to_vec().into(),
         };
         let create_chunk_response = update_candid_as::<_, (CreateChunkResponse,)>(
-            env,
-            asset_canister_id,
-            Principal::anonymous(),
+            pic,
+            canister_id,
+            controller,
             "create_chunk",
             (create_chunk_arg,),
         )
@@ -156,25 +183,33 @@ pub fn upload_asset_to_asset_canister(
         .0;
         chunk_ids.push(create_chunk_response.chunk_id);
     }
-    let set_asset_content = SetAssetContentArguments {
-        key: asset_name.clone(),
-        content_encoding: "identity".to_string(),
-        chunk_ids,
-        sha256: None,
-        last_chunk: None,
-    };
-    let operations = vec![
-        BatchOperation::CreateAsset(create_asset),
-        BatchOperation::SetAssetContent(set_asset_content),
-    ];
+
+    // commit the batch with the asset content using the uploaded chunks
     let commit_batch_args: CommitBatchArguments = CommitBatchArguments {
         batch_id,
-        operations,
+        operations: vec![
+            BatchOperation::DeleteAsset(DeleteAssetArguments { key: name.clone() }),
+            BatchOperation::CreateAsset(CreateAssetArguments {
+                key: name.clone(),
+                content_type: content_type,
+                max_age: None,
+                headers: None,
+                enable_aliasing: None,
+                allow_raw_access: None,
+            }),
+            BatchOperation::SetAssetContent(SetAssetContentArguments {
+                key: name.clone(),
+                content_encoding: content_encoding,
+                chunk_ids,
+                sha256: Some(sha.into()),
+                last_chunk: None,
+            }),
+        ],
     };
     update_candid_as::<_, ((),)>(
-        env,
-        asset_canister_id,
-        Principal::anonymous(),
+        pic,
+        canister_id,
+        controller,
         "commit_batch",
         (commit_batch_args,),
     )
