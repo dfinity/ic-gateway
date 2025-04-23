@@ -133,7 +133,7 @@ pub fn get_asset_canister_wasm() -> Vec<u8> {
 pub fn upload_asset_to_asset_canister(
     pic: &PocketIc,
     canister_id: Principal,
-    name: String,
+    path: String,
     content: Vec<u8>,
     content_type: String,
     content_encoding: String,
@@ -188,9 +188,9 @@ pub fn upload_asset_to_asset_canister(
     let commit_batch_args: CommitBatchArguments = CommitBatchArguments {
         batch_id,
         operations: vec![
-            BatchOperation::DeleteAsset(DeleteAssetArguments { key: name.clone() }),
+            BatchOperation::DeleteAsset(DeleteAssetArguments { key: path.clone() }),
             BatchOperation::CreateAsset(CreateAssetArguments {
-                key: name.clone(),
+                key: path.clone(),
                 content_type: content_type,
                 max_age: None,
                 headers: None,
@@ -198,7 +198,7 @@ pub fn upload_asset_to_asset_canister(
                 allow_raw_access: None,
             }),
             BatchOperation::SetAssetContent(SetAssetContentArguments {
-                key: name.clone(),
+                key: path.clone(),
                 content_encoding: content_encoding,
                 chunk_ids,
                 sha256: Some(sha.into()),
