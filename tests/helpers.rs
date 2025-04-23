@@ -96,10 +96,16 @@ pub fn get_binary_path(name: &str) -> PathBuf {
 pub fn install_canister(
     pic: &PocketIc,
     controller: Principal,
+    fixed_canister_id: Option<Principal>,
     canister_wasm_module: Vec<u8>,
 ) -> Principal {
     info!("installing canister ...");
-    let canister_id = pic.create_canister_with_settings(Some(controller), None);
+    let canister_id = match fixed_canister_id {
+        Some(id) => pic
+            .create_canister_with_id(Some(controller), None, id)
+            .unwrap(),
+        None => pic.create_canister_with_settings(Some(controller), None),
+    };
     pic.add_cycles(canister_id, CANISTER_INITIAL_CYCLES);
 
     pic.install_canister(
@@ -130,15 +136,27 @@ pub fn get_asset_canister_wasm() -> Vec<u8> {
     bytes
 }
 
-pub fn upload_asset_to_asset_canister(
-    pic: &PocketIc,
-    canister_id: Principal,
-    path: String,
-    content: Vec<u8>,
-    content_type: String,
-    content_encoding: String,
-    sha_override: Option<Vec<u8>>,
-) {
+pub fn get_large_assets_canister_wasm() -> Vec<u8> {
+    let mut file_path =
+        PathBuf::from(env::var("ASSET_CANISTER_DIR").expect("env variable is not set"));
+    file_path.push("largeassets.wasm.gz");
+    let mut file = File::open(&file_path)
+        .unwrap_or_else(|_| panic!("Failed to open file: {}", file_path.to_str().unwrap()));
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).expect("Failed to read file");
+    bytes
+}
+
+#[derive(Clone)]
+pub struct StaticAsset {
+    pub path: String,
+    pub content: String,
+    pub content_type: String,
+    pub content_encoding: String,
+    pub sha_override: Option<Vec<u8>>,
+}
+
+pub fn upload_asset_to_asset_canister(pic: &PocketIc, canister_id: Principal, asset: StaticAsset) {
     let controller = Principal::anonymous();
 
     // create a batch id for uploading the asset
@@ -154,16 +172,20 @@ pub fn upload_asset_to_asset_canister(
     .batch_id;
 
     // compute the hash of the asset content (if not provided)
-    let sha = sha_override.clone().unwrap_or_else(|| {
+    let sha = asset.sha_override.clone().unwrap_or_else(|| {
         let mut hasher = Sha256::new();
-        hasher.update(content.as_slice());
+        hasher.update(asset.content.as_bytes());
         let sha = hasher.finalize();
         sha.to_vec()
     });
 
     // chunk the content into smaller pieces for the upload
     let chunk_size = 1.9 * 1024.0 * 1024.0; // 1.9mb
-    let chunks: Vec<&[u8]> = content.chunks(chunk_size as usize).collect();
+    let chunks: Vec<&[u8]> = asset
+        .content
+        .as_bytes()
+        .chunks(chunk_size as usize)
+        .collect();
 
     // upload each chunk to the asset canister
     let mut chunk_ids = vec![];
@@ -188,18 +210,20 @@ pub fn upload_asset_to_asset_canister(
     let commit_batch_args: CommitBatchArguments = CommitBatchArguments {
         batch_id,
         operations: vec![
-            BatchOperation::DeleteAsset(DeleteAssetArguments { key: path.clone() }),
+            BatchOperation::DeleteAsset(DeleteAssetArguments {
+                key: asset.path.clone(),
+            }),
             BatchOperation::CreateAsset(CreateAssetArguments {
-                key: path.clone(),
-                content_type: content_type,
+                key: asset.path.clone(),
+                content_type: asset.content_type,
                 max_age: None,
                 headers: None,
                 enable_aliasing: None,
                 allow_raw_access: None,
             }),
             BatchOperation::SetAssetContent(SetAssetContentArguments {
-                key: path.clone(),
-                content_encoding: content_encoding,
+                key: asset.path.clone(),
+                content_encoding: asset.content_encoding,
                 chunk_ids,
                 sha256: Some(sha.into()),
                 last_chunk: None,

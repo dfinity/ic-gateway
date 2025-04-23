@@ -17,6 +17,7 @@ pub fn proxy_api_calls_test(env: &TestEnv) -> anyhow::Result<()> {
     let canister_id = install_canister(
         &env.pic,
         Principal::anonymous(),
+        None,
         wat::parse_str(COUNTER_WAT).unwrap(),
     );
 

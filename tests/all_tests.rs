@@ -1,7 +1,9 @@
 use helpers::TestEnv;
 use integration_tests::{
-    api_proxy_test::proxy_api_calls_test, content_type_headers_test::content_type_headers_test,
-    cors_headers_test::cors_headers_test, http_gateway_test::basic_http_gateway_test,
+    api_proxy_test::proxy_api_calls_test,
+    content_type_headers_test::content_type_headers_test,
+    cors_headers_test::cors_headers_test,
+    http_gateway_test::{basic_http_gateway_test, large_assets_http_gateway_test},
 };
 
 mod helpers;
@@ -18,4 +20,5 @@ fn all_intergration_tests() {
     content_type_headers_test(&env).unwrap();
     cors_headers_test(&env).unwrap();
     proxy_api_calls_test(&env).unwrap();
+    large_assets_http_gateway_test(&env).unwrap();
 }
