@@ -254,7 +254,6 @@ mod test {
     use super::*;
     use axum::{Router, body::Body, middleware::from_fn_with_state};
     use bytes::Bytes;
-    use candid::Principal;
     use http::StatusCode;
     use tower::ServiceExt;
 

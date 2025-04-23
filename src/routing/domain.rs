@@ -15,7 +15,7 @@ use tracing::{debug, warn};
 
 #[macro_export]
 macro_rules! principal {
-    ($id:expr) => {{ Principal::from_text($id).unwrap() }};
+    ($id:expr) => {{ candid::Principal::from_text($id).unwrap() }};
 }
 
 /// Domain entity with certain metadata
@@ -130,7 +130,7 @@ impl CustomDomainStorage {
         snapshot
     }
 
-    async fn refresh(&self) {
+    pub async fn refresh(&self) {
         let snapshot_old = self.snapshot.lock().unwrap().clone();
         let snapshot = self.fetch(snapshot_old.clone()).await;
 

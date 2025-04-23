@@ -5,7 +5,7 @@ pub mod ic;
 pub mod middleware;
 pub mod proxy;
 
-use std::{fmt, str::FromStr, sync::Arc, time::Duration};
+use std::{ops::Deref, str::FromStr, sync::Arc, time::Duration};
 
 use anyhow::{Context, Error};
 use axum::{
@@ -69,9 +69,11 @@ impl From<CanisterId> for Principal {
     }
 }
 
-impl fmt::Display for CanisterId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
+impl Deref for CanisterId {
+    type Target = Principal;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
@@ -539,11 +541,14 @@ pub fn setup_router(
 
 #[cfg(test)]
 mod test {
+    use crate::test::setup_test_router;
+
     use super::*;
-    use clap::Parser;
-    use ic_agent::agent::route_provider::RoundRobinRouteProvider;
-    use ic_bn_lib::tls::prepare_client_config;
+    use axum::body::{Body, to_bytes};
+    use ic_bn_lib::http::ConnInfo;
+    use rand::{seq::SliceRandom, thread_rng};
     use std::str::FromStr;
+    use tower::Service;
 
     #[test]
     fn test_request_type() {
@@ -587,38 +592,34 @@ mod test {
         );
     }
 
-    #[test]
-    fn test_setup_router() {
-        let args = vec!["", "--domain", "ic0.app"];
-        let cli = Cli::parse_from(args);
-
+    #[tokio::test]
+    async fn test_setup_router() {
         rustls::crypto::ring::default_provider()
             .install_default()
             .unwrap();
 
-        let mut http_client_opts: ic_bn_lib::http::client::Options<ic_bn_lib::http::dns::Resolver> =
-            (&cli.http_client).into();
-        http_client_opts.tls_config = Some(prepare_client_config(&[
-            &rustls::version::TLS13,
-            &rustls::version::TLS12,
-        ]));
-        let http_client =
-            Arc::new(ic_bn_lib::http::ReqwestClient::new(http_client_opts.clone()).unwrap());
+        let mut rng = thread_rng();
 
-        let route_provider = RoundRobinRouteProvider::new(vec!["https://icp-api.io"]).unwrap();
-
+        // Create the test router
         let mut tasks = TaskManager::new();
+        let (mut router, domains) = setup_test_router(&mut tasks);
+        // Start the tasks and give them some time to finish
+        tasks.start();
+        tokio::time::sleep(Duration::from_secs(1)).await;
 
-        let _ = setup_router(
-            &cli,
-            vec![],
-            &mut tasks,
-            http_client,
-            Arc::new(route_provider),
-            &Registry::new(),
-            None,
-            None,
-        )
-        .unwrap();
+        // Pick some random domain & create request
+        let domain = domains.choose(&mut rng).unwrap();
+        let mut req = axum::extract::Request::new(Body::from(""));
+        *req.uri_mut() = Uri::try_from(format!("http://{domain}")).unwrap();
+        let conn_info = Arc::new(ConnInfo::default());
+        (*req.extensions_mut()).insert(conn_info);
+
+        // Make sure that we get right answer
+        let resp = router.call(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = resp.into_body();
+        let body = to_bytes(body, 1024).await.unwrap();
+        assert_eq!(body, b"X".repeat(512));
     }
 }
