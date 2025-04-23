@@ -4,6 +4,7 @@ pub mod error_cause;
 pub mod ic;
 pub mod middleware;
 pub mod proxy;
+pub mod sev_snp;
 
 use std::{ops::Deref, str::FromStr, sync::Arc, time::Duration};
 
