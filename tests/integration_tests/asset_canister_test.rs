@@ -11,8 +11,8 @@ use tokio::runtime::Runtime;
 use tracing::info;
 use url::Url;
 
-const FETCH_ASSET_RETRY_TIMEOUT: Duration = Duration::from_secs(50);
-const FETCH_ASSET_RETRY_INTERVAL: Duration = Duration::from_secs(10);
+const FETCH_ASSET_RETRY_TIMEOUT: Duration = Duration::from_secs(20);
+const FETCH_ASSET_RETRY_INTERVAL: Duration = Duration::from_secs(2);
 
 // Test scenario:
 // - deploy asset canister via pocket-ic interface
@@ -38,8 +38,8 @@ pub fn asset_canister_test(env: &TestEnv) -> anyhow::Result<()> {
         None,
     );
 
-    info!("download the asset via ic-gateway");
-    let asset_domain = format!("{asset_canister_id}.raw.{}", env.ic_gateway_domain);
+    info!("download the asset via ic-gateway ...");
+    let asset_domain = format!("{asset_canister_id}.{}", env.ic_gateway_domain);
 
     let http_client = Client::builder()
         .resolve(asset_domain.as_str(), env.ic_gateway_addr)

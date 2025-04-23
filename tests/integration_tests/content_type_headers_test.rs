@@ -8,8 +8,8 @@ use std::time::Duration;
 use tokio::runtime::Runtime;
 use url::Url;
 
-const STATUS_CALL_RETRY_TIMEOUT: Duration = Duration::from_secs(50);
-const STATUS_CALL_RETRY_INTERVAL: Duration = Duration::from_secs(10);
+const STATUS_CALL_RETRY_TIMEOUT: Duration = Duration::from_secs(20);
+const STATUS_CALL_RETRY_INTERVAL: Duration = Duration::from_secs(2);
 
 // Test scenario:
 // - make an HTTP GET request to http://ic0.app/api/v2/status

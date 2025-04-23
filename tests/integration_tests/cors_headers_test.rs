@@ -9,8 +9,8 @@ use tokio::runtime::Runtime;
 use tracing::info;
 use url::Url;
 
-const REQUEST_RETRY_TIMEOUT: Duration = Duration::from_secs(50);
-const REQUEST_RETRY_INTERVAL: Duration = Duration::from_secs(10);
+const REQUEST_RETRY_TIMEOUT: Duration = Duration::from_secs(20);
+const REQUEST_RETRY_INTERVAL: Duration = Duration::from_secs(2);
 
 // Test scenario:
 // - install counter canister

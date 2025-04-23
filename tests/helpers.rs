@@ -17,7 +17,7 @@ use std::{
     collections::HashMap,
     env,
     fs::File,
-    io::Read,
+    io::{Read, Write},
     net::SocketAddr,
     path::PathBuf,
     process::{Child, Command},
@@ -216,7 +216,7 @@ pub fn upload_asset_to_asset_canister(
     .unwrap();
 }
 
-pub fn start_ic_gateway(addr: &str, domain: &str, ic_url: &str) -> Child {
+pub fn start_ic_gateway(addr: &str, domain: &str, ic_url: &str, root_key_path: PathBuf) -> Child {
     info!("ic-gateway service starting ...");
     let child = Command::new(get_binary_path(IC_GATEWAY_BIN))
         .arg("--listen-plain")
@@ -225,6 +225,8 @@ pub fn start_ic_gateway(addr: &str, domain: &str, ic_url: &str) -> Child {
         .arg(ic_url)
         .arg("--domain")
         .arg(domain)
+        .arg("--ic-root-key")
+        .arg(root_key_path.to_str().unwrap())
         .arg("--listen-insecure-serve-http-only")
         .spawn()
         .expect("failed to start ic-gateway service");
@@ -259,10 +261,22 @@ impl TestEnv {
         pic.auto_progress();
         info!("pocket-ic server started");
 
+        let root_key = pic.root_key().expect("failed to get root key");
+        let mut root_key_path = env::current_dir().expect("failed to get working directory");
+        root_key_path.push("root_key.der");
+        let mut file = File::create(&root_key_path).expect("failed to create file");
+        file.write_all(&root_key)
+            .expect("failed to write key to file");
+
         let ic_gateway_addr =
             SocketAddr::from_str(ic_gateway_addr).expect("failed to parse address");
         let ic_url = format!("{}instances/{}/", pic.get_server_url(), pic.instance_id());
-        let process = start_ic_gateway(&ic_gateway_addr.to_string(), ic_gateway_domain, &ic_url);
+        let process = start_ic_gateway(
+            &ic_gateway_addr.to_string(),
+            ic_gateway_domain,
+            &ic_url,
+            root_key_path,
+        );
 
         Self {
             ic_gateway_process: process,
