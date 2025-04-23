@@ -12,7 +12,7 @@ async-channel = "2.3.1"
 async-trait = "0.1.83"
 axum = { version = "0.8.1", features = ["macros"] }
 axum-extra = "0.10.0"
-bincode = "2.0.1"
+bincode = { version = "2.0.1", features = ["serde"] }
 bytes = "1.9.0"
 candid = "0.10.10"
 clap = { version = "4.5.20", features = ["derive", "string", "env"] }
@@ -30,6 +30,7 @@ derive-new = "0.7.0"
 fqdn = { version = "0.4.1", features = ["serde"] }
 futures = "0.3.31"
 governor = "0.8.0" # must match tower-governor deps
+hex = "0.4.3"
 hickory-resolver = { version = "0.25.1", features = [
     "tls-ring",
     "https-ring",
