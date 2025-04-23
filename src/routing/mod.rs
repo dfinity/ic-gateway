@@ -47,11 +47,8 @@ use tracing::warn;
 use crate::{
     cli::Cli,
     metrics::{self, Vector, clickhouse::Clickhouse},
-    routing::{
-        middleware::{
-            canister_match, cors, geoip, headers, rate_limiter, request_id, request_type, validate,
-        },
-        proxy::ProxiesRequests,
+    routing::middleware::{
+        canister_match, cors, geoip, headers, rate_limiter, request_id, request_type, validate,
     },
 };
 
@@ -179,12 +176,11 @@ pub async fn redirect_to_https(
 
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::cognitive_complexity)]
-pub fn setup_router<P: ProxiesRequests + Clone + Send + Sync + 'static>(
+pub fn setup_router(
     cli: &Cli,
     custom_domain_providers: Vec<Arc<dyn ProvidesCustomDomains>>,
     tasks: &mut TaskManager,
     http_client: Arc<dyn Client>,
-    proxier: P,
     route_provider: Arc<dyn RouteProvider>,
     registry: &Registry,
     clickhouse: Option<Arc<Clickhouse>>,
@@ -336,7 +332,6 @@ pub fn setup_router<P: ProxiesRequests + Clone + Send + Sync + 'static>(
         cli.ic.ic_request_max_size,
     ));
     let state_api = Arc::new(proxy::ApiProxyState::new(
-        proxier.clone(),
         http_client.clone(),
         route_provider,
         cli.ic.ic_request_retries,
@@ -456,7 +451,6 @@ pub fn setup_router<P: ProxiesRequests + Clone + Send + Sync + 'static>(
         lazy_static::initialize(&proxy::REGEX_REG_ID);
 
         let state = Arc::new(proxy::IssuerProxyState::new(
-            proxier,
             http_client,
             cli.cert.cert_provider_issuer_url.clone(),
         ));

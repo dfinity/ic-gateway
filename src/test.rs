@@ -22,13 +22,12 @@ use crate::{
     Cli, principal,
     routing::{
         domain::{CustomDomain, ProvidesCustomDomains},
-        proxy::Proxier,
         setup_router,
     },
 };
 
 #[derive(Debug)]
-struct FakeDomainProvider(Vec<CustomDomain>);
+pub struct FakeDomainProvider(pub Vec<CustomDomain>);
 
 #[async_trait]
 impl ProvidesCustomDomains for FakeDomainProvider {
@@ -78,6 +77,8 @@ impl ic_bn_lib::http::Client for TestClient {
 /// Creates a test router with some defaults and returns it along with a list of random custom domains that it serves
 pub fn setup_test_router(tasks: &mut TaskManager) -> (Router, Vec<String>) {
     let mut rng = thread_rng();
+
+    // Generate 1k custom domains
     let rgx_domains =
         rand_regex::Regex::compile(r"[a-z]{1,20}\.[a-z]{1,20}\.[a-z]{1,3}", 20).unwrap();
     let domains = (&mut rng)
@@ -98,6 +99,8 @@ pub fn setup_test_router(tasks: &mut TaskManager) -> (Router, Vec<String>) {
         "test_data/denylist.json",
         "--policy-denylist-allowlist",
         "test_data/allowlist.txt",
+        "--log-vector-url",
+        "http://127.0.0.1/vector",
     ];
     let cli = Cli::parse_from(args);
 
@@ -118,7 +121,6 @@ pub fn setup_test_router(tasks: &mut TaskManager) -> (Router, Vec<String>) {
         vec![Arc::new(FakeDomainProvider(custom_domains))],
         tasks,
         http_client,
-        Proxier,
         Arc::new(route_provider),
         &Registry::new(),
         None,

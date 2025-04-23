@@ -1,25 +1,14 @@
 use std::sync::Arc;
 
-use anyhow::Error;
-use async_trait::async_trait;
 use criterion::{Criterion, criterion_group, criterion_main};
 use fqdn::fqdn;
 use rand::{Rng, seq::SliceRandom, thread_rng};
 
 use ic_gateway::{
-    ProvidesCustomDomains, principal,
+    principal,
     routing::domain::{CustomDomain, CustomDomainStorage, ResolvesDomain},
+    test::FakeDomainProvider,
 };
-
-#[derive(Debug)]
-struct FakeDomainProvider(Vec<CustomDomain>);
-
-#[async_trait]
-impl ProvidesCustomDomains for FakeDomainProvider {
-    async fn get_custom_domains(&self) -> Result<Vec<CustomDomain>, Error> {
-        Ok(self.0.clone())
-    }
-}
 
 fn criterion_benchmark(c: &mut Criterion) {
     let mut rng = thread_rng();

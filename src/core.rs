@@ -15,10 +15,7 @@ use tracing::warn;
 use crate::{
     cli::Cli,
     metrics,
-    routing::{
-        self, domain::ProvidesCustomDomains, ic::route_provider::setup_route_provider,
-        proxy::Proxier,
-    },
+    routing::{self, domain::ProvidesCustomDomains, ic::route_provider::setup_route_provider},
     tls::{self},
 };
 
@@ -172,7 +169,6 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         custom_domain_providers,
         &mut tasks,
         http_client.clone(),
-        Proxier,
         Arc::clone(&route_provider),
         &registry,
         clickhouse.clone(),
