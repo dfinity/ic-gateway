@@ -338,6 +338,7 @@ impl TestEnv {
 impl Drop for TestEnv {
     fn drop(&mut self) {
         stop_ic_gateway(&mut self.ic_gateway_process);
+        let _ = std::fs::remove_file("root_key.der");
     }
 }
 

@@ -509,6 +509,11 @@ pub struct Misc {
     /// Defaults to the number of CPUs
     #[clap(env, long)]
     pub threads: Option<usize>,
+
+    /// Enable SEV-SNP measurement reporting
+    #[cfg(target_os = "linux")]
+    #[clap(env, long)]
+    pub enable_sev_snp: bool,
 }
 
 #[derive(Args)]

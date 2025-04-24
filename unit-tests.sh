@@ -1,3 +1,3 @@
 #!/bin/bash
 
-cargo test -- --skip asset_canister_test
+cargo test -- --skip all_intergration_tests

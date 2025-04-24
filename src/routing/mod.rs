@@ -4,6 +4,8 @@ pub mod error_cause;
 pub mod ic;
 pub mod middleware;
 pub mod proxy;
+#[cfg(target_os = "linux")]
+pub mod sev_snp;
 
 use std::{ops::Deref, str::FromStr, sync::Arc, time::Duration};
 
@@ -496,7 +498,7 @@ pub fn setup_router(
         .layer(load_shedder_latency_mw);
 
     // Top-level router
-    let router = Router::new()
+    let mut router = Router::new()
         .nest("/api/v2", router_api_v2)
         .nest("/api/v3", router_api_v3)
         .fallback(
@@ -534,6 +536,18 @@ pub fn setup_router(
             },
         )
         .layer(common_layers);
+
+    #[cfg(target_os = "linux")]
+    if cli.misc.enable_sev_snp {
+        let router_sev_snp = Router::new().route(
+            "/sev-snp/report",
+            post(sev_snp::handler)
+                .with_state(sev_snp::SevSnpState::new().context("unable to init SEV-SNP")?)
+                .layer(rate_limiter::layer_global(1, 2)?),
+        );
+
+        router = router.merge(router_sev_snp)
+    }
 
     // The layer that's added last is executed first
     Ok(router)
