@@ -542,7 +542,8 @@ pub fn setup_router(
         let router_sev_snp = Router::new().route(
             "/sev-snp/report",
             post(sev_snp::handler)
-                .with_state(sev_snp::SevSnpState::new().context("unable to init SEV-SNP")?),
+                .with_state(sev_snp::SevSnpState::new().context("unable to init SEV-SNP")?)
+                .layer(rate_limiter::layer_global(1, 2)?),
         );
 
         router = router.merge(router_sev_snp)

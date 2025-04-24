@@ -5,7 +5,9 @@ use anyhow::{Error, anyhow};
 use axum::{extract::Request, response::IntoResponse};
 use ic_bn_lib::http::ConnInfo;
 use tower_governor::{
-    GovernorError, GovernorLayer, governor::GovernorConfigBuilder, key_extractor::KeyExtractor,
+    GovernorError, GovernorLayer,
+    governor::GovernorConfigBuilder,
+    key_extractor::{GlobalKeyExtractor, KeyExtractor},
 };
 
 use crate::routing::error_cause::{ErrorCause, RateLimitCause};
@@ -23,6 +25,13 @@ impl KeyExtractor for IpKeyExtractor {
             .map(|x| x.remote_addr.ip())
             .ok_or(GovernorError::UnableToExtractKey)
     }
+}
+
+pub fn layer_global(
+    rps: u32,
+    burst_size: u32,
+) -> Result<GovernorLayer<GlobalKeyExtractor, NoOpMiddleware<QuantaInstant>>, Error> {
+    layer(rps, burst_size, GlobalKeyExtractor, RateLimitCause::Normal)
 }
 
 pub fn layer_by_ip(
