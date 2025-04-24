@@ -1,29 +1,49 @@
-use std::{
-    env,
-    fs::File,
-    io::Read,
-    path::PathBuf,
-    process::{Child, Command},
-    time::{Duration, Instant},
-};
-
-use anyhow::bail;
-use candid::Principal;
+use anyhow::anyhow;
+use candid::{Encode, Principal};
+use hex::encode;
 use http::StatusCode;
 use ic_certified_assets::types::{
     BatchOperation, CommitBatchArguments, CreateAssetArguments, CreateBatchResponse,
-    CreateChunkArg, CreateChunkResponse, SetAssetContentArguments,
+    CreateChunkArg, CreateChunkResponse, DeleteAssetArguments, SetAssetContentArguments,
 };
+use itertools::Itertools;
 use nix::{
     sys::signal::{self, Signal},
     unistd::Pid,
 };
-use pocket_ic::{PocketIc, update_candid_as};
-use reqwest::Client;
+use pocket_ic::{
+    PocketIcBuilder,
+    nonblocking::{PocketIc, update_candid_as},
+};
+use reqwest::Response;
+use sha2::{Digest, Sha256};
+use std::{
+    collections::HashMap,
+    env,
+    fs::File,
+    io::{Read, Write},
+    net::SocketAddr,
+    path::PathBuf,
+    process::{Child, Command},
+    str::FromStr,
+    time::{Duration, Instant},
+};
 use tokio::time::sleep;
 use tracing::info;
 
 const IC_GATEWAY_BIN: &str = "ic-gateway";
+const CANISTER_INITIAL_CYCLES: u128 = 100_000_000_000_000;
+
+pub const RETRY_TIMEOUT: Duration = Duration::from_secs(10);
+pub const RETRY_INTERVAL: Duration = Duration::from_secs(1);
+
+pub fn init_logging() {
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .with_test_writer()
+        .try_init()
+        .expect("failed to init logger")
+}
 
 pub async fn retry_async<S: AsRef<str>, F, Fut, R>(
     msg: S,
@@ -76,51 +96,45 @@ fn truncate_error_msg(err_str: String) -> String {
     short_e
 }
 
-pub async fn verify_canister_asset(
-    http_client: &Client,
-    asset_url: &str,
-    expected_body: &[u8],
-) -> anyhow::Result<()> {
-    let response = http_client
-        .get(asset_url)
-        .send()
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to send request to {}: {}", asset_url, e))?;
-
-    let status = response.status();
-    if status != StatusCode::OK {
-        bail!("Received unexpected status code: {}", status);
-    }
-
-    let body = response
-        .bytes()
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to read response body: {}", e))?;
-
-    if body.as_ref() != expected_body {
-        bail!(
-            "Response body does not match expected content. Got {} bytes, expected {} bytes",
-            body.len(),
-            expected_body.len()
-        );
-    }
-
-    Ok(())
-}
-
 pub fn get_binary_path(name: &str) -> PathBuf {
-    let mut path = PathBuf::from(env::var("CARGO_TARGET_DIR").expect("env variable is not set"));
-    path.push(name);
-    path
+    PathBuf::from(env::var("CARGO_TARGET_DIR").expect("env variable is not set")).join(name)
 }
 
-pub fn create_canister_with_cycles(
-    env: &PocketIc,
+pub async fn install_canister(
+    pic: &PocketIc,
     controller: Principal,
-    cycles: u128,
+    fixed_canister_id: Option<Principal>,
+    canister_wasm_module: Vec<u8>,
 ) -> Principal {
-    let canister_id = env.create_canister_with_settings(Some(controller), None);
-    env.add_cycles(canister_id, cycles);
+    info!("installing canister ...");
+    let canister_id = match fixed_canister_id {
+        Some(id) => pic
+            .create_canister_with_id(Some(controller), None, id)
+            .await
+            .unwrap(),
+        None => {
+            pic.create_canister_with_settings(Some(controller), None)
+                .await
+        }
+    };
+    pic.add_cycles(canister_id, CANISTER_INITIAL_CYCLES).await;
+
+    pic.install_canister(
+        canister_id,
+        canister_wasm_module,
+        Encode!(&()).unwrap(),
+        None,
+    )
+    .await;
+    let module_hash = pic
+        .canister_status(canister_id, None)
+        .await
+        .unwrap()
+        .module_hash
+        .unwrap();
+    let hash_str = encode(module_hash);
+    info!("canister with id={canister_id} installed, hash={hash_str}");
+
     canister_id
 }
 
@@ -135,33 +149,67 @@ pub fn get_asset_canister_wasm() -> Vec<u8> {
     bytes
 }
 
-pub fn upload_asset_to_asset_canister(
-    asset_canister_id: Principal,
-    asset_name: String,
-    env: &PocketIc,
-    asset: Vec<u8>,
-    chunk_len: usize,
+pub fn get_large_assets_canister_wasm() -> Vec<u8> {
+    let mut file_path =
+        PathBuf::from(env::var("ASSET_CANISTER_DIR").expect("env variable is not set"));
+    file_path.push("largeassets.wasm.gz");
+    let mut file = File::open(&file_path)
+        .unwrap_or_else(|_| panic!("Failed to open file: {}", file_path.to_str().unwrap()));
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).expect("Failed to read file");
+    bytes
+}
+
+#[derive(Clone, derive_new::new)]
+pub struct StaticAsset {
+    #[new(into)]
+    pub path: String,
+    #[new(into)]
+    pub content: String,
+    #[new(into)]
+    pub content_type: String,
+    #[new(into)]
+    pub content_encoding: String,
+    pub sha_override: Option<Vec<u8>>,
+}
+
+pub async fn upload_asset_to_asset_canister(
+    pic: &PocketIc,
+    canister_id: Principal,
+    asset: StaticAsset,
 ) {
-    let chunks: Vec<&[u8]> = asset.chunks(chunk_len).collect();
-    info!("uploading {} chunks to asset canister", chunks.len());
+    let controller = Principal::anonymous();
+
+    // create a batch id for uploading the asset
     let batch_id = update_candid_as::<_, (CreateBatchResponse,)>(
-        env,
-        asset_canister_id,
-        Principal::anonymous(),
+        pic,
+        canister_id,
+        controller,
         "create_batch",
         ((),),
     )
+    .await
     .unwrap()
     .0
     .batch_id;
-    let create_asset = CreateAssetArguments {
-        key: asset_name.clone(),
-        content_type: "application/octet-stream".to_string(),
-        max_age: None,
-        headers: None,
-        enable_aliasing: None,
-        allow_raw_access: None,
-    };
+
+    // compute the hash of the asset content (if not provided)
+    let sha = asset.sha_override.clone().unwrap_or_else(|| {
+        let mut hasher = Sha256::new();
+        hasher.update(asset.content.as_bytes());
+        let sha = hasher.finalize();
+        sha.to_vec()
+    });
+
+    // chunk the content into smaller pieces for the upload
+    let chunk_size = 1.9 * 1024.0 * 1024.0; // 1.9mb
+    let chunks: Vec<&[u8]> = asset
+        .content
+        .as_bytes()
+        .chunks(chunk_size as usize)
+        .collect();
+
+    // upload each chunk to the asset canister
     let mut chunk_ids = vec![];
     for chunk in chunks {
         let create_chunk_arg = CreateChunkArg {
@@ -169,42 +217,54 @@ pub fn upload_asset_to_asset_canister(
             content: chunk.to_vec().into(),
         };
         let create_chunk_response = update_candid_as::<_, (CreateChunkResponse,)>(
-            env,
-            asset_canister_id,
-            Principal::anonymous(),
+            pic,
+            canister_id,
+            controller,
             "create_chunk",
             (create_chunk_arg,),
         )
+        .await
         .unwrap()
         .0;
         chunk_ids.push(create_chunk_response.chunk_id);
     }
-    let set_asset_content = SetAssetContentArguments {
-        key: asset_name.clone(),
-        content_encoding: "identity".to_string(),
-        chunk_ids,
-        sha256: None,
-        last_chunk: None,
-    };
-    let operations = vec![
-        BatchOperation::CreateAsset(create_asset),
-        BatchOperation::SetAssetContent(set_asset_content),
-    ];
+
+    // commit the batch with the asset content using the uploaded chunks
     let commit_batch_args: CommitBatchArguments = CommitBatchArguments {
         batch_id,
-        operations,
+        operations: vec![
+            BatchOperation::DeleteAsset(DeleteAssetArguments {
+                key: asset.path.clone(),
+            }),
+            BatchOperation::CreateAsset(CreateAssetArguments {
+                key: asset.path.clone(),
+                content_type: asset.content_type,
+                max_age: None,
+                headers: None,
+                enable_aliasing: None,
+                allow_raw_access: None,
+            }),
+            BatchOperation::SetAssetContent(SetAssetContentArguments {
+                key: asset.path.clone(),
+                content_encoding: asset.content_encoding,
+                chunk_ids,
+                sha256: Some(sha.into()),
+                last_chunk: None,
+            }),
+        ],
     };
     update_candid_as::<_, ((),)>(
-        env,
-        asset_canister_id,
-        Principal::anonymous(),
+        pic,
+        canister_id,
+        controller,
         "commit_batch",
         (commit_batch_args,),
     )
+    .await
     .unwrap();
 }
 
-pub fn start_ic_gateway(addr: &str, domain: &str, ic_url: &str) -> Child {
+pub fn start_ic_gateway(addr: &str, domain: &str, ic_url: &str, root_key_path: PathBuf) -> Child {
     info!("ic-gateway service starting ...");
     let child = Command::new(get_binary_path(IC_GATEWAY_BIN))
         .arg("--listen-plain")
@@ -213,6 +273,8 @@ pub fn start_ic_gateway(addr: &str, domain: &str, ic_url: &str) -> Child {
         .arg(ic_url)
         .arg("--domain")
         .arg(domain)
+        .arg("--ic-root-key")
+        .arg(root_key_path.to_str().unwrap())
         .arg("--listen-insecure-serve-http-only")
         .spawn()
         .expect("failed to start ic-gateway service");
@@ -220,7 +282,7 @@ pub fn start_ic_gateway(addr: &str, domain: &str, ic_url: &str) -> Child {
     child
 }
 
-pub fn stop_ic_gateway(mut process: Child) {
+pub fn stop_ic_gateway(process: &mut Child) {
     info!("gracefully terminating ic-gateway process");
     let pid = process.id() as i32;
     match signal::kill(Pid::from_raw(pid), Signal::SIGINT) {
@@ -230,3 +292,183 @@ pub fn stop_ic_gateway(mut process: Child) {
     let exit_status = process.wait().expect("failed to wait on child process");
     info!("ic-gateway process exited with: {:?}", exit_status);
 }
+
+pub struct TestEnv {
+    pub pic: PocketIc,
+    pub ic_gateway_process: Child,
+    pub ic_gateway_addr: SocketAddr,
+    pub ic_gateway_domain: String,
+}
+
+impl TestEnv {
+    pub async fn new(ic_gateway_addr: &str, ic_gateway_domain: &str) -> Self {
+        init_logging();
+
+        info!("pocket-ic server starting ...");
+        let pic = PocketIcBuilder::new().with_nns_subnet().build_async().await;
+        pic.auto_progress().await;
+        info!("pocket-ic server started");
+
+        let root_key = pic.root_key().await.expect("failed to get root key");
+        let mut root_key_path = env::current_dir().expect("failed to get working directory");
+        root_key_path.push("root_key.der");
+        let mut file = File::create(&root_key_path).expect("failed to create file");
+        file.write_all(&root_key)
+            .expect("failed to write key to file");
+
+        let ic_gateway_addr =
+            SocketAddr::from_str(ic_gateway_addr).expect("failed to parse address");
+        let ic_url = format!("{}instances/{}/", pic.get_server_url(), pic.instance_id);
+        let process = start_ic_gateway(
+            &ic_gateway_addr.to_string(),
+            ic_gateway_domain,
+            &ic_url,
+            root_key_path,
+        );
+
+        Self {
+            ic_gateway_process: process,
+            ic_gateway_addr,
+            ic_gateway_domain: ic_gateway_domain.to_string(),
+            pic,
+        }
+    }
+}
+
+impl Drop for TestEnv {
+    fn drop(&mut self) {
+        stop_ic_gateway(&mut self.ic_gateway_process);
+    }
+}
+
+#[derive(Debug)]
+pub struct ExpectedResponse {
+    pub status: Option<StatusCode>,
+    pub body: Option<Vec<u8>>,
+    pub headers: Option<HashMap<String, String>>,
+}
+
+impl ExpectedResponse {
+    pub fn new(
+        status: Option<StatusCode>,
+        body: Option<Vec<u8>>,
+        headers: Option<HashMap<String, String>>,
+    ) -> Self {
+        Self {
+            status,
+            body,
+            headers,
+        }
+    }
+
+    pub fn with_header(mut self, key: &str, value: &str) -> Self {
+        if let Some(ref mut headers) = self.headers {
+            headers.insert(key.to_string(), value.to_string());
+        } else {
+            self.headers = Some(HashMap::from_iter(vec![(
+                key.to_string(),
+                value.to_string(),
+            )]));
+        }
+        self
+    }
+}
+
+pub async fn check_response(response: Response, expected: &ExpectedResponse) -> anyhow::Result<()> {
+    let status = response.status();
+    let headers = response.headers().clone();
+    let body_bytes = response.bytes().await?.to_vec();
+
+    if let Some(expected_status) = expected.status {
+        if expected_status != status {
+            anyhow::bail!("unexpected status code: got {status}, expected {expected_status}",);
+        }
+    }
+
+    if let Some(ref expected_body) = expected.body {
+        if &body_bytes != expected_body {
+            anyhow::bail!(
+                "unexpected response body: got size={}, expected={}",
+                body_bytes.len(),
+                expected_body.len()
+            );
+        }
+    }
+
+    if let Some(ref expected_headers) = expected.headers {
+        let expected_headers_sorted = expected_headers
+            .iter()
+            .map(|(k, v)| {
+                (
+                    k.trim().to_ascii_lowercase(),
+                    v.split(',')
+                        .map(|x| x.trim().to_ascii_lowercase())
+                        .sorted()
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect::<HashMap<_, _>>();
+
+        let actual_headers_sorted = headers
+            .iter()
+            .map(|(k, v)| {
+                (
+                    k.to_string().trim().to_ascii_lowercase(),
+                    v.to_str()
+                        .expect("invalid UTF-8 in header value")
+                        .split(',')
+                        .map(|x| x.trim().to_ascii_lowercase())
+                        .sorted()
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect::<HashMap<_, _>>();
+
+        // check that expected headers are present in the response
+        for (key, expected_values) in expected_headers_sorted.iter() {
+            let actual_values = actual_headers_sorted
+                .get(key)
+                .ok_or_else(|| anyhow!("{key} is not present in response header"))?;
+            if actual_values != expected_values {
+                anyhow::bail!(
+                    "unexpected `{key}` header: got: {:?}, expected {:?}",
+                    actual_values,
+                    expected_values
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
+pub const COUNTER_WAT: &str = r#"
+(module
+  (import "ic0" "msg_reply" (func $msg_reply))
+  (import "ic0" "msg_reply_data_append"
+    (func $msg_reply_data_append (param i32 i32)))
+  (func $read
+    (i32.store
+      (i32.const 0)
+      (global.get 0)
+    )
+    (call $msg_reply_data_append
+      (i32.const 0)
+      (i32.const 4))
+    (call $msg_reply))
+  (func $write
+    (global.set 0
+      (i32.add
+        (global.get 0)
+        (i32.const 1)
+      )
+    )
+    (call $read)
+  )
+  (memory $memory 1)
+  (export "memory" (memory $memory))
+  (global (export "counter_global") (mut i32) (i32.const 0))
+  (export "canister_query read" (func $read))
+  (export "canister_query inc_read" (func $write))
+  (export "canister_update write" (func $write))
+)"#;

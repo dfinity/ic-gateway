@@ -6,6 +6,8 @@ readonly POCKETIC_URL="https://github.com/dfinity/pocketic/releases/download/${P
 readonly POCKETIC_CHECKSUM="7689eee0a17abb24c0a83e2ff0ea36fd5ba7eb699fe811d9f7b07cb27e8e7170"
 readonly ASSET_WASM_URL="https://github.com/dfinity/sdk/raw/fec030f53814e7eaa2f869189e8852b5c0e60e5e/src/distributed/assetstorage.wasm.gz"
 readonly ASSET_WASM_CHECKSUM="865eb25df5a6d857147e078bb33c727797957247f7af2635846d65c5397b36a6"
+readonly LARGE_ASSETS_WASM_URL="https://github.com/dfinity/http-gateway/raw/42408f658199d7278d8ff3293504a06e1b0ef61d/examples/http-gateway/canister/http_gateway_canister_custom_assets.wasm.gz"
+readonly LARGE_ASSETS_WASM_CHECKSUM="eedcbf986c67fd4ebe3042094604a9a5703e825e56433e2509a6a4d0384ccf95"
 readonly WORKDIR="$(pwd)"
 readonly CANISTER_DIR="${WORKDIR}/canister_wasms"
 readonly POCKETIC_BIN="${WORKDIR}/pocket-ic"
@@ -43,8 +45,21 @@ echo "${ASSET_WASM_CHECKSUM} ${CANISTER_DIR}/assetstorage.wasm.gz" | sha256sum -
   log "Asset canister WASM checksum verification failed"
   exit 1
 }
-export ASSET_CANISTER_DIR="${CANISTER_DIR}"
 log "Asset canister WASM downloaded"
+
+log "Downloading large assets canister WASM"
+mkdir -p "${CANISTER_DIR}" || { log "Failed to create canister directory"; exit 1; }
+curl -fsSL --retry 3 --retry-delay 5 "${LARGE_ASSETS_WASM_URL}" -o "${CANISTER_DIR}/largeassets.wasm.gz" || {
+  log "Failed to download large assets canister WASM"
+  exit 1
+}
+echo "${LARGE_ASSETS_WASM_CHECKSUM} ${CANISTER_DIR}/largeassets.wasm.gz" | sha256sum -c - || {
+  log "Asset canister WASM checksum verification failed"
+  exit 1
+}
+log "Asset canister WASM downloaded"
+
+export ASSET_CANISTER_DIR="${CANISTER_DIR}"
 
 log "Running all tests"
 cargo test --profile dev --workspace -- --nocapture || { log "Tests failed"; exit 1; }
