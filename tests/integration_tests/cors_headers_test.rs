@@ -1,30 +1,26 @@
-use std::{collections::HashMap, time::Duration};
+use std::collections::HashMap;
 
-use crate::helpers::{ExpectedResponse, TestEnv, check_response, retry_async};
+use crate::helpers::{
+    ExpectedResponse, RETRY_INTERVAL, RETRY_TIMEOUT, TestEnv, check_response, retry_async,
+};
 use anyhow::{Context, anyhow};
 use candid::Principal;
 use http::{Method, StatusCode};
+use ic_gateway::principal;
 use reqwest::{Client, Request};
-use tokio::runtime::Runtime;
 use tracing::info;
 use url::Url;
-
-const REQUEST_RETRY_TIMEOUT: Duration = Duration::from_secs(20);
-const REQUEST_RETRY_INTERVAL: Duration = Duration::from_secs(2);
 
 // Test scenario:
 // - install counter canister
 // - make various HTTP requests OPTIONS/GET/POST and verify the CORS headers of the responses
 
-pub fn cors_headers_test(env: &TestEnv) -> anyhow::Result<()> {
+pub async fn cors_headers_test(env: &TestEnv) -> anyhow::Result<()> {
     // some canister ID and subnet ID for testing -- they need to be valid principals, but don't need to exist
     // as OPTIONS requests are directly replied to by the IC gateway and all other requests will just return a 400
     // but the IC gateway still sets the CORS headers.
-    let canister_id =
-        Principal::from_text("rwlgt-iiaaa-aaaaa-aaaaa-cai").expect("failed to parse canister id");
-    let subnet_id =
-        Principal::from_text("tdb26-jop6k-aogll-7ltgs-eruif-6kk7m-qpktf-gdiqx-mxtrf-vb5e6-eqe")
-            .expect("failed to parse subnet id");
+    let canister_id = principal!("rwlgt-iiaaa-aaaaa-aaaaa-cai");
+    let subnet_id = principal!("tdb26-jop6k-aogll-7ltgs-eruif-6kk7m-qpktf-gdiqx-mxtrf-vb5e6-eqe");
 
     info!("making various HTTP requests and checking the CORS headers ...");
 
@@ -42,25 +38,20 @@ pub fn cors_headers_test(env: &TestEnv) -> anyhow::Result<()> {
         .context("failed to build http client")?;
 
     // Execute all HTTP requests and verify responses
-    let rt = Runtime::new().context("failed to start tokio runtime")?;
     for (test_case_name, request, expected_response) in
         test_cases(url, canister_id, subnet_id).iter()
     {
         let msg = format!("verifying HTTP response for '{test_case_name}'");
 
-        rt.block_on(retry_async(
-            msg,
-            REQUEST_RETRY_TIMEOUT,
-            REQUEST_RETRY_INTERVAL,
-            || async {
-                let response = http_client
-                    .execute(request.try_clone().unwrap())
-                    .await
-                    .context("failed to execute request")?;
+        retry_async(msg, RETRY_TIMEOUT, RETRY_INTERVAL, || async {
+            let response = http_client
+                .execute(request.try_clone().unwrap())
+                .await
+                .context("failed to execute request")?;
 
-                check_response(response, &expected_response).await
-            },
-        ))
+            check_response(response, &expected_response).await
+        })
+        .await
         .context(anyhow!("failed to verify HTTP response"))?;
     }
 

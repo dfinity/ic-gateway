@@ -3,7 +3,6 @@ use anyhow::{Context, anyhow, bail};
 use candid::Principal;
 use ic_agent::Agent;
 use reqwest::Client;
-use tokio::runtime::Runtime;
 use tracing::info;
 use url::Url;
 
@@ -12,14 +11,15 @@ use url::Url;
 // - create an agent to interact with the canister
 // - make API calls (status, query, call, read_state) to the canister
 
-pub fn proxy_api_calls_test(env: &TestEnv) -> anyhow::Result<()> {
+pub async fn proxy_api_calls_test(env: &TestEnv) -> anyhow::Result<()> {
     info!("install counter canister ...");
     let canister_id = install_canister(
         &env.pic,
         Principal::anonymous(),
         None,
         wat::parse_str(COUNTER_WAT).unwrap(),
-    );
+    )
+    .await;
 
     info!("create agent to interact with the canister ...");
     let url = Url::parse(&format!(
@@ -40,32 +40,26 @@ pub fn proxy_api_calls_test(env: &TestEnv) -> anyhow::Result<()> {
         .build()?;
 
     info!("test proxying of various API calls ...");
-    let rt = Runtime::new().context("failed to start tokio runtime")?;
-    rt.block_on(async {
-        info!("api/v2/status - implicit status to fetch the root key");
-        agent.fetch_root_key().await?;
+    info!("api/v2/status - implicit status to fetch the root key");
+    agent.fetch_root_key().await?;
 
-        info!("api/v2/query - query counter");
-        let out = agent.query(&canister_id, "read").call().await?;
-        if !out.eq(&[0, 0, 0, 0]) {
-            bail!("failed: got {:?}, expected {:?}", out, &[0, 0, 0, 0],)
-        }
+    info!("api/v2/query - query counter");
+    let out = agent.query(&canister_id, "read").call().await?;
+    if !out.eq(&[0, 0, 0, 0]) {
+        bail!("failed: got {:?}, expected {:?}", out, &[0, 0, 0, 0],)
+    }
 
-        info!("api/v3/call - increase counter");
-        agent.update(&canister_id, "write").call_and_wait().await?;
-        let out = agent.query(&canister_id, "read").call().await?;
-        if !out.eq(&[1, 0, 0, 0]) {
-            bail!("failed: got {:?}, expected {:?}", out, &[1, 0, 0, 0],)
-        }
+    info!("api/v3/call - increase counter");
+    agent.update(&canister_id, "write").call_and_wait().await?;
+    let out = agent.query(&canister_id, "read").call().await?;
+    if !out.eq(&[1, 0, 0, 0]) {
+        bail!("failed: got {:?}, expected {:?}", out, &[1, 0, 0, 0],)
+    }
 
-        info!("api/v2/read_state - fetch canister module hash");
-        let _ = agent
-            .read_state_canister_info(canister_id, "module_hash")
-            .await?;
-
-        Ok(())
-    })
-    .context(anyhow!("failed to proxy API calls"))?;
+    info!("api/v2/read_state - fetch canister module hash");
+    let _ = agent
+        .read_state_canister_info(canister_id, "module_hash")
+        .await?;
 
     Ok(())
 }

@@ -1,4 +1,4 @@
-use anyhow::{Context, anyhow};
+use anyhow::anyhow;
 use candid::{Encode, Principal};
 use hex::encode;
 use http::StatusCode;
@@ -6,11 +6,15 @@ use ic_certified_assets::types::{
     BatchOperation, CommitBatchArguments, CreateAssetArguments, CreateBatchResponse,
     CreateChunkArg, CreateChunkResponse, DeleteAssetArguments, SetAssetContentArguments,
 };
+use itertools::Itertools;
 use nix::{
     sys::signal::{self, Signal},
     unistd::Pid,
 };
-use pocket_ic::{PocketIc, PocketIcBuilder, update_candid_as};
+use pocket_ic::{
+    PocketIcBuilder,
+    nonblocking::{PocketIc, update_candid_as},
+};
 use reqwest::Response;
 use sha2::{Digest, Sha256};
 use std::{
@@ -29,6 +33,9 @@ use tracing::info;
 
 const IC_GATEWAY_BIN: &str = "ic-gateway";
 const CANISTER_INITIAL_CYCLES: u128 = 100_000_000_000_000;
+
+pub const RETRY_TIMEOUT: Duration = Duration::from_secs(10);
+pub const RETRY_INTERVAL: Duration = Duration::from_secs(1);
 
 pub fn init_logging() {
     tracing_subscriber::fmt()
@@ -93,7 +100,7 @@ pub fn get_binary_path(name: &str) -> PathBuf {
     PathBuf::from(env::var("CARGO_TARGET_DIR").expect("env variable is not set")).join(name)
 }
 
-pub fn install_canister(
+pub async fn install_canister(
     pic: &PocketIc,
     controller: Principal,
     fixed_canister_id: Option<Principal>,
@@ -103,19 +110,25 @@ pub fn install_canister(
     let canister_id = match fixed_canister_id {
         Some(id) => pic
             .create_canister_with_id(Some(controller), None, id)
+            .await
             .unwrap(),
-        None => pic.create_canister_with_settings(Some(controller), None),
+        None => {
+            pic.create_canister_with_settings(Some(controller), None)
+                .await
+        }
     };
-    pic.add_cycles(canister_id, CANISTER_INITIAL_CYCLES);
+    pic.add_cycles(canister_id, CANISTER_INITIAL_CYCLES).await;
 
     pic.install_canister(
         canister_id,
         canister_wasm_module,
         Encode!(&()).unwrap(),
         None,
-    );
+    )
+    .await;
     let module_hash = pic
         .canister_status(canister_id, None)
+        .await
         .unwrap()
         .module_hash
         .unwrap();
@@ -147,16 +160,24 @@ pub fn get_large_assets_canister_wasm() -> Vec<u8> {
     bytes
 }
 
-#[derive(Clone)]
+#[derive(Clone, derive_new::new)]
 pub struct StaticAsset {
+    #[new(into)]
     pub path: String,
+    #[new(into)]
     pub content: String,
+    #[new(into)]
     pub content_type: String,
+    #[new(into)]
     pub content_encoding: String,
     pub sha_override: Option<Vec<u8>>,
 }
 
-pub fn upload_asset_to_asset_canister(pic: &PocketIc, canister_id: Principal, asset: StaticAsset) {
+pub async fn upload_asset_to_asset_canister(
+    pic: &PocketIc,
+    canister_id: Principal,
+    asset: StaticAsset,
+) {
     let controller = Principal::anonymous();
 
     // create a batch id for uploading the asset
@@ -167,6 +188,7 @@ pub fn upload_asset_to_asset_canister(pic: &PocketIc, canister_id: Principal, as
         "create_batch",
         ((),),
     )
+    .await
     .unwrap()
     .0
     .batch_id;
@@ -201,6 +223,7 @@ pub fn upload_asset_to_asset_canister(pic: &PocketIc, canister_id: Principal, as
             "create_chunk",
             (create_chunk_arg,),
         )
+        .await
         .unwrap()
         .0;
         chunk_ids.push(create_chunk_response.chunk_id);
@@ -237,6 +260,7 @@ pub fn upload_asset_to_asset_canister(pic: &PocketIc, canister_id: Principal, as
         "commit_batch",
         (commit_batch_args,),
     )
+    .await
     .unwrap();
 }
 
@@ -277,15 +301,15 @@ pub struct TestEnv {
 }
 
 impl TestEnv {
-    pub fn new(ic_gateway_addr: &str, ic_gateway_domain: &str) -> Self {
+    pub async fn new(ic_gateway_addr: &str, ic_gateway_domain: &str) -> Self {
         init_logging();
 
         info!("pocket-ic server starting ...");
-        let pic = PocketIcBuilder::new().with_nns_subnet().build();
-        pic.auto_progress();
+        let pic = PocketIcBuilder::new().with_nns_subnet().build_async().await;
+        pic.auto_progress().await;
         info!("pocket-ic server started");
 
-        let root_key = pic.root_key().expect("failed to get root key");
+        let root_key = pic.root_key().await.expect("failed to get root key");
         let mut root_key_path = env::current_dir().expect("failed to get working directory");
         root_key_path.push("root_key.der");
         let mut file = File::create(&root_key_path).expect("failed to create file");
@@ -294,7 +318,7 @@ impl TestEnv {
 
         let ic_gateway_addr =
             SocketAddr::from_str(ic_gateway_addr).expect("failed to parse address");
-        let ic_url = format!("{}instances/{}/", pic.get_server_url(), pic.instance_id());
+        let ic_url = format!("{}instances/{}/", pic.get_server_url(), pic.instance_id);
         let process = start_ic_gateway(
             &ic_gateway_addr.to_string(),
             ic_gateway_domain,
@@ -372,34 +396,33 @@ pub async fn check_response(response: Response, expected: &ExpectedResponse) -> 
     }
 
     if let Some(ref expected_headers) = expected.headers {
-        let mut expected_headers_sorted = HashMap::<String, Vec<String>>::new();
-        // sort values in the expected headers for comparison
-        for (key, values) in expected_headers {
-            let mut values: Vec<String> = values
-                .split(',')
-                .map(|x| x.trim().to_ascii_lowercase())
-                .collect();
+        let expected_headers_sorted = expected_headers
+            .iter()
+            .map(|(k, v)| {
+                (
+                    k.trim().to_ascii_lowercase(),
+                    v.split(',')
+                        .map(|x| x.trim().to_ascii_lowercase())
+                        .sorted()
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect::<HashMap<_, _>>();
 
-            values.sort();
-
-            expected_headers_sorted.insert(key.trim().to_ascii_lowercase(), values);
-        }
-
-        let mut actual_headers_sorted: HashMap<String, Vec<String>> = HashMap::new();
-
-        for (header_name, header_value) in headers.iter() {
-            let mut values: Vec<String> = header_value
-                .to_str()
-                .context("invalid UTF-8 in header value")?
-                .split(',')
-                .map(|x| x.trim().to_ascii_lowercase())
-                .collect();
-
-            values.sort();
-
-            actual_headers_sorted
-                .insert(header_name.to_string().trim().to_ascii_lowercase(), values);
-        }
+        let actual_headers_sorted = headers
+            .iter()
+            .map(|(k, v)| {
+                (
+                    k.to_string().trim().to_ascii_lowercase(),
+                    v.to_str()
+                        .expect("invalid UTF-8 in header value")
+                        .split(',')
+                        .map(|x| x.trim().to_ascii_lowercase())
+                        .sorted()
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect::<HashMap<_, _>>();
 
         // check that expected headers are present in the response
         for (key, expected_values) in expected_headers_sorted.iter() {

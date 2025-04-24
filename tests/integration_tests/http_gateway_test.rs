@@ -1,18 +1,14 @@
 use crate::helpers::{
-    ExpectedResponse, StaticAsset, TestEnv, check_response, get_asset_canister_wasm,
-    get_large_assets_canister_wasm, install_canister, retry_async, upload_asset_to_asset_canister,
+    ExpectedResponse, RETRY_INTERVAL, RETRY_TIMEOUT, StaticAsset, TestEnv, check_response,
+    get_asset_canister_wasm, get_large_assets_canister_wasm, install_canister, retry_async,
+    upload_asset_to_asset_canister,
 };
 use anyhow::{Context, anyhow, bail};
 use candid::Principal;
 use http::{HeaderValue, Method, StatusCode};
 use reqwest::{Client, Request};
-use std::time::Duration;
-use tokio::runtime::Runtime;
 use tracing::info;
 use url::Url;
-
-const FETCH_ASSET_RETRY_TIMEOUT: Duration = Duration::from_secs(20);
-const FETCH_ASSET_RETRY_INTERVAL: Duration = Duration::from_secs(2);
 
 // Test scenario:
 // - deploy asset canister via pocket-ic interface
@@ -26,14 +22,15 @@ const FETCH_ASSET_RETRY_INTERVAL: Duration = Duration::from_secs(2);
 // - retrieve asset via HTTP client through ic-gateway endpoint
 // - verify asset integrity
 
-pub fn basic_http_gateway_test(env: &TestEnv) -> anyhow::Result<()> {
+pub async fn basic_http_gateway_test(env: &TestEnv) -> anyhow::Result<()> {
     info!("install asset canister ...");
     let asset_canister_id = install_canister(
         &env.pic,
         Principal::anonymous(),
         None,
         get_asset_canister_wasm(),
-    );
+    )
+    .await;
 
     info!("setup HTTP client ...");
     let certified_domain = format!("{asset_canister_id}.{}", env.ic_gateway_domain);
@@ -48,13 +45,7 @@ pub fn basic_http_gateway_test(env: &TestEnv) -> anyhow::Result<()> {
     let test_cases = [
         (
             "certified root".to_string(),
-            StaticAsset {
-                path: "/".to_string(),
-                content: "Hello World!".to_string(),
-                content_type: "text/plain".to_string(),
-                content_encoding: "identity".to_string(),
-                sha_override: None,
-            },
+            StaticAsset::new("/", "Hello World!", "text/plain", "identity", None),
             certified_domain.clone(),
             ExpectedResponse::new(
                 Some(StatusCode::OK),
@@ -64,13 +55,13 @@ pub fn basic_http_gateway_test(env: &TestEnv) -> anyhow::Result<()> {
         ),
         (
             "certified /foo.js".to_string(),
-            StaticAsset {
-                path: "/foo.js".to_string(),
-                content: r#"console.log("Hello World!")"#.to_string(),
-                content_type: "application/javascript".to_string(),
-                content_encoding: "identity".to_string(),
-                sha_override: None,
-            },
+            StaticAsset::new(
+                "/foo.js",
+                r#"console.log("Hello World!")"#,
+                "application/javascript",
+                "identity",
+                None,
+            ),
             certified_domain.clone(),
             ExpectedResponse::new(
                 Some(StatusCode::OK),
@@ -80,13 +71,13 @@ pub fn basic_http_gateway_test(env: &TestEnv) -> anyhow::Result<()> {
         ),
         (
             "certified /foo.js over raw".to_string(),
-            StaticAsset {
-                path: "/foo.js".to_string(),
-                content: r#"console.log("Hello World!")"#.to_string(),
-                content_type: "application/javascript".to_string(),
-                content_encoding: "identity".to_string(),
-                sha_override: None,
-            },
+            StaticAsset::new(
+                "/foo.js",
+                r#"console.log("Hello World!")"#,
+                "application/javascript",
+                "identity",
+                None,
+            ),
             raw_domain.clone(),
             ExpectedResponse::new(
                 Some(StatusCode::OK),
@@ -96,13 +87,13 @@ pub fn basic_http_gateway_test(env: &TestEnv) -> anyhow::Result<()> {
         ),
         (
             "certified /a/b/c".to_string(),
-            StaticAsset {
-                path: "/a/b/c".to_string(),
-                content: "Do re mi, A B C, 1 2 3".to_string(),
-                content_type: "text/plain".to_string(),
-                content_encoding: "identity".to_string(),
-                sha_override: None,
-            },
+            StaticAsset::new(
+                "/a/b/c",
+                "Do re mi, A B C, 1 2 3",
+                "text/plain",
+                "identity",
+                None,
+            ),
             certified_domain.clone(),
             ExpectedResponse::new(
                 Some(StatusCode::OK),
@@ -112,25 +103,25 @@ pub fn basic_http_gateway_test(env: &TestEnv) -> anyhow::Result<()> {
         ),
         (
             "uncertified /invalid_data.txt".to_string(),
-            StaticAsset {
-                path: "/invalid_data.txt".to_string(),
-                content: "This doesn't checkout".to_string(),
-                content_type: "text/plain".to_string(),
-                content_encoding: "identity".to_string(),
-                sha_override: Some(vec![0; 32]),
-            },
+            StaticAsset::new(
+                "/invalid_data.txt",
+                "This doesn't checkout",
+                "text/plain",
+                "identity",
+                Some(vec![0; 32]),
+            ),
             certified_domain.clone(),
             ExpectedResponse::new(Some(StatusCode::BAD_GATEWAY), None, None),
         ),
         (
             "uncertified /invalid_data.txt over raw".to_string(),
-            StaticAsset {
-                path: "/invalid_data.txt".to_string(),
-                content: "This doesn't checkout".to_string(),
-                content_type: "text/plain".to_string(),
-                content_encoding: "identity".to_string(),
-                sha_override: Some(vec![0; 32]),
-            },
+            StaticAsset::new(
+                "/invalid_data.txt",
+                "This doesn't checkout",
+                "text/plain",
+                "identity",
+                Some(vec![0; 32]),
+            ),
             raw_domain.clone(),
             ExpectedResponse::new(
                 Some(StatusCode::OK),
@@ -140,13 +131,13 @@ pub fn basic_http_gateway_test(env: &TestEnv) -> anyhow::Result<()> {
         ),
         (
             "certified 6mb asset (streaming)".to_string(),
-            StaticAsset {
-                path: "/6mb.txt".to_string(),
-                content: "6".repeat(6 * 1024 * 1024),
-                content_type: "text/plain".to_string(),
-                content_encoding: "identity".to_string(),
-                sha_override: None,
-            },
+            StaticAsset::new(
+                "/6mb.txt",
+                "6".repeat(6 * 1024 * 1024),
+                "text/plain",
+                "identity",
+                None,
+            ),
             certified_domain.clone(),
             ExpectedResponse::new(
                 Some(StatusCode::OK),
@@ -156,25 +147,25 @@ pub fn basic_http_gateway_test(env: &TestEnv) -> anyhow::Result<()> {
         ),
         (
             "uncertified 6mb asset (streaming)".to_string(),
-            StaticAsset {
-                path: "/6mb.txt".to_string(),
-                content: "6".repeat(6 * 1024 * 1024),
-                content_type: "text/plain".to_string(),
-                content_encoding: "identity".to_string(),
-                sha_override: Some(vec![0; 32]),
-            },
+            StaticAsset::new(
+                "/6mb.txt",
+                "6".repeat(6 * 1024 * 1024),
+                "text/plain",
+                "identity",
+                Some(vec![0; 32]),
+            ),
             certified_domain.clone(),
             ExpectedResponse::new(Some(StatusCode::BAD_GATEWAY), None, None),
         ),
         (
             "certified 10mb asset (unverified)".to_string(),
-            StaticAsset {
-                path: "/10mb.txt".to_string(),
-                content: "A".repeat(10 * 1024 * 1024),
-                content_type: "text/plain".to_string(),
-                content_encoding: "identity".to_string(),
-                sha_override: None,
-            },
+            StaticAsset::new(
+                "/10mb.txt",
+                "A".repeat(10 * 1024 * 1024),
+                "text/plain",
+                "identity",
+                None,
+            ),
             certified_domain.clone(),
             ExpectedResponse::new(
                 Some(StatusCode::OK),
@@ -184,13 +175,13 @@ pub fn basic_http_gateway_test(env: &TestEnv) -> anyhow::Result<()> {
         ),
         (
             "uncertified 10mb asset (unverified)".to_string(),
-            StaticAsset {
-                path: "/10mb.txt".to_string(),
-                content: "A".repeat(10 * 1024 * 1024),
-                content_type: "text/plain".to_string(),
-                content_encoding: "identity".to_string(),
-                sha_override: Some(vec![0; 32]),
-            },
+            StaticAsset::new(
+                "/10mb.txt",
+                "A".repeat(10 * 1024 * 1024),
+                "text/plain",
+                "identity",
+                Some(vec![0; 32]),
+            ),
             certified_domain.clone(),
             ExpectedResponse::new(
                 Some(StatusCode::OK),
@@ -200,10 +191,9 @@ pub fn basic_http_gateway_test(env: &TestEnv) -> anyhow::Result<()> {
         ),
     ];
 
-    let rt = Runtime::new().context(anyhow!("failed to start tokio runtime"))?;
     for (test_case_name, asset, domain, expected_response) in test_cases {
         info!("upload {} ...", asset.path);
-        upload_asset_to_asset_canister(&env.pic, asset_canister_id, asset.clone());
+        upload_asset_to_asset_canister(&env.pic, asset_canister_id, asset.clone()).await;
 
         let request = {
             let asset_url = Url::parse(&format!(
@@ -215,10 +205,10 @@ pub fn basic_http_gateway_test(env: &TestEnv) -> anyhow::Result<()> {
             Request::new(Method::GET, asset_url)
         };
 
-        rt.block_on(retry_async(
+        retry_async(
             format!("verifying HTTP response for '{test_case_name}'"),
-            FETCH_ASSET_RETRY_TIMEOUT,
-            FETCH_ASSET_RETRY_INTERVAL,
+            RETRY_TIMEOUT,
+            RETRY_INTERVAL,
             || async {
                 let response = http_client
                     .execute(request.try_clone().unwrap())
@@ -227,7 +217,8 @@ pub fn basic_http_gateway_test(env: &TestEnv) -> anyhow::Result<()> {
 
                 check_response(response, &expected_response).await
             },
-        ))
+        )
+        .await
         .context(anyhow!("failed to verify stored asset"))?;
     }
 
@@ -249,14 +240,15 @@ const ONE_CHUNK_ASSET_LEN: usize = ASSET_CHUNK_SIZE;
 const TWO_CHUNKS_ASSET_LEN: usize = ASSET_CHUNK_SIZE + 1;
 const SIX_CHUNKS_ASSET_LEN: usize = 5 * ASSET_CHUNK_SIZE + 12;
 
-pub fn large_assets_http_gateway_test(env: &TestEnv) -> anyhow::Result<()> {
+pub async fn large_assets_http_gateway_test(env: &TestEnv) -> anyhow::Result<()> {
     info!("install large assets canister ...");
     let asset_canister_id = install_canister(
         &env.pic,
         Principal::anonymous(),
         None,
         get_large_assets_canister_wasm(),
-    );
+    )
+    .await;
 
     info!("setup HTTP client ...");
     let certified_domain = format!("{asset_canister_id}.{}", env.ic_gateway_domain);
@@ -296,13 +288,12 @@ pub fn large_assets_http_gateway_test(env: &TestEnv) -> anyhow::Result<()> {
         };
         request
             .headers_mut()
-            .insert("accept-encoding", HeaderValue::from_str("gzip").unwrap());
+            .insert("accept-encoding", HeaderValue::from_static("gzip"));
 
-        let rt = Runtime::new().context(anyhow!("failed to start tokio runtime"))?;
-        rt.block_on(retry_async(
+        retry_async(
             format!("requesting '{path}'"),
-            FETCH_ASSET_RETRY_TIMEOUT,
-            FETCH_ASSET_RETRY_INTERVAL,
+            RETRY_TIMEOUT,
+            RETRY_INTERVAL,
             || async {
                 let response = http_client
                     .execute(request.try_clone().unwrap())
@@ -326,7 +317,8 @@ pub fn large_assets_http_gateway_test(env: &TestEnv) -> anyhow::Result<()> {
 
                 Ok(())
             },
-        ))
+        )
+        .await
         .context(anyhow!("failed to verify stored asset"))?;
     }
 
