@@ -498,6 +498,7 @@ pub fn setup_router(
         .layer(load_shedder_latency_mw);
 
     // Top-level router
+    #[allow(unused_mut)]
     let mut router = Router::new()
         .nest("/api/v2", router_api_v2)
         .nest("/api/v3", router_api_v3)
@@ -549,7 +550,6 @@ pub fn setup_router(
         router = router.merge(router_sev_snp)
     }
 
-    // The layer that's added last is executed first
     Ok(router)
 }
 
