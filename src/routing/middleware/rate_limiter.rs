@@ -27,6 +27,7 @@ impl KeyExtractor for IpKeyExtractor {
     }
 }
 
+#[allow(dead_code)]
 pub fn layer_global(
     rps: u32,
     burst_size: u32,
