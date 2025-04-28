@@ -3,6 +3,7 @@ use integration_tests::{
     api_proxy_test::proxy_api_calls_test,
     content_type_headers_test::content_type_headers_test,
     cors_headers_test::cors_headers_test,
+    denylist_test::denylist_test,
     http_gateway_test::{basic_http_gateway_test, large_assets_http_gateway_test},
 };
 
@@ -21,4 +22,5 @@ async fn all_intergration_tests() {
     cors_headers_test(&env).await.unwrap();
     proxy_api_calls_test(&env).await.unwrap();
     large_assets_http_gateway_test(&env).await.unwrap();
+    denylist_test(&env).await.unwrap();
 }
