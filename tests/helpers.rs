@@ -19,9 +19,9 @@ use reqwest::Response;
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
-    env,
+    env, fs,
     fs::File,
-    io::{Read, Write},
+    io::Read,
     net::SocketAddr,
     path::PathBuf,
     process::{Child, Command},
@@ -38,6 +38,9 @@ pub const RETRY_TIMEOUT: Duration = Duration::from_secs(10);
 pub const RETRY_INTERVAL: Duration = Duration::from_secs(1);
 
 pub const DENYLISTED_CANISTER_ID: &str = "22b4i-4aaaa-aaaal-qlzxa-cai";
+
+pub const ROOT_KEY_FILE: &str = "root_key.der";
+pub const DENYLIST_FILE: &str = "denylist_seed.json";
 
 pub fn init_logging() {
     tracing_subscriber::fmt()
@@ -322,11 +325,7 @@ impl TestEnv {
 
         // fetch the root key of "local" IC and save it to a file
         let root_key = pic.root_key().await.expect("failed to get root key");
-        let mut root_key_path = env::current_dir().expect("failed to get working directory");
-        root_key_path.push("root_key.der");
-        let mut file = File::create(&root_key_path).expect("failed to create file");
-        file.write_all(&root_key)
-            .expect("failed to write key to file");
+        fs::write(ROOT_KEY_FILE, &root_key).expect("failed to write key to file");
 
         // create a static denylist seed file
         let denylist_seed = format!(
@@ -339,11 +338,8 @@ impl TestEnv {
         }}"#,
             DENYLISTED_CANISTER_ID
         );
-        let mut denylist_seed_path = env::current_dir().expect("failed to get working directory");
-        denylist_seed_path.push("denylist_seed.json");
-        let mut file = File::create(&denylist_seed_path).expect("failed to create file");
-        file.write_all(&denylist_seed.as_bytes())
-            .expect("failed to write key to file");
+        fs::write(DENYLIST_FILE, &denylist_seed.as_bytes())
+            .expect("failed to write denylist to file");
 
         let ic_gateway_addr =
             SocketAddr::from_str(ic_gateway_addr).expect("failed to parse address");
@@ -352,8 +348,8 @@ impl TestEnv {
             &ic_gateway_addr.to_string(),
             ic_gateway_domain,
             &ic_url,
-            root_key_path,
-            Some(denylist_seed_path),
+            ROOT_KEY_FILE.into(),
+            Some(DENYLIST_FILE.into()),
         );
 
         Self {
