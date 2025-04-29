@@ -6,7 +6,7 @@
 
 mod cli;
 mod core;
-mod metrics;
+pub mod metrics;
 mod policy;
 pub mod routing;
 #[cfg(any(test, feature = "bench"))]

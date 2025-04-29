@@ -439,16 +439,14 @@ pub struct Vector {
     #[clap(env, long)]
     pub log_vector_pass: Option<String>,
 
-    /// Vector batch size in bytes, uncompressed.
+    /// Vector batch size in number of events.
     /// When it's exceeded then the batch is closed & queued for sending.
-    #[clap(env, long, default_value = "16MB", value_parser = parse_size_usize)]
+    #[clap(env, long, default_value = "100k", value_parser = parse_size_decimal_usize)]
     pub log_vector_batch: usize,
 
     /// Number of batches to store in the queue for the Flushers to consume.
-    /// So the maximum memory occupied by batch queue will be roughly
-    /// log_vector_batch*log_vector_batch_count, plus anything in the event queue (log_vector_buffer).
-    #[clap(env, long, default_value = "32")]
-    pub log_vector_batch_count: usize,
+    #[clap(env, long, default_value = "64")]
+    pub log_vector_batch_queue: usize,
 
     /// Vector batch flush interval
     #[clap(env, long, default_value = "5s", value_parser = parse_duration)]
@@ -462,7 +460,7 @@ pub struct Vector {
     /// Number of batch flusher tasks to spawn.
     /// If there's a big event volume - increasing this number might help.
     /// Each task is flushing a single batch which contains time-ordered events.
-    #[clap(env, long, default_value = "8")]
+    #[clap(env, long, default_value = "32")]
     pub log_vector_flushers: usize,
 
     /// Vector HTTP request timeout for a batch flush.

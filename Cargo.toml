@@ -132,3 +132,7 @@ harness = false
 [[bench]]
 name = "router"
 harness = false
+
+[[bench]]
+name = "vector"
+harness = false
