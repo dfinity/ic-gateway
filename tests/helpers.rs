@@ -19,9 +19,9 @@ use reqwest::Response;
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
-    env,
+    env, fs,
     fs::File,
-    io::{Read, Write},
+    io::Read,
     net::SocketAddr,
     path::PathBuf,
     process::{Child, Command},
@@ -36,6 +36,11 @@ const CANISTER_INITIAL_CYCLES: u128 = 100_000_000_000_000;
 
 pub const RETRY_TIMEOUT: Duration = Duration::from_secs(10);
 pub const RETRY_INTERVAL: Duration = Duration::from_secs(1);
+
+pub const DENYLISTED_CANISTER_ID: &str = "22b4i-4aaaa-aaaal-qlzxa-cai";
+
+pub const ROOT_KEY_FILE: &str = "root_key.der";
+pub const DENYLIST_FILE: &str = "denylist_seed.json";
 
 pub fn init_logging() {
     tracing_subscriber::fmt()
@@ -91,7 +96,7 @@ where
 
 fn truncate_error_msg(err_str: String) -> String {
     let mut short_e = err_str.replace('\n', "\\n ");
-    short_e.truncate(200);
+    short_e.truncate(500);
     short_e.push_str("...");
     short_e
 }
@@ -264,20 +269,29 @@ pub async fn upload_asset_to_asset_canister(
     .unwrap();
 }
 
-pub fn start_ic_gateway(addr: &str, domain: &str, ic_url: &str, root_key_path: PathBuf) -> Child {
+pub fn start_ic_gateway(
+    addr: &str,
+    domain: &str,
+    ic_url: &str,
+    root_key_path: PathBuf,
+    denylist_seed_path: Option<PathBuf>,
+) -> Child {
     info!("ic-gateway service starting ...");
-    let child = Command::new(get_binary_path(IC_GATEWAY_BIN))
-        .arg("--listen-plain")
-        .arg(addr)
-        .arg("--ic-url")
-        .arg(ic_url)
-        .arg("--domain")
-        .arg(domain)
-        .arg("--ic-root-key")
-        .arg(root_key_path.to_str().unwrap())
-        .arg("--listen-insecure-serve-http-only")
-        .spawn()
-        .expect("failed to start ic-gateway service");
+    let mut cmd = Command::new(get_binary_path(IC_GATEWAY_BIN));
+    cmd.arg("--listen-plain");
+    cmd.arg(addr);
+    cmd.arg("--ic-url");
+    cmd.arg(ic_url);
+    cmd.arg("--domain");
+    cmd.arg(domain);
+    cmd.arg("--ic-root-key");
+    cmd.arg(root_key_path.to_str().unwrap());
+    if denylist_seed_path.is_some() {
+        cmd.arg("--policy-denylist-seed");
+        cmd.arg(denylist_seed_path.unwrap().to_str().unwrap());
+    }
+    cmd.arg("--listen-insecure-serve-http-only");
+    let child = cmd.spawn().expect("failed to start ic-gateway service");
     info!("ic-gateway service started");
     child
 }
@@ -309,12 +323,23 @@ impl TestEnv {
         pic.auto_progress().await;
         info!("pocket-ic server started");
 
+        // fetch the root key of "local" IC and save it to a file
         let root_key = pic.root_key().await.expect("failed to get root key");
-        let mut root_key_path = env::current_dir().expect("failed to get working directory");
-        root_key_path.push("root_key.der");
-        let mut file = File::create(&root_key_path).expect("failed to create file");
-        file.write_all(&root_key)
-            .expect("failed to write key to file");
+        fs::write(ROOT_KEY_FILE, &root_key).expect("failed to write key to file");
+
+        // create a static denylist seed file
+        let denylist_seed = format!(
+            r#"{{
+            "$schema": "./schema.json",
+            "version": "1",
+            "canisters": {{
+                "{}": {{}}
+            }}
+        }}"#,
+            DENYLISTED_CANISTER_ID
+        );
+        fs::write(DENYLIST_FILE, &denylist_seed.as_bytes())
+            .expect("failed to write denylist to file");
 
         let ic_gateway_addr =
             SocketAddr::from_str(ic_gateway_addr).expect("failed to parse address");
@@ -323,7 +348,8 @@ impl TestEnv {
             &ic_gateway_addr.to_string(),
             ic_gateway_domain,
             &ic_url,
-            root_key_path,
+            ROOT_KEY_FILE.into(),
+            Some(DENYLIST_FILE.into()),
         );
 
         Self {
