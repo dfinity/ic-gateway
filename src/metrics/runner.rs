@@ -23,6 +23,7 @@ pub struct MetricsCache {
     buffer: ArcSwap<Bytes>,
 }
 
+#[allow(clippy::new_without_default)]
 impl MetricsCache {
     pub fn new() -> Self {
         Self {

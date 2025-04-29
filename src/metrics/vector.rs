@@ -4,13 +4,11 @@ use std::{
     time::{Duration, Instant},
 };
 
-#[cfg(test)]
-use std::sync::atomic::{AtomicU64, Ordering};
-
 use anyhow::{Context, Error, anyhow};
 use bytes::{Buf, Bytes, BytesMut};
+use http::header::{AUTHORIZATION, CONTENT_ENCODING, CONTENT_TYPE};
 use ic_bn_lib::{
-    http::{self, headers::CONTENT_TYPE_OCTET_STREAM},
+    http::{Client as HttpClient, client::basic_auth, headers::CONTENT_TYPE_OCTET_STREAM},
     vector::encode_event,
 };
 use prometheus::{
@@ -18,10 +16,7 @@ use prometheus::{
     register_int_counter_vec_with_registry, register_int_counter_with_registry,
     register_int_gauge_with_registry,
 };
-use reqwest::{
-    Method, Request,
-    header::{self, HeaderValue},
-};
+use reqwest::{Method, Request, header::HeaderValue};
 use serde_json::Value;
 use tokio::{
     select,
@@ -179,16 +174,17 @@ impl Metrics {
 
 /// Encodes Vector events into a native format with length delimiting
 #[derive(Clone)]
-struct EventEncoder(LengthDelimitedCodec);
+pub struct EventEncoder(LengthDelimitedCodec);
 
 impl EventEncoder {
-    fn new() -> Self {
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
         Self(LengthDelimitedCodec::new())
     }
 
     /// Encodes the event into provided buffer and adds framing
     #[inline]
-    fn encode_event(&mut self, event: Value, buf: &mut BytesMut) -> Result<(), Error> {
+    pub fn encode_event(&mut self, event: Value, buf: &mut BytesMut) -> Result<(), Error> {
         // Serialize
         let len = buf.len();
         let mut payload = buf.split_off(len);
@@ -205,8 +201,9 @@ impl EventEncoder {
         Ok(())
     }
 
-    fn encode_batch(&mut self, batch: Vec<Value>) -> Result<Bytes, Error> {
-        let mut buf = BytesMut::with_capacity(1024 * 1024);
+    /// Encodes the given vec of events into Vector protobuf format
+    pub fn encode_batch(&mut self, batch: Vec<Value>) -> Result<Bytes, Error> {
+        let mut buf = BytesMut::with_capacity(512 * 1024);
         for v in batch {
             self.encode_event(v, &mut buf)?;
         }
@@ -223,13 +220,10 @@ pub struct Vector {
     tracker_flushers: TaskTracker,
     tx: mpsc::Sender<Value>,
     metrics: Metrics,
-
-    #[cfg(test)]
-    events_flushed: Arc<AtomicU64>,
 }
 
 impl Vector {
-    pub fn new(cli: &cli::Vector, client: Arc<dyn http::Client>, registry: &Registry) -> Self {
+    pub fn new(cli: &cli::Vector, client: Arc<dyn HttpClient>, registry: &Registry) -> Self {
         let cli = cli.clone();
 
         let (tx_event, rx_event) = mpsc::channel(cli.log_vector_buffer);
@@ -244,9 +238,6 @@ impl Vector {
         let mut interval = interval(cli.log_vector_interval);
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         interval.reset();
-
-        #[cfg(test)]
-        let events_flushed = Arc::new(AtomicU64::new(0));
 
         let batcher = Batcher {
             rx: rx_event,
@@ -270,7 +261,7 @@ impl Vector {
         // Prepare auth header
         let auth = cli
             .log_vector_user
-            .map(|x| http::client::basic_auth(x, cli.log_vector_pass));
+            .map(|x| basic_auth(x, cli.log_vector_pass));
 
         warn!("Vector: starting flushers ({})", cli.log_vector_flushers);
         for id in 0..cli.log_vector_flushers {
@@ -287,8 +278,6 @@ impl Vector {
                 timeout: cli.log_vector_timeout,
                 encoder: EventEncoder::new(),
                 metrics: metrics.clone(),
-                #[cfg(test)]
-                events_flushed: events_flushed.clone(),
             };
 
             tracker_flushers.spawn(async move {
@@ -304,9 +293,6 @@ impl Vector {
             tracker_flushers,
             tx: tx_event,
             metrics,
-
-            #[cfg(test)]
-            events_flushed,
         }
     }
 
@@ -350,7 +336,7 @@ struct Batcher {
 
 impl Display for Batcher {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Vector: Batcher")
+        write!(f, "Vector(Batcher)")
     }
 }
 
@@ -359,8 +345,10 @@ impl Batcher {
         self.batch.push(event);
         self.metrics.batch_size.set(self.batch.len() as i64);
 
+        // If we've reached the capacity - it's time to flush
         if self.batch.len() == self.batch.capacity() {
             self.flush().await;
+            // Reset the timer so that we don't flush again too soon
             self.interval.reset();
         }
     }
@@ -371,7 +359,7 @@ impl Batcher {
         }
 
         let len = self.batch.len();
-        // Take all elements from the batch without deallocating storage
+        // Drain all elements from the batch without deallocating backing memory
         let batch = self.batch.drain(..).collect::<Vec<_>>();
         debug!("{self}: queueing batch ({len} events)");
 
@@ -427,7 +415,7 @@ impl Batcher {
 struct Flusher {
     id: usize,
     rx: async_channel::Receiver<Batch>,
-    client: Arc<dyn http::Client>,
+    client: Arc<dyn HttpClient>,
     retry_interval: Duration,
     timeout: Duration,
     url: Url,
@@ -437,13 +425,11 @@ struct Flusher {
     token_drain: CancellationToken,
     encoder: EventEncoder,
     metrics: Metrics,
-    #[cfg(test)]
-    events_flushed: Arc<AtomicU64>,
 }
 
 impl Display for Flusher {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Vector: Flusher{}", self.id)
+        write!(f, "Vector(Flusher{})", self.id)
     }
 }
 
@@ -453,16 +439,14 @@ impl Flusher {
         let mut request = Request::new(Method::POST, self.url.clone());
         request
             .headers_mut()
-            .insert(header::CONTENT_TYPE, CONTENT_TYPE_OCTET_STREAM);
+            .insert(CONTENT_TYPE, CONTENT_TYPE_OCTET_STREAM);
         request
             .headers_mut()
-            .insert(header::CONTENT_ENCODING, CONTENT_ENCODING_ZSTD);
+            .insert(CONTENT_ENCODING, CONTENT_ENCODING_ZSTD);
 
         // Add basic auth header if configured
         if let Some(v) = &self.auth {
-            request
-                .headers_mut()
-                .insert(header::AUTHORIZATION, v.clone());
+            request.headers_mut().insert(AUTHORIZATION, v.clone());
         }
 
         *request.body_mut() = Some(body.into());
@@ -547,17 +531,19 @@ impl Flusher {
     async fn process_batch(&mut self, batch: Batch) {
         let len = batch.events.len();
         self.metrics.batch_buffer_size.dec();
-        self.metrics.batch_sizes.observe(len as f64);
 
         debug!("{self}: received batch ({len} events)");
 
+        // Encode the batch into wire format
         let start = Instant::now();
         match self.encoder.encode_batch(batch.events) {
             Ok(v) => {
                 self.metrics
                     .batch_encode_duration
                     .observe(start.elapsed().as_secs_f64());
+                self.metrics.batch_sizes.observe(v.len() as f64);
 
+                // Send it
                 let start = Instant::now();
                 if let Err(e) = self.send_batch_retry(v).await {
                     warn!("{self}: unable to flush: {e:#}");
@@ -569,9 +555,6 @@ impl Flusher {
                     .observe(start.elapsed().as_secs_f64());
 
                 debug!("{self}: {len} events flushed");
-
-                #[cfg(test)]
-                self.events_flushed.fetch_add(len as u64, Ordering::SeqCst);
             }
 
             Err(e) => {
@@ -629,16 +612,16 @@ mod test {
     struct TestClient(AtomicU64, AtomicU64);
 
     #[async_trait]
-    impl http::Client for TestClient {
+    impl HttpClient for TestClient {
         async fn execute(
             &self,
             req: reqwest::Request,
         ) -> Result<reqwest::Response, reqwest::Error> {
-            let mut resp = ::http::Response::new(vec![]);
+            let mut resp = http::Response::new(vec![]);
 
             // fail from time to time
             if rand::random::<f64>() < 0.05 {
-                *resp.status_mut() = ::http::StatusCode::SERVICE_UNAVAILABLE;
+                *resp.status_mut() = http::StatusCode::SERVICE_UNAVAILABLE;
                 return Ok(resp.into());
             }
 
@@ -654,9 +637,9 @@ mod test {
     struct TestClientOk;
 
     #[async_trait]
-    impl http::Client for TestClientOk {
+    impl HttpClient for TestClientOk {
         async fn execute(&self, _: reqwest::Request) -> Result<reqwest::Response, reqwest::Error> {
-            let resp = ::http::Response::new(vec![]);
+            let resp = http::Response::new(vec![]);
             Ok(resp.into())
         }
     }
@@ -665,13 +648,13 @@ mod test {
     struct TestClientDead;
 
     #[async_trait]
-    impl http::Client for TestClientDead {
+    impl HttpClient for TestClientDead {
         async fn execute(
             &self,
             _req: reqwest::Request,
         ) -> Result<reqwest::Response, reqwest::Error> {
-            let mut resp = ::http::Response::new(vec![]);
-            *resp.status_mut() = ::http::StatusCode::SERVICE_UNAVAILABLE;
+            let mut resp = http::Response::new(vec![]);
+            *resp.status_mut() = http::StatusCode::SERVICE_UNAVAILABLE;
             Ok(resp.into())
         }
     }
@@ -791,7 +774,7 @@ mod test {
         vector.stop().await;
 
         assert_eq!(
-            vector.events_flushed.load(Ordering::SeqCst),
+            vector.metrics.sent_events.get(),
             cli.log_vector_buffer as u64,
         );
     }
