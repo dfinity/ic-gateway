@@ -4,16 +4,19 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(test)]
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use anyhow::{Context, Error, anyhow};
-use async_channel::{Receiver, Sender, bounded};
 use bytes::{Buf, Bytes, BytesMut};
 use ic_bn_lib::{
     http::{self, headers::CONTENT_TYPE_OCTET_STREAM},
     vector::encode_event,
 };
 use prometheus::{
-    IntCounter, IntCounterVec, IntGauge, Registry, register_int_counter_vec_with_registry,
-    register_int_counter_with_registry, register_int_gauge_with_registry,
+    Histogram, IntCounter, IntCounterVec, IntGauge, Registry, register_histogram_with_registry,
+    register_int_counter_vec_with_registry, register_int_counter_with_registry,
+    register_int_gauge_with_registry,
 };
 use reqwest::{
     Method, Request,
@@ -35,19 +38,27 @@ use url::Url;
 
 use crate::cli;
 
+pub const KB: f64 = 1024.0;
+pub const MB: f64 = 1024.0 * KB;
+
 const CONTENT_ENCODING_ZSTD: HeaderValue = HeaderValue::from_static("zstd");
 
 #[derive(Clone)]
 struct Metrics {
     sent: IntCounter,
     sent_compressed: IntCounter,
+    sent_events: IntCounter,
     buffer_event_size: IntGauge,
-    buffer_batch_size: IntGauge,
     batch_size: IntGauge,
     buffer_drops: IntCounter,
     encoding_failures: IntCounter,
+    batch_buffer_size: IntGauge,
     batch_flush_retries: IntCounter,
     batch_flushes: IntCounterVec,
+    batch_queue_duration: Histogram,
+    batch_encode_duration: Histogram,
+    batch_flush_duration: Histogram,
+    batch_sizes: Histogram,
 }
 
 impl Metrics {
@@ -67,6 +78,13 @@ impl Metrics {
             )
             .unwrap(),
 
+            sent_events: register_int_counter_with_registry!(
+                format!("vector_sent_events"),
+                format!("Number of events sent"),
+                registry
+            )
+            .unwrap(),
+
             buffer_event_size: register_int_gauge_with_registry!(
                 format!("vector_event_buffer_size"),
                 format!("Number of events in the incoming buffer"),
@@ -74,16 +92,9 @@ impl Metrics {
             )
             .unwrap(),
 
-            buffer_batch_size: register_int_gauge_with_registry!(
-                format!("vector_batch_buffer_size"),
-                format!("Number of batchs in the outgoing buffer"),
-                registry
-            )
-            .unwrap(),
-
             batch_size: register_int_gauge_with_registry!(
                 format!("vector_batch_size"),
-                format!("Number of events in the outgoing batch"),
+                format!("Current size of the events queued for the next batch"),
                 registry
             )
             .unwrap(),
@@ -102,6 +113,13 @@ impl Metrics {
             )
             .unwrap(),
 
+            batch_buffer_size: register_int_gauge_with_registry!(
+                format!("vector_batch_buffer_size"),
+                format!("Number of batches in the outgoing buffer"),
+                registry
+            )
+            .unwrap(),
+
             batch_flush_retries: register_int_counter_with_registry!(
                 format!("vector_batch_flush_retries"),
                 format!("Number of batch flush retries"),
@@ -113,6 +131,45 @@ impl Metrics {
                 format!("vector_batch_flushes"),
                 format!("Count of batch flushes"),
                 &["ok"],
+                registry
+            )
+            .unwrap(),
+
+            batch_queue_duration: register_histogram_with_registry!(
+                format!("vector_batch_queue_duration"),
+                format!("Time it takes to queue the batch"),
+                vec![0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2],
+                registry
+            )
+            .unwrap(),
+
+            batch_encode_duration: register_histogram_with_registry!(
+                format!("vector_batch_encode_duration"),
+                format!("Time it takes to encode the batch"),
+                vec![0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2],
+                registry
+            )
+            .unwrap(),
+
+            batch_flush_duration: register_histogram_with_registry!(
+                format!("vector_batch_flush_duration"),
+                format!("Time it takes to flush the batch"),
+                vec![0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2],
+                registry
+            )
+            .unwrap(),
+
+            batch_sizes: register_histogram_with_registry!(
+                format!("vector_batch_sizes"),
+                format!("Batch sizes histogram"),
+                vec![
+                    128.0 * KB,
+                    256.0 * KB,
+                    1.0 * MB,
+                    4.0 * MB,
+                    8.0 * MB,
+                    16.0 * MB
+                ],
                 registry
             )
             .unwrap(),
@@ -147,6 +204,15 @@ impl EventEncoder {
         buf.unsplit(payload);
         Ok(())
     }
+
+    fn encode_batch(&mut self, batch: Vec<Value>) -> Result<Bytes, Error> {
+        let mut buf = BytesMut::with_capacity(1024 * 1024);
+        for v in batch {
+            self.encode_event(v, &mut buf)?;
+        }
+
+        Ok(buf.freeze())
+    }
 }
 
 pub struct Vector {
@@ -157,6 +223,9 @@ pub struct Vector {
     tracker_flushers: TaskTracker,
     tx: mpsc::Sender<Value>,
     metrics: Metrics,
+
+    #[cfg(test)]
+    events_flushed: Arc<AtomicU64>,
 }
 
 impl Vector {
@@ -164,28 +233,27 @@ impl Vector {
         let cli = cli.clone();
 
         let (tx_event, rx_event) = mpsc::channel(cli.log_vector_buffer);
-        let (tx_batch, rx_batch) = bounded(cli.log_vector_batch_count);
+        let (tx_batch, rx_batch) = async_channel::bounded(cli.log_vector_batch_queue);
 
         let metrics = Metrics::new(registry);
 
         // Start batcher
         warn!("Vector: starting batcher");
-        // Allocate an extra 10% to make sure that we don't reallocate when pushing into batch
-        let batch_capacity = cli.log_vector_batch + cli.log_vector_batch / 10;
         let token_batcher = CancellationToken::new();
 
         let mut interval = interval(cli.log_vector_interval);
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        interval.reset();
+
+        #[cfg(test)]
+        let events_flushed = Arc::new(AtomicU64::new(0));
 
         let batcher = Batcher {
             rx: rx_event,
             tx: tx_batch,
-            batch: BytesMut::with_capacity(batch_capacity),
-            batch_capacity,
-            batch_size: cli.log_vector_batch,
+            batch: Vec::with_capacity(cli.log_vector_batch),
             interval,
             token: token_batcher.child_token(),
-            encoder: EventEncoder::new(),
             metrics: metrics.clone(),
         };
 
@@ -217,7 +285,10 @@ impl Vector {
                 token_drain: token_flushers_drain.child_token(),
                 retry_interval: cli.log_vector_retry_interval,
                 timeout: cli.log_vector_timeout,
+                encoder: EventEncoder::new(),
                 metrics: metrics.clone(),
+                #[cfg(test)]
+                events_flushed: events_flushed.clone(),
             };
 
             tracker_flushers.spawn(async move {
@@ -233,6 +304,9 @@ impl Vector {
             tracker_flushers,
             tx: tx_event,
             metrics,
+
+            #[cfg(test)]
+            events_flushed,
         }
     }
 
@@ -261,13 +335,14 @@ impl Vector {
     }
 }
 
+struct Batch {
+    events: Vec<Value>,
+}
+
 struct Batcher {
     rx: mpsc::Receiver<Value>,
-    tx: Sender<Bytes>,
-    batch: BytesMut,
-    batch_capacity: usize,
-    batch_size: usize,
-    encoder: EventEncoder,
+    tx: async_channel::Sender<Batch>,
+    batch: Vec<Value>,
     interval: Interval,
     token: CancellationToken,
     metrics: Metrics,
@@ -280,23 +355,13 @@ impl Display for Batcher {
 }
 
 impl Batcher {
-    fn add_to_batch(&mut self, event: Value) {
-        if let Err(e) = self.encoder.encode_event(event, &mut self.batch) {
-            warn!("{self}: unable to encode event: {e:#}");
-            self.metrics.encoding_failures.inc();
-
-            // Reclaim back the space that was split off
-            let additional = self.batch_capacity - self.batch.capacity();
-            self.batch.reserve(additional);
-
-            // Clear the batch since the encoding failure might leave it inconsistent
-            self.batch.clear();
-        };
+    async fn add_to_batch(&mut self, event: Value) {
+        self.batch.push(event);
         self.metrics.batch_size.set(self.batch.len() as i64);
 
-        if self.batch.len() >= self.batch_size {
-            // Reset the interval to cause the flushing
-            self.interval.reset_immediately();
+        if self.batch.len() == self.batch.capacity() {
+            self.flush().await;
+            self.interval.reset();
         }
     }
 
@@ -305,15 +370,20 @@ impl Batcher {
             return;
         }
 
-        let batch = self.batch.clone().freeze();
+        let len = self.batch.len();
+        // Take all elements from the batch without deallocating storage
+        let batch = self.batch.drain(..).collect::<Vec<_>>();
+        debug!("{self}: queueing batch ({len} events)");
 
         let start = Instant::now();
-        debug!("{self}: queueing batch (len {})", batch.len());
         // In our case the Batcher is dropped before the Flusher, so no error can occur
-        let _ = self.tx.send(batch).await;
-        debug!("{self}: batch queued in {}s", start.elapsed().as_secs_f64());
-        self.metrics.buffer_batch_size.inc();
-        self.batch.clear();
+        let _ = self.tx.send(Batch { events: batch }).await;
+        let dur = start.elapsed().as_secs_f64();
+
+        debug!("{self}: batch ({len} events) queued in {dur}s");
+
+        self.metrics.batch_queue_duration.observe(dur);
+        self.metrics.batch_buffer_size.inc();
     }
 
     async fn drain(&mut self) {
@@ -322,11 +392,7 @@ impl Batcher {
 
         // Drain the buffer
         while let Some(v) = self.rx.recv().await {
-            self.add_to_batch(v);
-
-            if self.batch.len() >= self.batch_size {
-                self.flush().await;
-            }
+            self.add_to_batch(v).await;
         }
 
         // Flush the rest if anything left
@@ -343,15 +409,15 @@ impl Batcher {
                     self.drain().await;
                     warn!("{self}: stopped");
                     return;
-                }
+                },
 
                 _ = self.interval.tick() => {
                     self.flush().await;
-                }
+                },
 
                 Some(event) = self.rx.recv() => {
                     self.metrics.buffer_event_size.dec();
-                    self.add_to_batch(event);
+                    self.add_to_batch(event).await;
                 }
             }
         }
@@ -360,7 +426,7 @@ impl Batcher {
 
 struct Flusher {
     id: usize,
-    rx: Receiver<Bytes>,
+    rx: async_channel::Receiver<Batch>,
     client: Arc<dyn http::Client>,
     retry_interval: Duration,
     timeout: Duration,
@@ -369,7 +435,10 @@ struct Flusher {
     zstd_level: usize,
     token: CancellationToken,
     token_drain: CancellationToken,
+    encoder: EventEncoder,
     metrics: Metrics,
+    #[cfg(test)]
+    events_flushed: Arc<AtomicU64>,
 }
 
 impl Display for Flusher {
@@ -380,7 +449,7 @@ impl Display for Flusher {
 
 impl Flusher {
     // Sends the given body to Vector
-    async fn send(&self, body: Bytes, timeout: Duration) -> Result<(), Error> {
+    async fn send_batch(&self, body: Bytes, timeout: Duration) -> Result<(), Error> {
         let mut request = Request::new(Method::POST, self.url.clone());
         request
             .headers_mut()
@@ -412,7 +481,7 @@ impl Flusher {
         Ok(())
     }
 
-    async fn flush(&self, batch: Bytes) -> Result<(), Error> {
+    async fn send_batch_retry(&self, batch: Bytes) -> Result<(), Error> {
         let raw_size = batch.len();
 
         let batch = zstd::encode_all(batch.reader(), self.zstd_level as i32)
@@ -433,7 +502,7 @@ impl Flusher {
             );
 
             // Bytes is cheap to clone
-            if let Err(e) = self.send(batch.clone(), timeout).await {
+            if let Err(e) = self.send_batch(batch.clone(), timeout).await {
                 self.metrics.batch_flushes.with_label_values(&["no"]).inc();
 
                 warn!(
@@ -475,19 +544,56 @@ impl Flusher {
         Err(anyhow!("unable to flush batch: retries exhausted"))
     }
 
-    async fn drain(&self) -> Result<(), Error> {
+    async fn process_batch(&mut self, batch: Batch) {
+        let len = batch.events.len();
+        self.metrics.batch_buffer_size.dec();
+        self.metrics.batch_sizes.observe(len as f64);
+
+        debug!("{self}: received batch ({len} events)");
+
+        let start = Instant::now();
+        match self.encoder.encode_batch(batch.events) {
+            Ok(v) => {
+                self.metrics
+                    .batch_encode_duration
+                    .observe(start.elapsed().as_secs_f64());
+
+                let start = Instant::now();
+                if let Err(e) = self.send_batch_retry(v).await {
+                    warn!("{self}: unable to flush: {e:#}");
+                } else {
+                    self.metrics.sent_events.inc_by(len as u64);
+                };
+                self.metrics
+                    .batch_flush_duration
+                    .observe(start.elapsed().as_secs_f64());
+
+                debug!("{self}: {len} events flushed");
+
+                #[cfg(test)]
+                self.events_flushed.fetch_add(len as u64, Ordering::SeqCst);
+            }
+
+            Err(e) => {
+                self.metrics.encoding_failures.inc();
+                warn!("{self}: unable to encode batch: {e:#}")
+            }
+        };
+    }
+
+    async fn drain(&mut self) -> Result<(), Error> {
         // Close the channel
         self.rx.close();
 
         // Drain the buffer
         while let Ok(v) = self.rx.recv().await {
-            self.flush(v).await.context("unable to flush")?;
+            self.process_batch(v).await;
         }
 
         Ok(())
     }
 
-    async fn run(self) {
+    async fn run(mut self) {
         loop {
             select! {
                 biased;
@@ -504,14 +610,7 @@ impl Flusher {
                 }
 
                 Ok(batch) = self.rx.recv() => {
-                    self.metrics.buffer_batch_size.dec();
-                    debug!("{self}: received batch (len {})", batch.len());
-
-                    if let Err(e) = self.flush(batch).await {
-                        warn!("{self}: unable to flush: {e:#}");
-                    };
-
-                    debug!("{self}: received batch flushed");
+                    self.process_batch(batch).await;
                 }
             }
         }
@@ -547,6 +646,17 @@ mod test {
             self.0.fetch_add(1, Ordering::SeqCst);
             self.1.fetch_add(body.len() as u64, Ordering::SeqCst);
 
+            Ok(resp.into())
+        }
+    }
+
+    #[derive(Debug)]
+    struct TestClientOk;
+
+    #[async_trait]
+    impl http::Client for TestClientOk {
+        async fn execute(&self, _: reqwest::Request) -> Result<reqwest::Response, reqwest::Error> {
+            let resp = ::http::Response::new(vec![]);
             Ok(resp.into())
         }
     }
@@ -589,13 +699,13 @@ mod test {
             log_vector_url: Some(Url::parse("http://127.0.0.1:1234").unwrap()),
             log_vector_user: None,
             log_vector_pass: None,
-            log_vector_batch: 1500,
+            log_vector_batch: 50,
             log_vector_buffer: 5000,
             log_vector_interval: Duration::from_secs(100),
             log_vector_timeout: Duration::from_secs(10),
             log_vector_flushers: 4,
             log_vector_zstd_level: 3,
-            log_vector_batch_count: 32,
+            log_vector_batch_queue: 32,
             log_vector_retry_interval: Duration::from_millis(1),
         }
     }
@@ -618,13 +728,77 @@ mod test {
         vector.stop().await;
 
         // 6k sent, buffer 5k => 1k will be dropped
-        assert_eq!(client.0.load(Ordering::SeqCst), 142);
+        assert_eq!(client.0.load(Ordering::SeqCst), 100); // Batches
         assert_eq!(client.1.load(Ordering::SeqCst), 212780); // Uncompressed size
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_vector_drain_alive() {
+        let mut cli = make_cli();
+        cli.log_vector_buffer = 10000;
+        cli.log_vector_batch = 1000;
+        cli.log_vector_interval = Duration::from_secs(1);
+        cli.log_vector_flushers = 32;
+
+        let client = Arc::new(TestClientOk);
+        let vector = Vector::new(&cli, client, &Registry::new());
+
+        for _ in 0..cli.log_vector_buffer {
+            let event = json!({
+                "env": "prod",
+                "hostname": "da11-bnp00",
+                "msec": 1000,
+                "request_id": "69f9acca-6321-4d03-905b-d2424cba4ba2",
+                "request_method": "PUT",
+                "server_protocol": "HTTP/2.0",
+                "status": 200,
+                "status_upstream": 200,
+                "http_host": "foobar.com",
+                "http_origin": "foobar2.com",
+                "http_referer": "foobar3.com/foo/bar",
+                "http_user_agent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0",
+                "content_type": "text/plain",
+                "geo_country_code": "CH",
+                "request_uri": "https://foobar.com/foo/bar/baz/dead/beef",
+                "query_string": "?foo=1&bar=2&baz=3",
+                "ic_node_id": "upg5h-ggk5u-6qxp7-ksz3r-osynn-z2wou-65klx-cuala-sd6y3-3lorr-dae",
+                "ic_subnet_id": "yqbqe-whgvn-teyic-zvtln-rcolf-yztin-ecal6-smlwy-6imph-6isdn-qqe",
+                "ic_method_name": "http_request",
+                "ic_request_type": "query",
+                "ic_sender": "4fssn-4vi43-2qufr-hlrfz-hfohd-jgrwc-7l7ok-uatwb-ukau7-lwmoz-tae",
+                "ic_canister_id": "canister_id",
+                "ic_canister_id_cbor": "4fssn-4vi43-2qufr-hlrfz",
+                "ic_error_cause": "foobar",
+                "retries": 0,
+                "error_cause": "no_error",
+                "ssl_protocol": "TLSv1_3",
+                "ssl_cipher": "TLS13_AES_256_GCM_SHA384",
+                "request_length": 1000,
+                "body_bytes_sent": 2000,
+                "bytes_sent": 2500,
+                "remote_addr": "5fcfafd1a139fc995662feea66e52ae7",
+                "request_time": 1.5,
+                "request_time_headers": 0,
+                "cache_status": "MISS",
+                "cache_status_nginx": "MISS",
+                "cache_bypass_reason": "unable_to_extract_key",
+                "upstream": "or1-dll01.gntlficpnode.com",
+            });
+
+            vector.send(event);
+        }
+
+        vector.stop().await;
+
+        assert_eq!(
+            vector.events_flushed.load(Ordering::SeqCst),
+            cli.log_vector_buffer as u64,
+        );
     }
 
     /// Make sure we can drain when the endpoint is down
     #[tokio::test]
-    async fn test_vector_drain() {
+    async fn test_vector_drain_dead() {
         let cli = make_cli();
 
         let client = Arc::new(TestClientDead);
