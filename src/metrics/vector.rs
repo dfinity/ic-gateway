@@ -183,7 +183,6 @@ impl EventEncoder {
     }
 
     /// Encodes the event into provided buffer and adds framing
-    #[inline]
     pub fn encode_event(&mut self, event: Value, buf: &mut BytesMut) -> Result<(), Error> {
         // Serialize
         let len = buf.len();

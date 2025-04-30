@@ -14,6 +14,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     let mut rng = thread_rng();
     let rgx_domains =
         rand_regex::Regex::compile(r"[a-z]{1,20}\.[a-z]{1,20}\.[a-z]{1,3}", 20).unwrap();
+
     let domains = (&mut rng)
         .sample_iter(&rgx_domains)
         .take(10000)
