@@ -122,6 +122,9 @@ codegen-units = 1
 lto = "fat"
 panic = "abort"
 
+[profile.bench]
+debug = true
+
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tokio_unstable)'] }
 
