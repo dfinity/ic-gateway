@@ -5,11 +5,11 @@ use std::{
 };
 
 use anyhow::{Context, Error, anyhow};
-use bytes::{Buf, Bytes, BytesMut};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 use http::header::{AUTHORIZATION, CONTENT_ENCODING, CONTENT_TYPE};
 use ic_bn_lib::{
     http::{Client as HttpClient, client::basic_auth, headers::CONTENT_TYPE_OCTET_STREAM},
-    vector::encode_event,
+    vector,
 };
 use prometheus::{
     Histogram, IntCounter, IntCounterVec, IntGauge, Registry, register_histogram_with_registry,
@@ -23,11 +23,7 @@ use tokio::{
     sync::mpsc,
     time::{Interval, interval, sleep},
 };
-use tokio_util::{
-    codec::{Encoder, LengthDelimitedCodec},
-    sync::CancellationToken,
-    task::TaskTracker,
-};
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::{debug, warn};
 use url::Url;
 
@@ -172,44 +168,34 @@ impl Metrics {
     }
 }
 
-/// Encodes Vector events into a native format with length delimiting
-#[derive(Clone)]
-pub struct EventEncoder(LengthDelimitedCodec);
+/// Encodes the event into provided buffer and adds framing
+pub fn encode_event(event: Value, buf: &mut BytesMut) -> Result<(), Error> {
+    // Get a pointer to the length prefix & reserve 4 bytes for it
+    let mut length = buf.split_off(buf.len());
+    length.reserve(4);
 
-impl EventEncoder {
-    #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
-        Self(LengthDelimitedCodec::new())
+    // Get a pointer to the data & encode the event there
+    let mut data = length.split_off(4);
+    vector::encode_event(event, &mut data).context("unable to encode the event")?;
+
+    // Write the length prefix in Big Endian
+    length.put_u32(data.len() as u32);
+
+    // Return the buffer to its original state
+    buf.unsplit(length);
+    buf.unsplit(data);
+
+    Ok(())
+}
+
+/// Encodes the given vec of events into Vector protobuf format
+pub fn encode_batch(batch: Vec<Value>) -> Result<Bytes, Error> {
+    let mut buf = BytesMut::with_capacity(512 * 1024);
+    for v in batch {
+        encode_event(v, &mut buf)?;
     }
 
-    /// Encodes the event into provided buffer and adds framing
-    #[inline]
-    pub fn encode_event(&mut self, event: Value, buf: &mut BytesMut) -> Result<(), Error> {
-        // Serialize
-        let len = buf.len();
-        let mut payload = buf.split_off(len);
-
-        encode_event(event, &mut payload).context("unable to encode the event")?;
-
-        // Add framing
-        let bytes = payload.split().freeze();
-        self.0
-            .encode(bytes, &mut payload)
-            .context("unable to add framing")?;
-
-        buf.unsplit(payload);
-        Ok(())
-    }
-
-    /// Encodes the given vec of events into Vector protobuf format
-    pub fn encode_batch(&mut self, batch: Vec<Value>) -> Result<Bytes, Error> {
-        let mut buf = BytesMut::with_capacity(512 * 1024);
-        for v in batch {
-            self.encode_event(v, &mut buf)?;
-        }
-
-        Ok(buf.freeze())
-    }
+    Ok(buf.freeze())
 }
 
 pub struct Vector {
@@ -276,7 +262,6 @@ impl Vector {
                 token_drain: token_flushers_drain.child_token(),
                 retry_interval: cli.log_vector_retry_interval,
                 timeout: cli.log_vector_timeout,
-                encoder: EventEncoder::new(),
                 metrics: metrics.clone(),
             };
 
@@ -423,7 +408,6 @@ struct Flusher {
     zstd_level: usize,
     token: CancellationToken,
     token_drain: CancellationToken,
-    encoder: EventEncoder,
     metrics: Metrics,
 }
 
@@ -528,7 +512,7 @@ impl Flusher {
         Err(anyhow!("unable to flush batch: retries exhausted"))
     }
 
-    async fn process_batch(&mut self, batch: Batch) {
+    async fn process_batch(&self, batch: Batch) {
         let len = batch.events.len();
         self.metrics.batch_buffer_size.dec();
 
@@ -536,7 +520,7 @@ impl Flusher {
 
         // Encode the batch into wire format
         let start = Instant::now();
-        match self.encoder.encode_batch(batch.events) {
+        match encode_batch(batch.events) {
             Ok(v) => {
                 self.metrics
                     .batch_encode_duration
@@ -564,7 +548,7 @@ impl Flusher {
         };
     }
 
-    async fn drain(&mut self) -> Result<(), Error> {
+    async fn drain(&self) -> Result<(), Error> {
         // Close the channel
         self.rx.close();
 
@@ -576,7 +560,7 @@ impl Flusher {
         Ok(())
     }
 
-    async fn run(mut self) {
+    async fn run(self) {
         loop {
             select! {
                 biased;
@@ -661,18 +645,20 @@ mod test {
 
     #[test]
     fn test_encoder() {
-        let mut encoder = EventEncoder::new();
         let event = json!({
             "foo": "bar",
         });
 
         let mut buf = BytesMut::new();
-        assert!(encoder.encode_event(event, &mut buf).is_ok());
+        assert!(encode_event(event.clone(), &mut buf).is_ok());
+        assert!(encode_event(event, &mut buf).is_ok());
         assert_eq!(
             &buf.freeze().to_vec(),
             &[
                 0, 0, 0, 31, 10, 29, 10, 27, 10, 7, 10, 1, 46, 18, 2, 72, 0, 18, 16, 58, 14, 10,
-                12, 10, 3, 102, 111, 111, 18, 5, 10, 3, 98, 97, 114
+                12, 10, 3, 102, 111, 111, 18, 5, 10, 3, 98, 97, 114, 0, 0, 0, 31, 10, 29, 10, 27,
+                10, 7, 10, 1, 46, 18, 2, 72, 0, 18, 16, 58, 14, 10, 12, 10, 3, 102, 111, 111, 18,
+                5, 10, 3, 98, 97, 114
             ],
         );
     }
