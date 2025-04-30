@@ -3,7 +3,7 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use rand::{Rng, prelude::Distribution, rngs::ThreadRng, seq::SliceRandom, thread_rng};
 use serde_json::{Value, json};
 
-use ic_gateway::metrics::vector::EventEncoder;
+use ic_gateway::metrics::vector::{encode_batch, encode_event};
 use uuid::Uuid;
 
 fn create_event(
@@ -78,28 +78,25 @@ fn create_batch(
 }
 
 fn criterion_benchmark(c: &mut Criterion) {
-    let mut encoder = EventEncoder::new();
-    let mut buf = BytesMut::with_capacity(1024 * 1024 * 10);
-
     let mut rng = thread_rng();
-    // upg5h-ggk5u-6qxp7-ksz3r-osynn-z2wou-65klx-cuala-sd6y3-3lorr-dae
     let rgx_principal =
         rand_regex::Regex::compile(r"[a-z]{5}-[a-z]{5}-[a-z]{5}-[a-z]{5}-[a-z]{5}-[a-z]{5}-[a-z]{5}-[a-z]{5}-[a-z]{5}-[a-z]{5}-[a-z]{3}", 5).unwrap();
     let rgx_canister =
         rand_regex::Regex::compile(r"[a-z]{5}-[a-z]{5}-[a-z]{5}-[a-z]{5}", 5).unwrap();
 
+    let mut buf = BytesMut::with_capacity(1024 * 1024 * 128);
     c.bench_function("vector_encode_event", |b| {
         b.iter_batched(
             || create_event(&mut rng, &rgx_principal, &rgx_canister),
-            |r| encoder.encode_event(r, &mut buf),
+            |r| encode_event(r, &mut buf),
             criterion::BatchSize::SmallInput,
         )
     });
 
-    c.bench_function("vector_encode_batch_1k", |b| {
+    c.bench_function("vector_encode_batch_10k", |b| {
         b.iter_batched(
-            || create_batch(1000, &mut rng, &rgx_principal, &rgx_canister),
-            |r| encoder.encode_batch(r),
+            || create_batch(10000, &mut rng, &rgx_principal, &rgx_canister),
+            |r| encode_batch(r),
             criterion::BatchSize::SmallInput,
         )
     });
