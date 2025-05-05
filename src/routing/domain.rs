@@ -122,7 +122,7 @@ impl CustomDomainStorage {
                 }
 
                 Err(e) => {
-                    warn!("{self:?}: unable to fetch domains from provider '{p:?}': {e}")
+                    warn!("{self:?}: unable to fetch domains from provider '{p:?}': {e:#}")
                 }
             }
         }

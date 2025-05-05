@@ -2514,7 +2514,6 @@ dependencies = [
 [[package]]
 name = "ic-bn-lib"
 version = "0.1.0"
-source = "git+https://github.com/dfinity/ic-bn-lib?rev=05edcd25077b38d026e3de20dcf62e5916a9ccb7#05edcd25077b38d026e3de20dcf62e5916a9ccb7"
 dependencies = [
  "ahash",
  "anyhow",

@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{str::FromStr, sync::Arc};
 
 use anyhow::Error;
 use axum::{
@@ -7,9 +7,10 @@ use axum::{
     response::IntoResponse,
 };
 use candid::Principal;
+use fqdn::FQDN;
+use ic_bn_lib::http::extract_authority;
 use url::form_urlencoded;
 
-use super::extract_authority;
 use crate::routing::{CanisterId, ErrorCause, RequestCtx, RequestType, domain::ResolvesDomain};
 
 #[derive(Clone)]
@@ -23,8 +24,8 @@ pub async fn middleware(
     mut request: Request,
     next: Next,
 ) -> Result<impl IntoResponse, ErrorCause> {
-    // Extract the authority
-    let Some(authority) = extract_authority(&request) else {
+    // Try to extract the authority
+    let Some(authority) = extract_authority(&request).and_then(|x| FQDN::from_str(x).ok()) else {
         return Err(ErrorCause::NoAuthority);
     };
 
