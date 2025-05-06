@@ -3,7 +3,7 @@ use std::sync::{Arc, OnceLock};
 use anyhow::{Context, Error, anyhow};
 use axum::Router;
 use ic_bn_lib::{
-    http,
+    http::{self as bnhttp},
     tasks::TaskManager,
     tls::{prepare_client_config, verify::NoopServerCertVerifier},
 };
@@ -69,10 +69,10 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         .context("unable to create Prometheus registry")?;
 
     // DNS resolver
-    let dns_resolver = http::dns::Resolver::new((&cli.dns).into());
+    let dns_resolver = bnhttp::dns::Resolver::new((&cli.dns).into());
 
     // HTTP client
-    let mut http_client_opts: http::client::Options<_> = (&cli.http_client).into();
+    let mut http_client_opts: bnhttp::client::Options<_> = (&cli.http_client).into();
     http_client_opts.dns_resolver = Some(dns_resolver.clone());
 
     // Prepare TLS client config
@@ -90,14 +90,15 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
 
     http_client_opts.tls_config = Some(tls_config);
 
-    let http_client = Arc::new(http::client::ReqwestClientLeastLoaded::new(
+    let http_client = Arc::new(bnhttp::ReqwestClientLeastLoaded::new(
         http_client_opts.clone(),
         cli.network.network_http_client_count as usize,
         Some(&registry),
     )?);
+
     // Bare reqwest client is for now needed for Discovery Library
     // TODO improve
-    let reqwest_client = http::client::new(http_client_opts)?;
+    let reqwest_client = bnhttp::client::clients_reqwest::new(http_client_opts)?;
 
     // Event sinks
     let clickhouse = if cli.log.clickhouse.log_clickhouse_url.is_some() {
@@ -124,7 +125,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     ctrlc::set_handler(move || handler_token.cancel())?;
 
     // HTTP server metrics
-    let http_metrics = http::server::Metrics::new(&registry);
+    let http_metrics = bnhttp::server::Metrics::new(&registry);
 
     // Custom domains from issuers
     let (issuer_certificate_providers, mut custom_domain_providers) =
@@ -183,13 +184,14 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     };
 
     // Create HTTP server
-    let http_server = Arc::new(http::Server::new(
-        http::server::Addr::Tcp(cli.listen.listen_plain),
-        http_router,
-        (&cli.http_server).into(),
-        http_metrics.clone(),
-        None,
-    ));
+    let http_server = Arc::new(
+        bnhttp::ServerBuilder::new(http_router)
+            .listen_tcp(cli.listen.listen_plain)
+            .with_options((&cli.http_server).into())
+            .with_metrics(http_metrics.clone())
+            .build()
+            .unwrap(),
+    );
     tasks.add("http_server", http_server);
 
     // Create HTTPS server
@@ -206,13 +208,16 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         .await
         .context("unable to setup TLS")?;
 
-        let https_server = Arc::new(http::Server::new(
-            http::server::Addr::Tcp(cli.listen.listen_tls),
-            gateway_router,
-            (&cli.http_server).into(),
-            http_metrics.clone(),
-            Some(rustls_cfg),
-        ));
+        let https_server = Arc::new(
+            bnhttp::ServerBuilder::new(gateway_router)
+                .listen_tcp(cli.listen.listen_tls)
+                .with_options((&cli.http_server).into())
+                .with_metrics(http_metrics.clone())
+                .with_rustls_config(rustls_cfg)
+                .build()
+                .unwrap(),
+        );
+
         tasks.add("https_server", https_server);
     }
 
@@ -220,13 +225,15 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     if let Some(addr) = cli.metrics.metrics_listen {
         let router = metrics::setup(&registry, &mut tasks, route_provider);
 
-        let srv = Arc::new(http::Server::new(
-            http::server::Addr::Tcp(addr),
-            router,
-            (&cli.http_server).into(),
-            http_metrics,
-            None,
-        ));
+        let srv = Arc::new(
+            bnhttp::ServerBuilder::new(router)
+                .listen_tcp(addr)
+                .with_options((&cli.http_server).into())
+                .with_metrics(http_metrics.clone())
+                .build()
+                .unwrap(),
+        );
+
         tasks.add("metrics_server", srv);
     }
 

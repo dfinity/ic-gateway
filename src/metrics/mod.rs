@@ -21,7 +21,7 @@ use ic_bn_lib::{
     http::{
         body::CountingBody,
         cache::CacheStatus,
-        calc_headers_size, http_method, http_version,
+        calc_headers_size, extract_host, http_method, http_version,
         server::{ConnInfo, TlsInfo},
     },
     tasks::TaskManager,
@@ -297,7 +297,7 @@ pub async fn middleware(
         let upstream = req_meta
             .upstream
             .as_ref()
-            .and_then(|s| s.split(':').next())
+            .and_then(|x| extract_host(x))
             .unwrap_or_default();
 
         let labels = &[
