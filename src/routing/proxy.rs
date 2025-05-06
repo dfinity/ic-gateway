@@ -83,7 +83,7 @@ pub struct ApiProxyState {
     request_body_timeout: Duration,
 }
 
-// Proxies /api/v2/... and /api/v3/... endpoints to the IC
+/// Proxies /api/v2/... and /api/v3/... endpoints to the IC
 pub async fn api_proxy(
     State(state): State<Arc<ApiProxyState>>,
     OriginalUri(original_uri): OriginalUri,
