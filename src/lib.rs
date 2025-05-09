@@ -14,7 +14,9 @@ pub mod test;
 mod tls;
 
 pub use crate::cli::Cli;
-pub use metrics::{Clickhouse, Vector};
+pub use metrics::Vector;
+#[cfg(feature = "clickhouse")]
+pub use metrics::clickhouse::Clickhouse;
 pub use routing::domain::ProvidesCustomDomains;
 
 pub use core::main;

@@ -48,11 +48,14 @@ use tracing::warn;
 
 use crate::{
     cli::Cli,
-    metrics::{self, Vector, clickhouse::Clickhouse},
+    metrics::{self, Vector},
     routing::middleware::{
         canister_match, cors, geoip, headers, rate_limiter, request_id, request_type, validate,
     },
 };
+
+#[cfg(feature = "clickhouse")]
+use crate::metrics::clickhouse::Clickhouse;
 
 use self::middleware::denylist;
 
@@ -185,7 +188,7 @@ pub fn setup_router(
     http_client: Arc<dyn Client>,
     route_provider: Arc<dyn RouteProvider>,
     registry: &Registry,
-    clickhouse: Option<Arc<Clickhouse>>,
+    #[cfg(feature = "clickhouse")] clickhouse: Option<Arc<Clickhouse>>,
     vector: Option<Arc<Vector>>,
 ) -> Result<Router, Error> {
     let custom_domain_storage = Arc::new(CustomDomainStorage::new(custom_domain_providers));
@@ -265,6 +268,7 @@ pub fn setup_router(
     let metrics_state = Arc::new(metrics::HttpMetrics::new(
         registry,
         cli.log.log_requests,
+        #[cfg(feature = "clickhouse")]
         clickhouse,
         vector,
     ));

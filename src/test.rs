@@ -120,6 +120,7 @@ pub fn setup_test_router(tasks: &mut TaskManager) -> (Router, Vec<String>) {
         http_client,
         Arc::new(route_provider),
         &Registry::new(),
+        #[cfg(feature = "clickhouse")]
         None,
         None,
     )
