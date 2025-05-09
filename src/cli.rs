@@ -218,9 +218,9 @@ pub struct Cert {
     #[clap(env, long)]
     pub cert_default: Option<FQDN>,
 
-    /// Disable OCSP stapling
+    /// Enable OCSP stapling. Be advised that LetsEncrypt no longer supports it.
     #[clap(env, long)]
-    pub cert_ocsp_stapling_disable: bool,
+    pub cert_ocsp_stapling_enable: bool,
 }
 
 #[derive(Args)]

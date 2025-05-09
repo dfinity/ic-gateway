@@ -155,7 +155,7 @@ pub async fn setup(
 
     // Optionally wrap resolver with OCSP stapler
     let certificate_resolver: Arc<dyn ResolvesServerCertRustls> =
-        if cli.cert.cert_ocsp_stapling_disable {
+        if !cli.cert.cert_ocsp_stapling_enable {
             certificate_resolver
         } else {
             let stapler = Arc::new(Stapler::new_with_registry(certificate_resolver, registry));

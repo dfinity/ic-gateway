@@ -136,3 +136,7 @@ harness = false
 [[bench]]
 name = "vector"
 harness = false
+
+[[bench]]
+name = "http_gateway"
+harness = false
