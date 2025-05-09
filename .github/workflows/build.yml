@@ -10,7 +10,9 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: dind-small
+    container:
+      image: ghcr.io/catthehacker/ubuntu:rust-22.04@sha256:e451382a9fe2bb34d253dfdaea49886be285526be9027e819ddbbdff5fcca799
 
     permissions:
       contents: write

@@ -27,9 +27,6 @@ use ic_http_gateway::{
 
 use crate::Cli;
 
-/// Maximum number of requests that can be executed in parallel with the IC.
-const IC_MAX_CONCURRENT_REQUESTS: usize = 200_000;
-
 /// Metadata about the request to a Boundary Node (ic-boundary)
 #[derive(Clone, Debug, Default)]
 pub struct BNRequestMetadata {
@@ -111,7 +108,8 @@ pub fn setup(
 
     let agent = ic_agent::Agent::builder()
         .with_arc_http_middleware(http_service)
-        .with_max_concurrent_requests(IC_MAX_CONCURRENT_REQUESTS)
+        // Just some very large number
+        .with_max_concurrent_requests(200_000_000)
         .with_max_response_body_size(cli.ic.ic_response_max_size)
         .with_max_tcp_error_retries(cli.ic.ic_request_retries)
         .with_arc_route_provider(route_provider)
@@ -122,14 +120,10 @@ pub fn setup(
     if let Some(v) = &cli.ic.ic_root_key {
         let key = fs::read(v).context("unable to read IC root key")?;
         agent.set_root_key(key);
-    } else if cli.ic.ic_root_key_fetch_unsafe {
-        let agent = agent.clone();
-        let _ = futures::executor::block_on(async move {
-            tokio::runtime::Handle::current()
-                .spawn(async move { agent.fetch_root_key().await })
-                .await
-        })
-        .context("unable to fetch IC root key")?;
+    } else if cli.ic.ic_unsafe_root_key_fetch {
+        tokio::runtime::Handle::current()
+            .block_on(async { agent.fetch_root_key().await })
+            .context("unable to fetch IC root key")?;
     }
 
     let client = HttpGatewayClientBuilder::new()

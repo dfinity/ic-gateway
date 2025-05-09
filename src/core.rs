@@ -101,6 +101,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     let reqwest_client = bnhttp::client::clients_reqwest::new(http_client_opts)?;
 
     // Event sinks
+    #[cfg(feature = "clickhouse")]
     let clickhouse = if cli.log.clickhouse.log_clickhouse_url.is_some() {
         Some(Arc::new(
             metrics::Clickhouse::new(&cli.log.clickhouse).context("unable to init Clickhouse")?,
@@ -172,6 +173,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         http_client.clone(),
         Arc::clone(&route_provider),
         &registry,
+        #[cfg(feature = "clickhouse")]
         clickhouse.clone(),
         vector.clone(),
     )?;
@@ -247,6 +249,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     tasks.stop().await;
 
     // Clickhouse/Vector should stop last to ensure that all requests are finished & flushed
+    #[cfg(feature = "clickhouse")]
     if let Some(v) = clickhouse {
         v.stop().await;
     }

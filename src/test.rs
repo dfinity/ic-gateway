@@ -8,11 +8,11 @@ use clap::Parser;
 use fqdn::fqdn;
 use http::{
     StatusCode,
-    header::{ACCESS_CONTROL_ALLOW_ORIGIN, CONTENT_LENGTH, CONTENT_TYPE},
+    header::{CONTENT_LENGTH, CONTENT_TYPE},
 };
 use ic_agent::agent::route_provider::RoundRobinRouteProvider;
 use ic_bn_lib::tasks::TaskManager;
-use ic_http_certification::{HttpResponse, StatusCode as HttpCertificationStatusCode};
+use ic_http_certification::HttpResponse;
 use ic_transport_types::{QueryResponse, ReplyResponse};
 use prometheus::Registry;
 use rand::{Rng, thread_rng};
@@ -36,12 +36,10 @@ impl ProvidesCustomDomains for FakeDomainProvider {
     }
 }
 
-fn generate_response(response_size: usize) -> reqwest::Response {
+pub fn generate_response(response_size: usize) -> reqwest::Response {
     let response = HttpResponse::builder()
-        .with_status_code(HttpCertificationStatusCode::OK)
-        .with_headers(vec![("Content-Type".into(), "text/plain".into())])
+        .with_headers(vec![(CONTENT_TYPE.to_string(), "text/plain".into())])
         .with_body(b"X".repeat(response_size))
-        .with_upgrade(false)
         .build();
 
     let response_body = Encode!(&response).unwrap();
@@ -57,7 +55,6 @@ fn generate_response(response_size: usize) -> reqwest::Response {
         .status(StatusCode::OK)
         .header(CONTENT_TYPE, "application/cbor")
         .header(CONTENT_LENGTH, content_length)
-        .header(ACCESS_CONTROL_ALLOW_ORIGIN, "*")
         .body(cbor_data)
         .expect("Failed to build response")
         .try_into()
@@ -65,12 +62,12 @@ fn generate_response(response_size: usize) -> reqwest::Response {
 }
 
 #[derive(Debug)]
-struct TestClient;
+struct TestClient(pub usize);
 
 #[async_trait]
 impl ic_bn_lib::http::Client for TestClient {
     async fn execute(&self, _req: reqwest::Request) -> Result<reqwest::Response, reqwest::Error> {
-        Ok(generate_response(512))
+        Ok(generate_response(self.0))
     }
 }
 
@@ -113,7 +110,7 @@ pub fn setup_test_router(tasks: &mut TaskManager) -> (Router, Vec<String>) {
         })
         .collect::<Vec<_>>();
 
-    let http_client = Arc::new(TestClient);
+    let http_client = Arc::new(TestClient(512));
     let route_provider = RoundRobinRouteProvider::new(vec!["http://foo"]).unwrap();
 
     let router = setup_router(
@@ -123,6 +120,7 @@ pub fn setup_test_router(tasks: &mut TaskManager) -> (Router, Vec<String>) {
         http_client,
         Arc::new(route_provider),
         &Registry::new(),
+        #[cfg(feature = "clickhouse")]
         None,
         None,
     )

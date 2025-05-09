@@ -17,3 +17,5 @@ target/
 /target
 
 /cert
+
+profile.json*
