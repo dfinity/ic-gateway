@@ -90,7 +90,7 @@ pub struct Cli {
 #[derive(Args)]
 pub struct Network {
     /// Number of HTTP clients to create to spread the load over
-    #[clap(env, long, default_value = "16", value_parser = clap::value_parser!(u16).range(1..))]
+    #[clap(env, long, default_value = "4", value_parser = clap::value_parser!(u16).range(1..))]
     pub network_http_client_count: u16,
 
     /// Bypass verification of TLS certificates for all outgoing requests.
@@ -149,7 +149,8 @@ pub struct Ic {
     #[clap(env, long)]
     pub ic_use_k_top_api_nodes: Option<usize>,
 
-    /// Path to an IC root key. Must be DER-encoded. If not specified - hardcoded or fetched (see ic_root_key_fetch_unsafe) will be used.
+    /// Path to an IC root key. Must be DER-encoded.
+    /// If not specified - hardcoded or fetched (see `--ic-unsafe-root-key-fetch`) will be used.
     #[clap(env, long)]
     pub ic_root_key: Option<PathBuf>,
 
@@ -157,11 +158,11 @@ pub struct Ic {
     /// Unsafe, should be used only in test environments.
     /// If `ic_root_key` is specified then this option is ignored.
     #[clap(env, long)]
-    pub ic_root_key_fetch_unsafe: bool,
+    pub ic_unsafe_root_key_fetch: bool,
 
     /// Maximum number of request retries for connection failures and HTTP code 429.
     /// First attempt is not counted.
-    #[clap(env, long, default_value = "5")]
+    #[clap(env, long, default_value = "4")]
     pub ic_request_retries: usize,
 
     /// How long to wait between retries.
@@ -195,7 +196,8 @@ pub struct Ic {
 
 #[derive(Args)]
 pub struct Cert {
-    /// Read certificates from given directories, each certificate should be a pair .pem + .key files with the same base name
+    /// Read certificates from given directories
+    /// Each certificate should be a pair .pem + .key files with the same base name.
     #[clap(env, long, value_delimiter = ',')]
     pub cert_provider_dir: Vec<PathBuf>,
 
