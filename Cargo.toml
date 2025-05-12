@@ -113,7 +113,7 @@ ic-certified-assets = { git = "https://github.com/dfinity/sdk.git", rev = "d6571
 ic-http-certification = "3.0.3"
 ic-transport-types = "0.40.0"
 mockall = "0.13.0"
-nix = "0.29.0"
+nix = { version = "0.30.0", features = ["signal"] }
 pocket-ic = "7.0.0"
 rand_regex = "0.17.0"
 serde_cbor = "0.11.2"
