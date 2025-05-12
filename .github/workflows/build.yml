@@ -10,10 +10,7 @@ env:
 
 jobs:
   build:
-    runs-on: dind-small
-    container:
-      image: ghcr.io/catthehacker/ubuntu:rust-24.04@sha256:6937166dd5be0b42eef5a43f71da14e22d766b42c9238b59953c27f34c40b338
-      options: --privileged
+    runs-on: ubuntu-24.04
 
     permissions:
       contents: write
@@ -46,7 +43,7 @@ jobs:
         run: shasum -c ic-gateway.shasum
 
       - name: Strip
-        run: sudo /usr/bin/strip target/x86_64-unknown-linux-musl/release/ic-gateway
+        run: /usr/bin/strip target/x86_64-unknown-linux-musl/release/ic-gateway
 
       - name: Create package root
         run: |
