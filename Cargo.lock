@@ -2488,7 +2488,7 @@ dependencies = [
 [[package]]
 name = "ic-bn-lib"
 version = "0.1.0"
-source = "git+https://github.com/dfinity/ic-bn-lib?rev=777a5fa779eb0f1ade616127dd97fc0846fb49ee#777a5fa779eb0f1ade616127dd97fc0846fb49ee"
+source = "git+https://github.com/dfinity/ic-bn-lib?rev=5d2046fb74f9c981ab7afa1c9e95d8dd96dac2e1#5d2046fb74f9c981ab7afa1c9e95d8dd96dac2e1"
 dependencies = [
  "ahash",
  "anyhow",
@@ -2721,6 +2721,7 @@ dependencies = [
  "ic-http-certification 3.0.3",
  "ic-http-gateway",
  "ic-transport-types 0.40.0",
+ "instant-acme",
  "itertools 0.14.0",
  "lazy_static",
  "maxminddb",
@@ -4705,7 +4706,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

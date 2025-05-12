@@ -202,7 +202,9 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         let rustls_cfg = tls::setup(
             cli,
             &mut tasks,
+            #[cfg(feature = "acme")]
             domains.clone(),
+            #[cfg(feature = "acme")]
             Arc::new(dns_resolver),
             issuer_certificate_providers,
             &registry,

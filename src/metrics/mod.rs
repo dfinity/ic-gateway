@@ -47,7 +47,7 @@ use crate::{
 };
 
 #[cfg(feature = "clickhouse")]
-use clickhouse::{Clickhouse, Row};
+pub use clickhouse::{Clickhouse, Row};
 
 pub use vector::Vector;
 

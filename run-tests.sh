@@ -62,5 +62,5 @@ log "Asset canister WASM downloaded"
 export ASSET_CANISTER_DIR="${CANISTER_DIR}"
 
 log "Running all tests"
-cargo test --profile dev --workspace -- --nocapture || { log "Tests failed"; exit 1; }
+cargo test --all-features --profile dev --workspace -- --nocapture || { log "Tests failed"; exit 1; }
 log "All tests completed successfully"

@@ -9,13 +9,14 @@ use clap::{Args, Parser};
 use fqdn::FQDN;
 use hickory_resolver::config::CLOUDFLARE_IPS;
 use humantime::parse_duration;
+#[cfg(feature = "acme")]
+use ic_bn_lib::tls::acme;
 use ic_bn_lib::{
     http::{
         self,
         shed::cli::{ShedSharded, ShedSystem},
     },
     parse_size, parse_size_decimal, parse_size_decimal_usize, parse_size_usize,
-    tls::acme,
 };
 use reqwest::Url;
 
@@ -62,6 +63,7 @@ pub struct Cli {
     #[command(flatten, next_help_heading = "Load")]
     pub load: Load,
 
+    #[cfg(feature = "acme")]
     #[command(flatten, next_help_heading = "ACME")]
     pub acme: Acme,
 
@@ -300,6 +302,7 @@ pub struct Policy {
     pub policy_denylist_poll_interval: Duration,
 }
 
+#[cfg(feature = "acme")]
 #[derive(Args)]
 pub struct Acme {
     /// If specified we'll try to obtain the certificate that is valid for all served domains using given ACME challenge.
@@ -389,6 +392,7 @@ pub struct Log {
     #[clap(env, long)]
     pub log_requests: bool,
 
+    #[cfg(feature = "clickhouse")]
     #[command(flatten, next_help_heading = "Clickhouse")]
     pub clickhouse: Clickhouse,
 
@@ -396,6 +400,7 @@ pub struct Log {
     pub vector: Vector,
 }
 
+#[cfg(feature = "clickhouse")]
 #[derive(Args, Clone)]
 pub struct Clickhouse {
     /// Setting this enables logging of HTTP requests to Clickhouse DB
