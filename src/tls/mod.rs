@@ -24,9 +24,9 @@ use {
             self, AcmeOptions, Challenge,
             acme::Acme,
             dns::{AcmeDns, DnsBackend, DnsManager, TokenManagerDns},
+            instant_acme::ChallengeType,
         },
     },
-    instant_acme::ChallengeType,
     std::{fs, time::Duration},
 };
 
