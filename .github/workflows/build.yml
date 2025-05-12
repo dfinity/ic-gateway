@@ -12,7 +12,7 @@ jobs:
   build:
     runs-on: dind-small
     container:
-      image: ghcr.io/catthehacker/ubuntu:rust-22.04@sha256:e451382a9fe2bb34d253dfdaea49886be285526be9027e819ddbbdff5fcca799
+      image: ghcr.io/catthehacker/ubuntu:rust-24.04@sha256:6937166dd5be0b42eef5a43f71da14e22d766b42c9238b59953c27f34c40b338
 
     permissions:
       contents: write
@@ -29,8 +29,11 @@ jobs:
       - name: Install deps
         run: sudo apt-get update && sudo apt-get -y install protobuf-compiler podman
 
+      - name: Allow user namespace creation
+        run: sudo sysctl kernel.apparmor_restrict_unprivileged_userns=0
+
       - name: Build
-        run: repro-env build -- cargo build --release --target x86_64-unknown-linux-musl
+        run: sudo repro-env build -- cargo build --release --target x86_64-unknown-linux-musl
 
       - name: Generate SHA checksum
         run: shasum target/x86_64-unknown-linux-musl/release/ic-gateway > ic-gateway.shasum
@@ -39,13 +42,13 @@ jobs:
         run: rm -rf target
 
       - name: Build again
-        run: repro-env build -- cargo build --release --target x86_64-unknown-linux-musl
+        run: sudo repro-env build -- cargo build --release --target x86_64-unknown-linux-musl
 
       - name: Check SHA checksum
         run: shasum -c ic-gateway.shasum
 
       - name: Strip
-        run: /usr/bin/strip target/x86_64-unknown-linux-musl/release/ic-gateway
+        run: sudo /usr/bin/strip target/x86_64-unknown-linux-musl/release/ic-gateway
 
       - name: Create package root
         run: |
