@@ -1,3 +1,4 @@
+#[cfg(feature = "clickhouse")]
 pub mod clickhouse;
 pub mod runner;
 pub mod vector;
@@ -31,6 +32,7 @@ use prometheus::{
     register_int_counter_vec_with_registry,
 };
 use serde_json::json;
+use time::OffsetDateTime;
 use tower_http::compression::CompressionLayer;
 use tracing::info;
 
@@ -44,10 +46,10 @@ use crate::{
     },
 };
 
-pub use {
-    clickhouse::{Clickhouse, Row},
-    vector::Vector,
-};
+#[cfg(feature = "clickhouse")]
+pub use clickhouse::{Clickhouse, Row};
+
+pub use vector::Vector;
 
 const KB: f64 = 1024.0;
 
@@ -90,6 +92,7 @@ pub struct HttpMetrics {
     pub request_size: HistogramVec,
     pub response_size: HistogramVec,
 
+    #[cfg(feature = "clickhouse")]
     pub clickhouse: Option<Arc<Clickhouse>>,
     pub vector: Option<Arc<Vector>>,
 }
@@ -98,7 +101,7 @@ impl HttpMetrics {
     pub fn new(
         registry: &Registry,
         log_requests: bool,
-        clickhouse: Option<Arc<Clickhouse>>,
+        #[cfg(feature = "clickhouse")] clickhouse: Option<Arc<Clickhouse>>,
         vector: Option<Arc<Vector>>,
     ) -> Self {
         const LABELS_HTTP: &[&str] = &[
@@ -115,6 +118,7 @@ impl HttpMetrics {
 
         Self {
             log_requests,
+            #[cfg(feature = "clickhouse")]
             clickhouse,
             vector,
 
@@ -214,7 +218,7 @@ pub async fn middleware(
 
     // Execute the request
     let start = Instant::now();
-    let timestamp = time::OffsetDateTime::now_utc();
+    let timestamp = OffsetDateTime::now_utc();
     let mut response = next.run(request).await;
     let duration = start.elapsed();
 
@@ -385,6 +389,7 @@ pub async fn middleware(
             );
         }
 
+        #[cfg(feature = "clickhouse")]
         if let Some(v) = &state.clickhouse {
             let resp_meta = resp_meta.clone();
 

@@ -1,28 +1,34 @@
 pub mod cert;
 pub mod resolver;
 
-use std::{fs, sync::Arc, time::Duration};
+use std::sync::Arc;
 
-use anyhow::{Context, Error, anyhow, bail};
+use anyhow::{Error, bail};
 use async_trait::async_trait;
-use fqdn::FQDN;
 use ic_bn_lib::{
-    http::{ALPN_ACME, dns::Resolves},
     tasks::{Run, TaskManager},
-    tls::{
-        self,
-        acme::{
-            self, Acme, AcmeOptions, Challenge,
-            dns::{AcmeDns, DnsBackend, DnsManager, TokenManagerDns},
-            instant_acme::ChallengeType,
-        },
-        prepare_server_config,
-    },
+    tls::{self, prepare_server_config},
 };
 use ocsp_stapler::Stapler;
 use prometheus::Registry;
 use rustls::server::{ResolvesServerCert as ResolvesServerCertRustls, ServerConfig};
 use tokio_util::sync::CancellationToken;
+
+#[cfg(feature = "acme")]
+use {
+    anyhow::{Context, anyhow},
+    fqdn::FQDN,
+    ic_bn_lib::{
+        http::{ALPN_ACME, dns::Resolves},
+        tls::acme::{
+            self, AcmeOptions, Challenge,
+            acme::Acme,
+            dns::{AcmeDns, DnsBackend, DnsManager, TokenManagerDns},
+            instant_acme::ChallengeType,
+        },
+    },
+    std::{fs, time::Duration},
+};
 
 use crate::{
     cli::Cli,
@@ -46,6 +52,7 @@ impl Run for OcspStaplerWrapper {
     }
 }
 
+#[cfg(feature = "acme")]
 async fn setup_acme(
     cli: &Cli,
     tasks: &mut TaskManager,
@@ -106,8 +113,8 @@ async fn setup_acme(
 pub async fn setup(
     cli: &Cli,
     tasks: &mut TaskManager,
-    domains: Vec<FQDN>,
-    dns_resolver: Arc<dyn Resolves>,
+    #[cfg(feature = "acme")] domains: Vec<FQDN>,
+    #[cfg(feature = "acme")] dns_resolver: Arc<dyn Resolves>,
     custom_domain_providers: Vec<Arc<dyn ProvidesCertificates>>,
     registry: &Registry,
 ) -> Result<ServerConfig, Error> {
@@ -128,14 +135,24 @@ pub async fn setup(
     cert_providers.extend(custom_domain_providers);
 
     // Prepare ACME if configured
+    #[cfg(feature = "acme")]
     let acme_resolver = if let Some(v) = &cli.acme.acme_challenge {
         Some(setup_acme(cli, tasks, domains, v, dns_resolver).await?)
     } else {
         None
     };
 
-    if acme_resolver.is_none() && cert_providers.is_empty() {
-        bail!("No ACME or certificate providers specified - HTTPS cannot be used");
+    #[cfg(feature = "acme")]
+    {
+        if acme_resolver.is_none() && cert_providers.is_empty() {
+            bail!("No ACME or certificate providers specified - HTTPS cannot be used");
+        }
+    }
+    #[cfg(not(feature = "acme"))]
+    {
+        if cert_providers.is_empty() {
+            bail!("No certificate providers specified - HTTPS cannot be used");
+        }
     }
 
     // Create certificate aggregator that combines all providers
@@ -148,14 +165,17 @@ pub async fn setup(
 
     // Set up certificate resolver
     let certificate_resolver = Arc::new(AggregatingResolver::new(
+        #[cfg(feature = "acme")]
         acme_resolver,
+        #[cfg(not(feature = "acme"))]
+        None,
         vec![cert_storage],
         resolver::Metrics::new(registry),
     ));
 
     // Optionally wrap resolver with OCSP stapler
     let certificate_resolver: Arc<dyn ResolvesServerCertRustls> =
-        if cli.cert.cert_ocsp_stapling_disable {
+        if !cli.cert.cert_ocsp_stapling_enable {
             certificate_resolver
         } else {
             let stapler = Arc::new(Stapler::new_with_registry(certificate_resolver, registry));
@@ -168,11 +188,15 @@ pub async fn setup(
 
     let mut tls_opts: tls::Options = (&cli.http_server).into();
     tls_opts.tls_versions = vec![&rustls::version::TLS13, &rustls::version::TLS12];
-    tls_opts.additional_alpn = if cli.acme.acme_challenge == Some(Challenge::Alpn) {
-        vec![ALPN_ACME.to_vec()]
-    } else {
-        vec![vec![]]
-    };
+
+    #[cfg(feature = "acme")]
+    {
+        tls_opts.additional_alpn = if cli.acme.acme_challenge == Some(Challenge::Alpn) {
+            vec![ALPN_ACME.to_vec()]
+        } else {
+            vec![vec![]]
+        };
+    }
 
     // Generate Rustls config
     let config = prepare_server_config(tls_opts, certificate_resolver, registry);
