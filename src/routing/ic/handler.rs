@@ -63,7 +63,8 @@ pub async fn handler(
     // Inject Host header into inner HTTP request.
     // HTTP2 lacks it, but canisters might expect it to be present.
     if parts.headers.get(HOST).is_none() {
-        if let Ok(v) = HeaderValue::from_bytes(ctx.authority.as_bytes()) {
+        let host = ctx.authority.to_string();
+        if let Ok(v) = HeaderValue::from_str(&host) {
             parts.headers.insert(HOST, v);
         }
     }
