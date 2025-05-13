@@ -26,7 +26,7 @@ use ic_agent::agent::route_provider::RouteProvider;
 use ic_bn_lib::{
     http::{
         Client,
-        cache::{Cache, KeyExtractorUriRange, Opts},
+        cache::{CacheBuilder, KeyExtractorUriRange},
         shed::{
             ShedResponse,
             sharded::{ShardedLittleLoadShedderLayer, ShardedOptions, TypeExtractor},
@@ -392,17 +392,17 @@ pub fn setup_router(
         cli.cache
             .cache_size
             .map(|v| -> Result<_, Error> {
-                let opts = Opts {
-                    cache_size: v,
-                    max_item_size: cli.cache.cache_max_item_size,
-                    ttl: cli.cache.cache_ttl,
-                    lock_timeout: cli.cache.cache_lock_timeout,
-                    body_timeout: cli.cache.cache_body_timeout,
-                    xfetch_beta: cli.cache.cache_xfetch_beta,
-                    methods: vec![Method::GET],
-                };
+                let builder = CacheBuilder::new(KeyExtractorUriRange)
+                    .cache_size(v)
+                    .max_item_size(cli.cache.cache_max_item_size)
+                    .obey_cache_control(!cli.cache.cache_disregard_cache_control)
+                    .ttl(cli.cache.cache_ttl)
+                    .max_ttl(cli.cache.cache_max_ttl)
+                    .lock_timeout(cli.cache.cache_lock_timeout)
+                    .body_timeout(cli.cache.cache_body_timeout)
+                    .xfetch_beta(cli.cache.cache_xfetch_beta);
 
-                let cache = Arc::new(Cache::new(opts, KeyExtractorUriRange, registry)?);
+                let cache = Arc::new(builder.build().context("unable to build cache")?);
                 tasks.add_interval("cache", cache.clone(), Duration::from_secs(5));
                 Ok(from_fn_with_state(cache, cache::middleware))
             })

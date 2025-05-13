@@ -88,9 +88,9 @@ fn canister_id_from_query_params(request: &Request) -> Result<Option<Principal>,
 #[cfg(test)]
 mod test {
     use axum::body::Body;
+    use ic_bn_lib::principal;
 
     use super::*;
-    use crate::principal;
 
     #[test]
     fn test_canister_id_from_query_params() {

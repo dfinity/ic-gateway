@@ -148,11 +148,11 @@ mod test {
     use ::http::Response as HttpResponse;
     use async_trait::async_trait;
     use fqdn::fqdn;
+    use ic_bn_lib::principal;
     use itertools::Itertools;
     use serde_json::json;
 
     use super::*;
-    use crate::principal;
 
     #[derive(Debug)]
     struct MockClient;

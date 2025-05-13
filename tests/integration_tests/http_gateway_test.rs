@@ -5,7 +5,8 @@ use crate::helpers::{
 };
 use anyhow::{Context, anyhow, bail};
 use candid::Principal;
-use http::{HeaderValue, Method, StatusCode};
+use http::{Method, StatusCode};
+use ic_bn_lib::hval;
 use reqwest::{Client, Request};
 use tracing::info;
 use url::Url;
@@ -288,7 +289,7 @@ pub async fn large_assets_http_gateway_test(env: &TestEnv) -> anyhow::Result<()>
         };
         request
             .headers_mut()
-            .insert("accept-encoding", HeaderValue::from_static("gzip"));
+            .insert("accept-encoding", hval!("gzip"));
 
         retry_async(
             format!("requesting '{path}'"),

@@ -6,7 +6,7 @@ use anyhow::{Context, anyhow};
 use candid::{Encode, Principal};
 use http::{Method, StatusCode};
 use ic_agent::Agent;
-use ic_gateway::principal;
+use ic_bn_lib::principal;
 use reqwest::{Client, Request};
 use tracing::info;
 use url::Url;
@@ -15,7 +15,6 @@ use url::Url;
 // - install a counter canister
 // - create an agent to interact with the canister
 // - make API calls (status, query, call, read_state) to the canister
-
 pub async fn denylist_test(env: &TestEnv) -> anyhow::Result<()> {
     info!("install denylisted asset canister ...");
     let denylisted_canister_id = install_canister(

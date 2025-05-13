@@ -11,9 +11,7 @@ env:
 
 jobs:
   test:
-    runs-on: dind-small
-    container:
-      image: ghcr.io/catthehacker/ubuntu:rust-22.04@sha256:e451382a9fe2bb34d253dfdaea49886be285526be9027e819ddbbdff5fcca799
+    runs-on: namespace-profile-ubuntu-24.04-amd64-8x16
 
     steps:
       - uses: actions/checkout@v4

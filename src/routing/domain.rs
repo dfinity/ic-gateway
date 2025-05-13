@@ -13,11 +13,6 @@ use ic_bn_lib::tasks::Run;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 
-#[macro_export]
-macro_rules! principal {
-    ($id:expr) => {{ candid::Principal::from_text($id).unwrap() }};
-}
-
 /// Domain entity with certain metadata
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Domain {
@@ -320,6 +315,7 @@ impl ResolvesDomain for DomainResolver {
 #[cfg(test)]
 mod test {
     use fqdn::fqdn;
+    use ic_bn_lib::principal;
 
     use super::*;
 

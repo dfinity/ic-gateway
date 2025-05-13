@@ -10,7 +10,7 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: namespace-profile-ubuntu-24.04-amd64-8x16
 
     permissions:
       contents: write

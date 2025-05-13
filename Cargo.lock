@@ -2488,7 +2488,7 @@ dependencies = [
 [[package]]
 name = "ic-bn-lib"
 version = "0.1.0"
-source = "git+https://github.com/dfinity/ic-bn-lib?rev=d973c98ba30882592b4e0798e6dab7b3c651c10b#d973c98ba30882592b4e0798e6dab7b3c651c10b"
+source = "git+https://github.com/dfinity/ic-bn-lib?rev=be42842697dd0b0a50557e508b308a25403e6851#be42842697dd0b0a50557e508b308a25403e6851"
 dependencies = [
  "ahash",
  "anyhow",
@@ -2498,6 +2498,7 @@ dependencies = [
  "backoff",
  "base64 0.22.1",
  "bytes",
+ "candid",
  "chacha20poly1305",
  "clap",
  "cloudflare",
