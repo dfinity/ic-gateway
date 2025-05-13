@@ -22,4 +22,5 @@ pub use routing::domain::ProvidesCustomDomains;
 pub use core::main;
 pub use routing::setup_router;
 
+pub use ic_agent;
 pub use ic_bn_lib;
