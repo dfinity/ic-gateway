@@ -19,15 +19,18 @@ use http::{
     },
 };
 use http_body::Body as _;
-use ic_bn_lib::http::headers::{X_IC_CANISTER_ID, X_REQUEST_ID, X_REQUESTED_WITH};
+use ic_bn_lib::{
+    hname,
+    http::headers::{X_IC_CANISTER_ID, X_REQUEST_ID, X_REQUESTED_WITH},
+};
 use itertools::Itertools;
 use moka::sync::{Cache, CacheBuilder};
 use tower_http::cors::{Any, CorsLayer, preflight_request_headers};
 
 use crate::routing::CanisterId;
 
-const X_OC_JWT: HeaderName = HeaderName::from_static("x-oc-jwt");
-const X_OC_API_KEY: HeaderName = HeaderName::from_static("x-oc-api-key");
+const X_OC_JWT: HeaderName = hname!("x-oc-jwt");
+const X_OC_API_KEY: HeaderName = hname!("x-oc-api-key");
 
 // Possible CORS headers in OPTIONS response
 const OPTIONS_CORS_HEADERS: [HeaderName; 5] = [
@@ -249,12 +252,11 @@ pub fn layer(max_age: Duration, allow_origin: Vec<HeaderValue>) -> CorsLayer {
 
 #[cfg(test)]
 mod test {
-    use crate::principal;
-
     use super::*;
     use axum::{Router, body::Body, middleware::from_fn_with_state};
     use bytes::Bytes;
     use http::StatusCode;
+    use ic_bn_lib::{hval, principal};
     use tower::ServiceExt;
 
     #[tokio::test]
@@ -263,10 +265,7 @@ mod test {
             CorsStateHttp::new(
                 10,
                 Duration::from_secs(600),
-                vec![
-                    HeaderValue::from_static("foo"),
-                    HeaderValue::from_static("bar"),
-                ],
+                vec![hval!("foo"), hval!("bar")],
                 Duration::from_secs(7200),
             )
             .unwrap(),
@@ -296,29 +295,20 @@ mod test {
                 let mut resp = Response::new(Body::empty());
 
                 if req.method() == Method::OPTIONS {
-                    resp.headers_mut().insert(
-                        ACCESS_CONTROL_ALLOW_HEADERS,
-                        HeaderValue::from_static("foo"),
-                    );
-                    resp.headers_mut().insert(
-                        ACCESS_CONTROL_ALLOW_METHODS,
-                        HeaderValue::from_static("baz"),
-                    );
                     resp.headers_mut()
-                        .insert(ACCESS_CONTROL_MAX_AGE, HeaderValue::from_static("1234"));
+                        .insert(ACCESS_CONTROL_ALLOW_HEADERS, hval!("foo"));
+                    resp.headers_mut()
+                        .insert(ACCESS_CONTROL_ALLOW_METHODS, hval!("baz"));
+                    resp.headers_mut()
+                        .insert(ACCESS_CONTROL_MAX_AGE, hval!("1234"));
                 } else {
-                    resp.headers_mut().insert(
-                        ACCESS_CONTROL_EXPOSE_HEADERS,
-                        HeaderValue::from_static("bar"),
-                    );
+                    resp.headers_mut()
+                        .insert(ACCESS_CONTROL_EXPOSE_HEADERS, hval!("bar"));
                 }
 
-                resp.headers_mut().insert(
-                    ACCESS_CONTROL_ALLOW_ORIGIN,
-                    HeaderValue::from_static("foobar.com"),
-                );
                 resp.headers_mut()
-                    .insert(VARY, HeaderValue::from_static("vary"));
+                    .insert(ACCESS_CONTROL_ALLOW_ORIGIN, hval!("foobar.com"));
+                resp.headers_mut().insert(VARY, hval!("vary"));
 
                 resp
             })
@@ -515,10 +505,8 @@ mod test {
     fn test_is_valid_preflight_response() {
         // Check ok
         let mut r = Response::new(Body::empty());
-        r.headers_mut().insert(
-            ACCESS_CONTROL_ALLOW_HEADERS,
-            HeaderValue::from_static("foo"),
-        );
+        r.headers_mut()
+            .insert(ACCESS_CONTROL_ALLOW_HEADERS, hval!("foo"));
         assert!(
             is_valid_preflight_response(&r),
             "Expected valid preflight response, but it was invalid"
@@ -535,10 +523,8 @@ mod test {
         let mut r = Response::new(Body::new(http_body_util::Full::new(Bytes::from_static(
             "foo".as_bytes(),
         ))));
-        r.headers_mut().insert(
-            ACCESS_CONTROL_ALLOW_HEADERS,
-            HeaderValue::from_static("foo"),
-        );
+        r.headers_mut()
+            .insert(ACCESS_CONTROL_ALLOW_HEADERS, hval!("foo"));
         assert!(
             !is_valid_preflight_response(&r),
             "Expected invalid preflight response due to non-empty body, but it was valid"

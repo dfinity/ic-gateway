@@ -532,9 +532,21 @@ pub struct CacheConfig {
     #[clap(env, long, default_value = "10MB", value_parser = parse_size_usize)]
     pub cache_max_item_size: usize,
 
-    /// Time-to-live for the cache entries
+    /// Whether to disregard `Cache-Control` response headers.
+    /// The only supported values are `no-cache`/`no-store` to bypass caching
+    /// and `max-age=N` to override default TTL.
+    #[clap(env, long)]
+    pub cache_disregard_cache_control: bool,
+
+    /// Default time-to-live for the cache entries
     #[clap(env, long, default_value = "10s", value_parser = parse_duration)]
     pub cache_ttl: Duration,
+
+    /// Maximum time-to-live for the cache entries.
+    /// If `Cache-Control` header sets `max-age` higher than this - it will be capped.
+    /// Doesn't do anything when `--cache-disregard-cache-control` is enabled.
+    #[clap(env, long, default_value = "1d", value_parser = parse_duration)]
+    pub cache_max_ttl: Duration,
 
     /// For how long to wait for the request to populate the cache if there are concurrent requests for the same resource.
     /// After the timeout the request will continue as-is.

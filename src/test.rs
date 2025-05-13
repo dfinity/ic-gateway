@@ -11,7 +11,7 @@ use http::{
     header::{CONTENT_LENGTH, CONTENT_TYPE},
 };
 use ic_agent::agent::route_provider::RoundRobinRouteProvider;
-use ic_bn_lib::tasks::TaskManager;
+use ic_bn_lib::{principal, tasks::TaskManager};
 use ic_http_certification::HttpResponse;
 use ic_transport_types::{QueryResponse, ReplyResponse};
 use prometheus::Registry;
@@ -19,7 +19,7 @@ use rand::{Rng, thread_rng};
 use serde_cbor::to_vec;
 
 use crate::{
-    Cli, principal,
+    Cli,
     routing::{
         domain::{CustomDomain, ProvidesCustomDomains},
         setup_router,

@@ -6,7 +6,7 @@ use crate::helpers::{
 use anyhow::{Context, anyhow};
 use candid::Principal;
 use http::{Method, StatusCode};
-use ic_gateway::principal;
+use ic_bn_lib::principal;
 use reqwest::{Client, Request};
 use tracing::info;
 use url::Url;

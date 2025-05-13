@@ -9,7 +9,7 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use http::header::{AUTHORIZATION, CONTENT_ENCODING, CONTENT_TYPE};
 use ic_bn_lib::{
     http::{Client as HttpClient, client::basic_auth, headers::CONTENT_TYPE_OCTET_STREAM},
-    vector,
+    hval, vector,
 };
 use prometheus::{
     Histogram, IntCounter, IntCounterVec, IntGauge, Registry, register_histogram_with_registry,
@@ -32,7 +32,7 @@ use crate::cli;
 pub const KB: f64 = 1024.0;
 pub const MB: f64 = 1024.0 * KB;
 
-const CONTENT_ENCODING_ZSTD: HeaderValue = HeaderValue::from_static("zstd");
+const CONTENT_ENCODING_ZSTD: HeaderValue = hval!("zstd");
 
 #[derive(Clone)]
 struct Metrics {

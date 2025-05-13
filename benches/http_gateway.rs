@@ -17,7 +17,10 @@ use ic_agent::{
     AgentError,
     agent::{HttpService, route_provider::RoundRobinRouteProvider},
 };
-use ic_bn_lib::http::{ConnInfo, body::buffer_body};
+use ic_bn_lib::{
+    http::{ConnInfo, body::buffer_body},
+    hval, principal,
+};
 use ic_http_certification::HttpRequest;
 use ic_http_gateway::{CanisterRequest, HttpGatewayClientBuilder};
 use reqwest::{Request, Response};
@@ -103,27 +106,20 @@ fn add_headers<T>(req: &mut http::Request<T>) {
     req.extensions_mut()
         .insert(CanisterId(principal!("qoctq-giaaa-aaaaa-aaaea-cai")));
 
-    req.headers_mut().insert(USER_AGENT, HeaderValue::from_static("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"));
-    req.headers_mut()
-        .insert(ACCEPT, HeaderValue::from_static("*/*"));
+    req.headers_mut().insert(USER_AGENT, hval!("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"));
+    req.headers_mut().insert(ACCEPT, hval!("*/*"));
     req.headers_mut().insert(
         ACCEPT_LANGUAGE,
-        HeaderValue::from_static("en-US,en-GB;q=0.9,en;q=0.8,ru;q=0.7,de;q=0.6"),
-    );
-    req.headers_mut().insert(
-        ACCEPT_ENCODING,
-        HeaderValue::from_static("zip, deflate, br, zstd"),
-    );
-    req.headers_mut().insert(
-        ACCESS_CONTROL_REQUEST_HEADERS,
-        HeaderValue::from_static("content-type"),
-    );
-    req.headers_mut().insert(
-        ACCESS_CONTROL_REQUEST_METHOD,
-        HeaderValue::from_static("POST"),
+        hval!("en-US,en-GB;q=0.9,en;q=0.8,ru;q=0.7,de;q=0.6"),
     );
     req.headers_mut()
-        .insert(ORIGIN, HeaderValue::from_static("https://nns.ic0.app"));
+        .insert(ACCEPT_ENCODING, hval!("zip, deflate, br, zstd"));
+    req.headers_mut()
+        .insert(ACCESS_CONTROL_REQUEST_HEADERS, hval!("content-type"));
+    req.headers_mut()
+        .insert(ACCESS_CONTROL_REQUEST_METHOD, hval!("POST"));
+    req.headers_mut()
+        .insert(ORIGIN, hval!("https://nns.ic0.app"));
 }
 
 fn create_request() -> axum::extract::Request {
