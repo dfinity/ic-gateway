@@ -109,6 +109,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     } else {
         None
     };
+    #[cfg(feature = "vector")]
     let vector = cli.log.vector.log_vector_url.as_ref().map(|_| {
         Arc::new(metrics::Vector::new(
             &cli.log.vector,
@@ -175,6 +176,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         &registry,
         #[cfg(feature = "clickhouse")]
         clickhouse.clone(),
+        #[cfg(feature = "vector")]
         vector.clone(),
     )?;
 
@@ -255,6 +257,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     if let Some(v) = clickhouse {
         v.stop().await;
     }
+    #[cfg(feature = "vector")]
     if let Some(v) = vector {
         v.stop().await;
     }
