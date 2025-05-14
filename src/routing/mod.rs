@@ -4,7 +4,7 @@ pub mod error_cause;
 pub mod ic;
 pub mod middleware;
 pub mod proxy;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "sev_snp"))]
 pub mod sev_snp;
 
 use std::{ops::Deref, str::FromStr, sync::Arc, time::Duration};
@@ -545,7 +545,7 @@ pub fn setup_router(
         )
         .layer(common_layers);
 
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", feature = "sev_snp"))]
     if cli.misc.enable_sev_snp {
         let router_sev_snp = Router::new().route(
             "/sev-snp/report",
