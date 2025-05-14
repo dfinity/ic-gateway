@@ -9,9 +9,16 @@ on:
 env:
   CARGO_TERM_COLOR: never
 
+defaults:
+  run:
+    shell: bash
+    working-directory: /namespace/scratch
+
 jobs:
   test:
-    runs-on: namespace-profile-ubuntu-24-04
+    runs-on: 
+      - namespace-profile-ubuntu-24-04-big
+      - namespace-experiments:container.mount-scratch
 
     steps:
       - uses: actions/checkout@v4
@@ -19,8 +26,17 @@ jobs:
       - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6
 
       - name: Install protoc
-        run: sudo apt-get update && sudo apt-get -y install protobuf-compiler
+        run: sudo apt-get update && sudo apt-get -y install protobuf-compiler podman
+
+      - name: Install repro-env
+        run: |
+          wget 'https://github.com/kpcyrd/repro-env/releases/download/v0.4.3/repro-env'
+          echo '2a00b21ac5e990e0c6a0ccbf3b91e34a073660d1f4553b5f3cda2b09cc4d4d8a  repro-env' | sha256sum -c -
+          sudo install -m755 repro-env -t /usr/bin
 
       - name: Run all unit and integration tests
         run: |
           ./run-tests.sh
+
+      - name: Build ic-gateway
+        run: repro-env build -- cargo build --release --target x86_64-unknown-linux-musl
