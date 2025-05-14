@@ -12,20 +12,23 @@ env:
 defaults:
   run:
     shell: bash
-    working-directory: /namespace/scratch
 
 jobs:
   test:
+    permissions:
+      contents: write
+
     runs-on: 
       - namespace-profile-ubuntu-24-04-big
       - namespace-experiments:container.mount-scratch
 
     steps:
       - uses: actions/checkout@v4
+      - run: cp -a ${GITHUB_WORKSPACE} /namespace/scratch
 
       - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6
 
-      - name: Install protoc
+      - name: Install deps
         run: sudo apt-get update && sudo apt-get -y install protobuf-compiler podman
 
       - name: Install repro-env
@@ -36,7 +39,7 @@ jobs:
 
       - name: Run all unit and integration tests
         run: |
-          ./run-tests.sh
+          cd /namespace/scratch/ic-gateway && ./run-tests.sh
 
       - name: Build ic-gateway
-        run: repro-env build -- cargo build --release --target x86_64-unknown-linux-musl
+        run: cd /namespace/scratch/ic-gateway && repro-env build -- cargo build --release --target x86_64-unknown-linux-musl
