@@ -9,16 +9,24 @@ on:
 env:
   CARGO_TERM_COLOR: never
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   test:
-    runs-on: namespace-profile-ubuntu-24-04
+    permissions:
+      contents: write
+
+    runs-on:
+      - namespace-profile-ubuntu-24-04-big
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6
 
-      - name: Install protoc
+      - name: Install deps
         run: sudo apt-get update && sudo apt-get -y install protobuf-compiler
 
       - name: Run all unit and integration tests

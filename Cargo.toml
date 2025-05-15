@@ -5,10 +5,13 @@ description = "HTTP-to-IC gateway"
 edition = "2024"
 
 [features]
+default = ["vector", "sev_snp"]
+sev_snp = ["dep:sev"]
 clickhouse = ["dep:clickhouse"]
 acme = ["ic-bn-lib/acme_dns", "ic-bn-lib/acme_alpn"]
-bench = ["ic-http-certification", "rand_regex", "serde_cbor"]
-tokio_console = ["console-subscriber"]
+bench = ["dep:ic-http-certification", "dep:rand_regex", "dep:serde_cbor"]
+tokio_console = ["dep:console-subscriber"]
+vector = ["ic-bn-lib/vector"]
 
 [dependencies]
 ahash = "0.8.11"
@@ -50,7 +53,7 @@ ic-agent = { version = "0.40.0", features = [
     "ring",
     "_internal_dynamic-routing",
 ] }
-ic-bn-lib = { git = "https://github.com/dfinity/ic-bn-lib", rev = "be42842697dd0b0a50557e508b308a25403e6851", features = [
+ic-bn-lib = { git = "https://github.com/dfinity/ic-bn-lib", rev = "ec4a6b4abab2d94e09c4d5fee2d57d7bb1260835", features = [
     "vector",
 ] }
 ic-http-certification = { version = "3.0.3", optional = true }
@@ -80,7 +83,7 @@ rustls = { version = "0.23.18", default-features = false, features = [
 serde = "1.0.214"
 serde_cbor = { version = "0.11.2", optional = true }
 serde_json = "1.0.132"
-sev = "6.1.0"
+sev = { version = "6.1.0", optional = true }
 sha2 = "0.10.8"
 strum = { version = "0.27.1", features = ["derive"] }
 thiserror = "2.0.3"
@@ -101,7 +104,9 @@ tracing-subscriber = { version = "0.3.18", features = [
     "json",
 ] }
 url = "2.5.3"
-uuid = { version = "1.16.0", features = ["v7"] }
+# DO NOT upgrade, this breaks monorepo compatibility
+# Read https://github.com/uuid-rs/uuid/releases/tag/1.13.0
+uuid = { version = "=1.12.1", features = ["v7"] }
 x509-parser = "0.17.0"
 zstd = "0.13.2"
 

@@ -14,10 +14,14 @@ pub mod test;
 mod tls;
 
 pub use crate::cli::Cli;
-pub use metrics::Vector;
 #[cfg(feature = "clickhouse")]
-pub use metrics::clickhouse::Clickhouse;
+pub use metrics::Clickhouse;
+#[cfg(feature = "vector")]
+pub use metrics::Vector;
 pub use routing::domain::ProvidesCustomDomains;
 
 pub use core::main;
 pub use routing::setup_router;
+
+pub use ic_agent;
+pub use ic_bn_lib;

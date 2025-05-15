@@ -516,7 +516,7 @@ pub struct Misc {
     pub threads: Option<usize>,
 
     /// Enable SEV-SNP measurement reporting
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", feature = "sev_snp"))]
     #[clap(env, long)]
     pub enable_sev_snp: bool,
 }

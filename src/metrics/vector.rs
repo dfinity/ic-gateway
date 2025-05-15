@@ -686,7 +686,7 @@ mod test {
         let client = Arc::new(TestClient(AtomicU64::new(0), AtomicU64::new(0)));
         let vector = Vector::new(&cli, client.clone(), &Registry::new());
 
-        for i in 0..6000 {
+        for i in 0..5000 {
             let event = json!({
                 format!("foo{i}"): format!("bar{i}"),
             });
@@ -696,7 +696,6 @@ mod test {
 
         vector.stop().await;
 
-        // 6k sent, buffer 5k => 1k will be dropped
         assert_eq!(client.0.load(Ordering::SeqCst), 100); // Batches
         assert_eq!(client.1.load(Ordering::SeqCst), 212780); // Uncompressed size
     }

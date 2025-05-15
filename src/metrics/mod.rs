@@ -1,6 +1,7 @@
 #[cfg(feature = "clickhouse")]
 pub mod clickhouse;
 pub mod runner;
+#[cfg(feature = "vector")]
 pub mod vector;
 
 use std::{
@@ -31,24 +32,22 @@ use prometheus::{
     HistogramVec, IntCounterVec, Registry, register_histogram_vec_with_registry,
     register_int_counter_vec_with_registry,
 };
-use serde_json::json;
-use time::OffsetDateTime;
 use tower_http::compression::CompressionLayer;
 use tracing::info;
 
-use crate::{
-    core::{ENV, HOSTNAME},
-    routing::{
-        CanisterId, RequestCtx,
-        error_cause::ErrorCause,
-        ic::{BNRequestMetadata, BNResponseMetadata, IcResponseStatus},
-        middleware::{geoip::CountryCode, request_id::RequestId},
-    },
+#[cfg(feature = "vector")]
+use crate::core::{ENV, HOSTNAME};
+
+use crate::routing::{
+    CanisterId, RequestCtx,
+    error_cause::ErrorCause,
+    ic::{BNRequestMetadata, BNResponseMetadata, IcResponseStatus},
+    middleware::{geoip::CountryCode, request_id::RequestId},
 };
 
 #[cfg(feature = "clickhouse")]
 pub use clickhouse::{Clickhouse, Row};
-
+#[cfg(feature = "vector")]
 pub use vector::Vector;
 
 const KB: f64 = 1024.0;
@@ -94,6 +93,7 @@ pub struct HttpMetrics {
 
     #[cfg(feature = "clickhouse")]
     pub clickhouse: Option<Arc<Clickhouse>>,
+    #[cfg(feature = "vector")]
     pub vector: Option<Arc<Vector>>,
 }
 
@@ -102,7 +102,7 @@ impl HttpMetrics {
         registry: &Registry,
         log_requests: bool,
         #[cfg(feature = "clickhouse")] clickhouse: Option<Arc<Clickhouse>>,
-        vector: Option<Arc<Vector>>,
+        #[cfg(feature = "vector")] vector: Option<Arc<Vector>>,
     ) -> Self {
         const LABELS_HTTP: &[&str] = &[
             "tls",
@@ -120,6 +120,7 @@ impl HttpMetrics {
             log_requests,
             #[cfg(feature = "clickhouse")]
             clickhouse,
+            #[cfg(feature = "vector")]
             vector,
 
             requests: register_int_counter_vec_with_registry!(
@@ -218,7 +219,8 @@ pub async fn middleware(
 
     // Execute the request
     let start = Instant::now();
-    let timestamp = OffsetDateTime::now_utc();
+    #[cfg(any(feature = "clickhouse", feature = "vector"))]
+    let timestamp = time::OffsetDateTime::now_utc();
     let mut response = next.run(request).await;
     let duration = start.elapsed();
 
@@ -362,6 +364,11 @@ pub async fn middleware(
                 host,
                 path,
                 canister_id,
+                country_code,
+                header_origin,
+                header_referer,
+                header_user_agent,
+                header_content_type,
                 ic_streaming,
                 ic_upgrade,
                 ic_node_id = resp_meta.node_id,
@@ -376,6 +383,7 @@ pub async fn middleware(
                 ic_cache_bypass_reason = resp_meta.cache_bypass_reason,
                 error = error_cause,
                 req_size = request_size,
+                request_type,
                 resp_size = response_size,
                 dur = duration.as_millis(),
                 dur_full = duration_full.as_millis(),
@@ -437,11 +445,12 @@ pub async fn middleware(
             v.send(row);
         }
 
+        #[cfg(feature = "vector")]
         if let Some(v) = &state.vector {
             // TODO use proper names when the DB is updated
 
             // Nginx-compatible log entry
-            let val = json!({
+            let val = serde_json::json!({
                 "env": ENV.get().unwrap().as_str(),
                 "hostname": HOSTNAME.get().unwrap().as_str(),
                 "msec": timestamp.unix_timestamp(),
