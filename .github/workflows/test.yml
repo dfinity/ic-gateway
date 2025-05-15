@@ -31,4 +31,4 @@ jobs:
 
       - name: Run all unit and integration tests
         run: |
-          cd /namespace/scratch/ic-gateway && ./run-tests.sh
+          ./run-tests.sh
