@@ -48,6 +48,16 @@ To install and set up `ic-gateway`, follow these steps:
 
   For local testing, you can use self-signed certificates created with [mkcert](https://github.com/FiloSottile/mkcert). For production, obtain a certificate from [Let's Encrypt](https://letsencrypt.org/) using [`certbot`](https://certbot.eff.org/) or the built-in certificate provider.
 
+### Reproducible build
+
+ - Install [repro-env](https://github.com/kpcyrd/repro-env)
+ - Build the binary using `repro-env build -- cargo build --release --target x86_64-unknown-linux-musl`
+
+### Running in Docker
+ - Pull the container: `docker pull ghcr.io/dfinity/ic-gateway:latest`
+ - Create the configuration file with the environment variables, e.g. `ic-gateway.env`
+ - Run the container: `docker run --env-file ic-gateway.env ghcr.io/dfinity/ic-gateway`
+
 ## Usage
 
 ### Requirements
