@@ -169,8 +169,8 @@ impl CorsStateHttp {
         let hdr = response.headers_mut();
         hdr.insert(ACCESS_CONTROL_ALLOW_METHODS, self.allow_methods.clone());
         hdr.insert(ACCESS_CONTROL_ALLOW_HEADERS, self.allow_headers.clone());
-        hdr.insert(ACCESS_CONTROL_ALLOW_ORIGIN, self.allow_origin.clone());
         hdr.insert(ACCESS_CONTROL_MAX_AGE, self.max_age.clone());
+        hdr.insert(ACCESS_CONTROL_ALLOW_ORIGIN, self.allow_origin.clone());
         hdr.insert(VARY, self.vary.clone());
         response
     }
@@ -210,9 +210,13 @@ pub async fn middleware(
     // If there's no canister id - just return default response or pass it forward
     let Some(canister_id) = canister_id else {
         if method == Method::OPTIONS {
+            // Return our standard preflight response
             return state.default_preflight_response();
         } else {
-            return next.run(request).await;
+            let mut response = next.run(request).await;
+            // Apply relevant CORS headers to non-preflight response
+            state.apply_cors(method, &mut response);
+            return response;
         }
     };
 
@@ -381,9 +385,50 @@ mod test {
             .fallback(|| async { "foo" })
             .layer(from_fn_with_state(s.clone(), middleware));
 
-        // For preflight
+        // For preflight w/o canister
         let mut req = Request::new(Body::empty());
         *req.method_mut() = Method::OPTIONS;
+        let resp = router.clone().oneshot(req).await.unwrap();
+
+        assert_eq!(
+            resp.headers()
+                .get(ACCESS_CONTROL_ALLOW_HEADERS)
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            s.allow_headers.to_str().unwrap()
+        );
+        assert_eq!(
+            resp.headers()
+                .get(ACCESS_CONTROL_ALLOW_METHODS)
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            s.allow_methods.to_str().unwrap(),
+        );
+        assert_eq!(
+            resp.headers()
+                .get(ACCESS_CONTROL_MAX_AGE)
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            s.max_age,
+        );
+        assert_eq!(
+            resp.headers()
+                .get(ACCESS_CONTROL_ALLOW_ORIGIN)
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            s.allow_origin,
+        );
+        assert_eq!(resp.headers().get(VARY).unwrap().to_str().unwrap(), s.vary);
+        assert!(resp.headers().get(ACCESS_CONTROL_EXPOSE_HEADERS).is_none());
+
+        // For preflight with canister
+        let mut req = Request::new(Body::empty());
+        *req.method_mut() = Method::OPTIONS;
+        req.extensions_mut().insert(canister_id);
         let resp = router.oneshot(req).await.unwrap();
 
         assert_eq!(
@@ -421,7 +466,36 @@ mod test {
         assert_eq!(resp.headers().get(VARY).unwrap().to_str().unwrap(), s.vary);
         assert!(resp.headers().get(ACCESS_CONTROL_EXPOSE_HEADERS).is_none());
 
-        // For normal request
+        // For normal request w/o canister
+        let router = Router::new()
+            .fallback(|| async { "foo" })
+            .layer(from_fn_with_state(s.clone(), middleware));
+
+        let req = Request::new(Body::empty());
+        let resp = router.clone().oneshot(req).await.unwrap();
+
+        assert_eq!(
+            resp.headers()
+                .get(ACCESS_CONTROL_EXPOSE_HEADERS)
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            s.expose_headers.to_str().unwrap()
+        );
+        assert_eq!(
+            resp.headers()
+                .get(ACCESS_CONTROL_ALLOW_ORIGIN)
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            s.allow_origin,
+        );
+        assert_eq!(resp.headers().get(VARY).unwrap().to_str().unwrap(), s.vary);
+        assert!(resp.headers().get(ACCESS_CONTROL_ALLOW_METHODS).is_none());
+        assert!(resp.headers().get(ACCESS_CONTROL_ALLOW_HEADERS).is_none());
+        assert!(resp.headers().get(ACCESS_CONTROL_MAX_AGE).is_none());
+
+        // For normal request with canister
         let router = Router::new()
             .fallback(|| async { "foo" })
             .layer(from_fn_with_state(s.clone(), middleware));
