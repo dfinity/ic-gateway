@@ -580,7 +580,7 @@ pub struct Cors {
     pub cors_canister_passthrough: bool,
 
     /// Maximum number of canisters to cache that replied incorrectly to the OPTIONS request
-    #[clap(env, long, default_value = "1m", value_parser = parse_size_decimal)]
+    #[clap(env, long, default_value = "10m", value_parser = parse_size_decimal)]
     pub cors_invalid_canisters_max: u64,
 
     /// Timeout for expiring invalid canisters from the cache
