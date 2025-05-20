@@ -130,6 +130,7 @@ impl CorsStateHttp {
         })
     }
 
+    /// Applies missing CORS headers to the response
     fn apply_cors(&self, method: Method, response: &mut Response) {
         let hdr = response.headers_mut();
 
@@ -163,7 +164,7 @@ impl CorsStateHttp {
         }
     }
 
-    // Default response for OPTIONS request
+    /// Default response for OPTIONS request
     fn default_preflight_response(&self) -> Response {
         let mut response = Response::new(Body::empty());
         let hdr = response.headers_mut();

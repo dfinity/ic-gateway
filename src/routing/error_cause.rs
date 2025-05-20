@@ -306,8 +306,7 @@ impl ErrorClientFacing {
                 let template = template.replace("{status_code}", self.status_code().as_str());
                 let template =
                     template.replace("{reason}", self.to_string().replace("_", " ").as_str());
-                let template = template.replace("{details}", self.details().as_str());
-                template
+                template.replace("{details}", self.details().as_str())
             }
         }
     }
