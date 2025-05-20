@@ -1,15 +1,9 @@
-ARG VERSION=
+FROM alpine:3.21@sha256:a8560b36e8b8210634f77d9f7f9efd7ffa463e380b75e2e74aff4511df3ef88c
 
-FROM ubuntu:24.04
+RUN apk add --no-cache tzdata tini
 
-# Set timezone
-RUN ln -snf /usr/share/zoneinfo/UTC /etc/localtime && echo UTC > /etc/timezone
+# Copy ic-gateway binary
+COPY target/x86_64-unknown-linux-musl/release/ic-gateway /usr/sbin
 
-# Update packages
-RUN apt-get update && apt-get -y dist-upgrade
-
-# Copy ic-gateway package
-COPY ic-gateway_${VERSION}_amd64.deb /tmp
-
-# Install it
-RUN apt install /tmp/ic-gateway_${VERSION}_amd64.deb
+ENTRYPOINT ["/sbin/tini", "--"]
+CMD ["/usr/sbin/ic-gateway"]
