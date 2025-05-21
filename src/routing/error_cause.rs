@@ -299,7 +299,7 @@ impl ErrorClientFacing {
             Self::CanisterReject => "The canister explicitly rejected the request.".into(),
             Self::CanisterError => "The canister encountered an error while processing the request.\nThis issue may be due to resource limitations, configuration problems, or an internal failure.".into(),
             Self::CanisterFrozen => "The canister is temporarily unable to process the request due to insufficient funds.".into(),
-            Self::CanisterRouteNotFound => "The requested canister does not seem to belong so any Subnet.".into(),
+            Self::CanisterRouteNotFound => "The requested canister does not seem to belong to any Subnet.".into(),
             Self::CanisterIdNotResolved => "HTTP gateway wasn't able to resolve the ID of the canister where to send the request.".into(),
             Self::CanisterIdIncorrect => "The canister ID is incorrect".into(),
             Self::SubnetNotFound => "The requested subnet was not found.".into(),
