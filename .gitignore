@@ -15,7 +15,6 @@ target/
 # Added by cargo
 
 /target
-
 /cert
-
 profile.json*
+*.deb
