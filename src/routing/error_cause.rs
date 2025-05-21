@@ -11,6 +11,8 @@ use ic_transport_types::RejectCode;
 use strum::{Display, IntoStaticStr};
 use tokio::task_local;
 
+use super::ic::BNResponseMetadata;
+
 task_local! {
     pub static ERROR_CONTEXT: RequestType;
 }
@@ -27,15 +29,23 @@ pub fn error_infer<E: StdError + Send + Sync + 'static>(error: &anyhow::Error) -
     None
 }
 
-#[derive(Debug, Clone, Display, IntoStaticStr)]
+#[derive(Debug, Clone, Display, IntoStaticStr, Eq, PartialEq)]
 #[strum(serialize_all = "snake_case")]
 pub enum RateLimitCause {
     Normal,
+    BoundaryNode,
+}
+
+// Creates the response from RateLimitCause and injects itself into extensions to be visible by middleware
+impl IntoResponse for RateLimitCause {
+    fn into_response(self) -> Response {
+        ErrorCause::RateLimited(self).into_response()
+    }
 }
 
 // Categorized possible causes for request processing failures
 // Not using Error as inner type since it's not cloneable
-#[derive(Debug, Clone, Display, IntoStaticStr)]
+#[derive(Debug, Clone, Display, IntoStaticStr, Eq, PartialEq)]
 #[strum(serialize_all = "snake_case")]
 pub enum ErrorCause {
     ClientBodyTooLarge,
@@ -46,11 +56,21 @@ pub enum ErrorCause {
     MalformedRequest(String),
     NoAuthority,
     UnknownDomain,
-    CanisterIdNotFound,
+    CanisterNotFound,
+    CanisterReject,
+    CanisterError,
+    CanisterFrozen,
     CanisterIdIncorrect(String),
+    CanisterIdNotResolved,
+    CanisterRouteNotFound,
+    SubnetNotFound,
+    SubnetUnavailable,
+    NoRoutingTable,
+    ResponseVerificationError,
+    HttpGatewayError(String),
     DomainCanisterMismatch,
     Denylisted,
-    AgentError(String),
+    Forbidden,
     BackendError(String),
     BackendErrorDNS(String),
     BackendErrorConnect,
@@ -63,27 +83,27 @@ pub enum ErrorCause {
     RateLimited(RateLimitCause),
     #[strum(serialize = "internal_server_error")]
     Other(String),
-    HttpGatewayError(HttpGatewayError),
 }
 
 impl ErrorCause {
     pub fn details(&self) -> Option<String> {
         match self {
-            Self::Other(x) => Some(x.clone()),
             Self::ClientBodyError(x) => Some(x.clone()),
-            Self::LoadShed => Some("Overloaded".into()),
             Self::MalformedRequest(x) => Some(x.clone()),
+            Self::CanisterIdIncorrect(x) => Some(x.clone()),
             Self::BackendError(x) => Some(x.clone()),
             Self::BackendErrorDNS(x) => Some(x.clone()),
             Self::BackendBodyError(x) => Some(x.clone()),
             Self::BackendTLSErrorOther(x) => Some(x.clone()),
             Self::BackendTLSErrorCert(x) => Some(x.clone()),
-            Self::AgentError(x) => Some(x.clone()),
             Self::RateLimited(x) => Some(x.to_string()),
             Self::HttpGatewayError(x) => Some(x.to_string()),
+            Self::Other(x) => Some(x.clone()),
             _ => None,
         }
     }
+
+    // Methods below are not implemented as From<> due to ambiguity
 
     // Convert from client-side error
     pub fn from_client_error(e: IcBnError) -> Self {
@@ -101,68 +121,7 @@ impl ErrorCause {
             IcBnError::RequestFailed(v) => Self::from(&v),
             IcBnError::BodyReadingFailed(v) => Self::BackendBodyError(v),
             IcBnError::BodyTimedOut => Self::BackendBodyTimeout,
-            _ => Self::Other(e.to_string()),
-        }
-    }
-
-    pub fn to_client_facing_error(&self) -> ErrorClientFacing {
-        match self {
-            Self::Other(_) => ErrorClientFacing::Other,
-            Self::ClientBodyTooLarge => ErrorClientFacing::PayloadTooLarge,
-            Self::ClientBodyTimeout => ErrorClientFacing::BodyTimedOut,
-            Self::ClientBodyError(x) => ErrorClientFacing::MalformedRequest(x.clone()),
-            Self::LoadShed => ErrorClientFacing::LoadShed,
-            Self::IncorrectPrincipal => ErrorClientFacing::IncorrectPrincipal,
-            Self::MalformedRequest(x) => ErrorClientFacing::MalformedRequest(x.clone()),
-            Self::UnknownDomain => ErrorClientFacing::UnknownDomain,
-            Self::CanisterIdNotFound => ErrorClientFacing::CanisterIdNotFound,
-            Self::CanisterIdIncorrect(x) => ErrorClientFacing::CanisterIdIncorrect(x.clone()),
-            Self::DomainCanisterMismatch => ErrorClientFacing::DomainCanisterMismatch,
-            Self::Denylisted => ErrorClientFacing::Denylisted,
-            Self::NoAuthority => ErrorClientFacing::NoAuthority,
-            Self::AgentError(_) => ErrorClientFacing::UpstreamError,
-            Self::BackendError(_) => ErrorClientFacing::UpstreamError,
-            Self::BackendErrorDNS(_) => ErrorClientFacing::UpstreamError,
-            Self::BackendErrorConnect => ErrorClientFacing::UpstreamError,
-            Self::BackendTimeout => ErrorClientFacing::UpstreamError,
-            Self::BackendBodyTimeout => ErrorClientFacing::UpstreamError,
-            Self::BackendBodyError(_) => ErrorClientFacing::UpstreamError,
-            Self::BackendTLSErrorOther(_) => ErrorClientFacing::UpstreamError,
-            Self::BackendTLSErrorCert(_) => ErrorClientFacing::UpstreamError,
-            Self::RateLimited(_) => ErrorClientFacing::RateLimited,
-            Self::HttpGatewayError(http_gateway_error) => match http_gateway_error {
-                HttpGatewayError::AgentError(agent_error) => {
-                    match agent_error.as_ref() {
-                        AgentError::CertifiedReject{reject, ..} | AgentError::UncertifiedReject{reject, ..}=> {
-                            match reject.reject_code {
-                                RejectCode::CanisterError => ErrorClientFacing::CanisterError(
-                                    "The canister encountered an error while processing the request.<br />This issue may be due to resource limitations, configuration problems, or an internal failure.".to_string(),
-                                ),
-                                RejectCode::SysTransient if reject.reject_message.contains("frozen") => ErrorClientFacing::CanisterError(
-                                    "The canister is temporarily unable to process the request due to insufficient funds.".to_string(),
-                                ),
-                                _ => ErrorClientFacing::UpstreamError,
-                            }
-                        },
-                        AgentError::HttpError(http_error_payload) => {
-                            let error_string = String::from_utf8_lossy(&http_error_payload.content);
-                            if error_string.contains("no_healthy_nodes") {
-                                return ErrorClientFacing::SubnetUnavailable;
-                            } else if error_string.contains("canister_not_found") {
-                                return ErrorClientFacing::CanisterIdNotFound;
-                            }
-                            ErrorClientFacing::UpstreamError
-                        },
-                        _ => {
-                            ErrorClientFacing::UpstreamError
-                        }
-                    }
-                }
-                HttpGatewayError::ResponseVerificationError(_) => {
-                    ErrorClientFacing::CanisterError("The response from the canister failed verification and cannot be trusted.<br />If you understand the risks, you can retry using the raw domain to bypass certification.".to_string())
-                }
-                _ => ErrorClientFacing::UpstreamError,
-            },
+            _ => Self::BackendError(e.to_string()),
         }
     }
 }
@@ -170,17 +129,10 @@ impl ErrorCause {
 // Creates the response from ErrorCause and injects itself into extensions to be visible by middleware
 impl IntoResponse for ErrorCause {
     fn into_response(self) -> Response {
-        let client_facing_error = self.to_client_facing_error();
+        let client_facing_error: ErrorClientFacing = (&self).into();
         let mut resp = client_facing_error.into_response();
         resp.extensions_mut().insert(self);
         resp
-    }
-}
-
-// Creates the response from RateLimitCause and injects itself into extensions to be visible by middleware
-impl IntoResponse for RateLimitCause {
-    fn into_response(self) -> Response {
-        ErrorCause::RateLimited(self).into_response()
     }
 }
 
@@ -198,12 +150,61 @@ impl From<&reqwest::Error> for ErrorCause {
     }
 }
 
-impl From<anyhow::Error> for ErrorCause {
-    fn from(e: anyhow::Error) -> Self {
-        if let Some(e) = error_infer::<AgentError>(&e) {
-            return Self::AgentError(e.to_string());
+// TODO update in `ic-boundary` to "canister_route_not_found" and then remove CANISTER_NOT_FOUND
+const CANISTER_NOT_FOUND: &str = "canister_not_found";
+const CANISTER_ROUTE_NOT_FOUND: &str = "canister_route_not_found";
+const SUBNET_NOT_FOUND: &str = "subnet_not_found";
+const NO_HEALTHY_NODES: &str = "no_healthy_nodes";
+const NO_ROUTING_TABLE: &str = "no_routing_table";
+const FORBIDDEN: &str = "forbidden";
+const LOAD_SHED: &str = "load_shed";
+
+impl From<&BNResponseMetadata> for Option<ErrorCause> {
+    fn from(v: &BNResponseMetadata) -> Self {
+        if v.error_cause.is_empty() {
+            return None;
+        };
+
+        if v.error_cause.starts_with("rate_limited") {
+            return Some(ErrorCause::RateLimited(RateLimitCause::BoundaryNode));
         }
 
+        Some(match v.error_cause.as_ref() {
+            NO_HEALTHY_NODES => ErrorCause::SubnetUnavailable,
+            CANISTER_NOT_FOUND | CANISTER_ROUTE_NOT_FOUND => ErrorCause::CanisterRouteNotFound,
+            SUBNET_NOT_FOUND => ErrorCause::SubnetNotFound,
+            FORBIDDEN => ErrorCause::Forbidden,
+            LOAD_SHED => ErrorCause::LoadShed,
+            NO_ROUTING_TABLE => ErrorCause::NoRoutingTable,
+            _ => ErrorCause::Other(v.error_cause.clone()),
+        })
+    }
+}
+
+impl From<HttpGatewayError> for ErrorCause {
+    fn from(v: HttpGatewayError) -> Self {
+        match v {
+            HttpGatewayError::ResponseVerificationError(_) => Self::ResponseVerificationError,
+            HttpGatewayError::AgentError(ae) => match ae.as_ref() {
+                AgentError::CertifiedReject { reject, .. }
+                | AgentError::UncertifiedReject { reject, .. } => match reject.reject_code {
+                    RejectCode::CanisterError => Self::CanisterError,
+                    RejectCode::SysTransient if reject.reject_message.contains("frozen") => {
+                        Self::CanisterFrozen
+                    }
+                    RejectCode::CanisterReject => Self::CanisterReject,
+                    RejectCode::DestinationInvalid => Self::CanisterNotFound,
+                    _ => Self::BackendError(ae.to_string()),
+                },
+                _ => Self::HttpGatewayError(ae.to_string()),
+            },
+            _ => Self::HttpGatewayError(v.to_string()),
+        }
+    }
+}
+
+impl From<anyhow::Error> for ErrorCause {
+    fn from(e: anyhow::Error) -> Self {
         // Check if it's a DNS error
         if let Some(e) = error_infer::<ResolveError>(&e) {
             return Self::BackendErrorDNS(e.to_string());
@@ -237,10 +238,17 @@ impl From<anyhow::Error> for ErrorCause {
 #[strum(serialize_all = "snake_case")]
 pub enum ErrorClientFacing {
     BodyTimedOut,
-    CanisterIdNotFound,
-    CanisterIdIncorrect(String),
-    CanisterError(String),
+    CanisterNotFound,
+    CanisterReject,
+    CanisterError,
+    CanisterFrozen,
+    CanisterIdNotResolved,
+    CanisterIdIncorrect,
+    SubnetNotFound,
+    SubnetUnavailable,
+    ResponseVerificationError,
     Denylisted,
+    Forbidden,
     DomainCanisterMismatch,
     IncorrectPrincipal,
     LoadShed,
@@ -250,7 +258,6 @@ pub enum ErrorClientFacing {
     Other,
     PayloadTooLarge,
     RateLimited,
-    SubnetUnavailable,
     UnknownDomain,
     UpstreamError,
 }
@@ -259,10 +266,17 @@ impl ErrorClientFacing {
     pub const fn status_code(&self) -> StatusCode {
         match self {
             Self::BodyTimedOut => StatusCode::REQUEST_TIMEOUT,
-            Self::CanisterError(_) => StatusCode::BAD_GATEWAY,
-            Self::CanisterIdIncorrect(_) => StatusCode::BAD_REQUEST,
-            Self::CanisterIdNotFound => StatusCode::BAD_REQUEST,
+            Self::CanisterNotFound => StatusCode::NOT_FOUND,
+            Self::CanisterReject => StatusCode::SERVICE_UNAVAILABLE,
+            Self::CanisterError => StatusCode::SERVICE_UNAVAILABLE,
+            Self::CanisterFrozen => StatusCode::SERVICE_UNAVAILABLE,
+            Self::CanisterIdNotResolved => StatusCode::BAD_REQUEST,
+            Self::CanisterIdIncorrect => StatusCode::BAD_REQUEST,
+            Self::SubnetNotFound => StatusCode::BAD_REQUEST,
+            Self::SubnetUnavailable => StatusCode::SERVICE_UNAVAILABLE,
+            Self::ResponseVerificationError => StatusCode::SERVICE_UNAVAILABLE,
             Self::Denylisted => StatusCode::UNAVAILABLE_FOR_LEGAL_REASONS,
+            Self::Forbidden => StatusCode::FORBIDDEN,
             Self::DomainCanisterMismatch => StatusCode::BAD_REQUEST,
             Self::IncorrectPrincipal => StatusCode::BAD_REQUEST,
             Self::LoadShed => StatusCode::TOO_MANY_REQUESTS,
@@ -271,7 +285,6 @@ impl ErrorClientFacing {
             Self::Other => StatusCode::INTERNAL_SERVER_ERROR,
             Self::PayloadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
             Self::RateLimited => StatusCode::TOO_MANY_REQUESTS,
-            Self::SubnetUnavailable => StatusCode::SERVICE_UNAVAILABLE,
             Self::UnknownDomain => StatusCode::BAD_REQUEST,
             Self::UpstreamError => StatusCode::SERVICE_UNAVAILABLE,
         }
@@ -279,22 +292,28 @@ impl ErrorClientFacing {
 
     pub fn details(&self) -> String {
         match self {
-            Self::BodyTimedOut => "Reading the request body timed out due to data arriving too slowly.".to_string(),
-            Self::CanisterError(x) => x.to_string(),
-            Self::CanisterIdIncorrect(x) => format!("The canister ID is incorrect: {x}"),
-            Self::CanisterIdNotFound => "The canister ID could not be resolved from the provided authority.".to_string(),
-            Self::Denylisted => "Access to this resource is denied due to a violation of the code of conduct.".to_string(),
-            Self::DomainCanisterMismatch => "Access to the canister is forbidden through the current gateway domain. Try accessing it through an allowed gateway domain.".to_string(),
-            Self::IncorrectPrincipal => "The principal in the request is incorrectly formatted.".to_string(),
-            Self::LoadShed => "The HTTP gateway is temporarily unable to handle the request due to high load. Please try again later.".to_string(),
-            Self::MalformedRequest(x) => x.to_string(),
-            Self::NoAuthority => "The request is missing the required authority information (e.g., Host header).".to_string(),
-            Self::Other => "Internal Server Error".to_string(),
-            Self::PayloadTooLarge => "The payload is too large.".to_string(),
-            Self::RateLimited => "Rate limit exceeded. Please slow down requests and try again later.".to_string(),
-            Self::SubnetUnavailable => "The subnet is temporarily unavailable due to maintenance or an ongoing upgrade. Please try again later.".to_string(),
-            Self::UnknownDomain => "The requested domain is not served by this HTTP gateway.".to_string(),
-            Self::UpstreamError => "The HTTP gateway is temporarily unable to process the request. Please try again later.".to_string(),
+            Self::BodyTimedOut => "Reading the request body timed out due to data arriving too slowly.".into(),
+            Self::CanisterNotFound => "The requested canister does not exist.".into(),
+            Self::CanisterReject => "The canister explicitly rejected the request.".into(),
+            Self::CanisterError => "The canister encountered an error while processing the request.\nThis issue may be due to resource limitations, configuration problems, or an internal failure.".into(),
+            Self::CanisterFrozen => "The canister is temporarily unable to process the request due to insufficient funds.".into(),
+            Self::CanisterIdNotResolved => "HTTP gateway wasn't able to resolve the ID of the canister where to send the request.".into(),
+            Self::CanisterIdIncorrect => "The canister ID is incorrect".into(),
+            Self::SubnetNotFound => "The requested subnet was not found.".into(),
+            Self::SubnetUnavailable => "The subnet is temporarily unavailable due to maintenance or an ongoing upgrade. Please try again later.".into(),
+            Self::ResponseVerificationError => "The response from the canister failed verification and cannot be trusted.\nIf you understand the risks, you can retry using the raw domain to bypass certification.".into(),
+            Self::Denylisted => "Access to this resource is denied due to a violation of the code of conduct.".into(),
+            Self::Forbidden => "Access to this resource is denied by the current set of application firewall rules.".into(),
+            Self::DomainCanisterMismatch => "Access to the canister is forbidden through the current gateway domain. Try accessing it through an allowed gateway domain.".into(),
+            Self::IncorrectPrincipal => "The principal in the request is incorrectly formatted.".into(),
+            Self::LoadShed => "The HTTP gateway is temporarily unable to handle the request due to high load. Please try again later.".into(),
+            Self::MalformedRequest(x) => x.into(),
+            Self::NoAuthority => "The request is missing the required authority information (e.g. 'Host' header).".into(),
+            Self::Other => "Internal Server Error".into(),
+            Self::PayloadTooLarge => "The request body exceeds the maximum allowed size.".into(),
+            Self::RateLimited => "Rate limit exceeded. Please slow down requests and try again later.".into(),
+            Self::UnknownDomain => "The requested domain is not served by this HTTP gateway.".into(),
+            Self::UpstreamError => "The HTTP gateway is temporarily unable to process the request. Please try again later.".into(),
         }
     }
 
@@ -306,8 +325,39 @@ impl ErrorClientFacing {
                 let template = template.replace("{status_code}", self.status_code().as_str());
                 let template =
                     template.replace("{reason}", self.to_string().replace("_", " ").as_str());
-                template.replace("{details}", self.details().as_str())
+
+                template.replace("{details}", &self.details().replace('\n', "<br />"))
             }
+        }
+    }
+}
+
+impl From<&ErrorCause> for ErrorClientFacing {
+    fn from(v: &ErrorCause) -> Self {
+        match v {
+            ErrorCause::Other(_) => Self::Other,
+            ErrorCause::ClientBodyTooLarge => Self::PayloadTooLarge,
+            ErrorCause::ClientBodyTimeout => Self::BodyTimedOut,
+            ErrorCause::ClientBodyError(x) => Self::MalformedRequest(x.clone()),
+            ErrorCause::LoadShed => Self::LoadShed,
+            ErrorCause::IncorrectPrincipal => Self::IncorrectPrincipal,
+            ErrorCause::MalformedRequest(x) => Self::MalformedRequest(x.clone()),
+            ErrorCause::UnknownDomain => Self::UnknownDomain,
+            ErrorCause::CanisterNotFound => Self::CanisterNotFound,
+            ErrorCause::CanisterReject => Self::CanisterReject,
+            ErrorCause::CanisterError => Self::CanisterError,
+            ErrorCause::CanisterFrozen => Self::CanisterFrozen,
+            ErrorCause::CanisterRouteNotFound => Self::CanisterNotFound,
+            ErrorCause::CanisterIdIncorrect(_) => Self::CanisterIdIncorrect,
+            ErrorCause::SubnetNotFound => Self::SubnetNotFound,
+            ErrorCause::SubnetUnavailable => Self::SubnetUnavailable,
+            ErrorCause::ResponseVerificationError => Self::ResponseVerificationError,
+            ErrorCause::DomainCanisterMismatch => Self::DomainCanisterMismatch,
+            ErrorCause::Denylisted => Self::Denylisted,
+            ErrorCause::Forbidden => Self::Forbidden,
+            ErrorCause::NoAuthority => Self::NoAuthority,
+            ErrorCause::RateLimited(_) => Self::RateLimited,
+            _ => Self::UpstreamError,
         }
     }
 }
@@ -320,7 +370,7 @@ impl IntoResponse for ErrorClientFacing {
         // Return an HTML error page if it was an HTTP request
         let body = match request_type {
             RequestType::Http => format!("{}\n", self.html()),
-            _ => format!("error: {}\ndetails: {}", self, self.details()),
+            _ => format!("error: {}\ndetails:\n{}", self, self.details()),
         };
 
         let mut resp = (self.status_code(), body).into_response();
@@ -334,11 +384,15 @@ impl IntoResponse for ErrorClientFacing {
 #[cfg(test)]
 mod test {
     use super::*;
-    use ic_agent::{AgentError, agent_error::HttpErrorPayload};
+    use http::HeaderMap;
+    use ic_agent::AgentError;
+    use ic_bn_lib::{http::headers::X_IC_ERROR_CAUSE, hval};
+    use ic_transport_types::RejectResponse;
     use std::sync::Arc;
 
     #[test]
     fn test_error_cause() {
+        // Mapping of Rustls errors
         let err = anyhow::Error::new(rustls::Error::NoCertificatesPresented);
         assert!(matches!(
             ErrorCause::from(err),
@@ -359,48 +413,88 @@ mod test {
             ErrorCause::BackendTLSErrorOther(_)
         ));
 
-        // test that no_healthy_nodes from upstream is mapped to ErrorClientFacing::NoHealthyNodes
-        let err_payload = HttpErrorPayload {
-            status: 503,
-            content_type: Some("text/plain".to_string()),
-            content: "error: no_healthy_nodes\ndetails: There are currently no healthy replica nodes available to handle the request. This may be due to an ongoing upgrade of the replica software in the subnet. Please try again later.".as_bytes().to_vec(),
-        };
-        let err: HttpGatewayError =
-            HttpGatewayError::AgentError(Arc::new(AgentError::HttpError(err_payload)));
-        let err_cause = ErrorCause::HttpGatewayError(err);
-        let err_client_facing = err_cause.to_client_facing_error();
-        assert!(matches!(
-            err_client_facing,
-            ErrorClientFacing::SubnetUnavailable
-        ));
+        // Mapping of "error_cause" BN headers
+        let cases = [
+            (NO_HEALTHY_NODES, ErrorCause::SubnetUnavailable),
+            (NO_ROUTING_TABLE, ErrorCause::NoRoutingTable),
+            (FORBIDDEN, ErrorCause::Forbidden),
+            (LOAD_SHED, ErrorCause::LoadShed),
+            (CANISTER_NOT_FOUND, ErrorCause::CanisterRouteNotFound),
+            (CANISTER_ROUTE_NOT_FOUND, ErrorCause::CanisterRouteNotFound),
+            (SUBNET_NOT_FOUND, ErrorCause::SubnetNotFound),
+        ];
+        for (hdr, err) in cases {
+            let mut hm = HeaderMap::new();
+            hm.insert(X_IC_ERROR_CAUSE, hval!(hdr));
+            let meta = BNResponseMetadata::from(&mut hm);
+            let error_cause = Option::<ErrorCause>::from(&meta);
+            assert_eq!(error_cause, Some(err));
+        }
 
-        // test that canister_not_found from upstream is mapped to ErrorClientFacing::CanisterIdNotFound
-        let err_payload = HttpErrorPayload {
-            status: 400,
-            content_type: Some("text/plain".to_string()),
-            content: "error: canister_not_found\ndetails: The specified canister does not exist."
-                .as_bytes()
-                .to_vec(),
-        };
-        let err: HttpGatewayError =
-            HttpGatewayError::AgentError(Arc::new(AgentError::HttpError(err_payload)));
-        let err_cause = ErrorCause::HttpGatewayError(err);
-        let err_client_facing = err_cause.to_client_facing_error();
-        assert!(matches!(
-            err_client_facing,
-            ErrorClientFacing::CanisterIdNotFound
-        ));
+        // Mapping of agent errors
+        let cases = [
+            (
+                AgentError::CertifiedReject {
+                    reject: RejectResponse {
+                        reject_code: RejectCode::CanisterError,
+                        reject_message: "".into(),
+                        error_code: None,
+                    },
+                    operation: None,
+                },
+                ErrorCause::CanisterError,
+            ),
+            (
+                AgentError::CertifiedReject {
+                    reject: RejectResponse {
+                        reject_code: RejectCode::CanisterReject,
+                        reject_message: "".into(),
+                        error_code: None,
+                    },
+                    operation: None,
+                },
+                ErrorCause::CanisterReject,
+            ),
+            (
+                AgentError::CertifiedReject {
+                    reject: RejectResponse {
+                        reject_code: RejectCode::DestinationInvalid,
+                        reject_message: "".into(),
+                        error_code: None,
+                    },
+                    operation: None,
+                },
+                ErrorCause::CanisterNotFound,
+            ),
+            (
+                AgentError::CertifiedReject {
+                    reject: RejectResponse {
+                        reject_code: RejectCode::SysTransient,
+                        reject_message: "foo frozen foo".into(),
+                        error_code: None,
+                    },
+                    operation: None,
+                },
+                ErrorCause::CanisterFrozen,
+            ),
+        ];
+        for (ae, err) in cases {
+            let http_gw_error = HttpGatewayError::AgentError(Arc::new(ae));
+            assert_eq!(ErrorCause::from(http_gw_error), err);
+        }
 
-        // test that canister_not_found from upstream is mapped to ErrorClientFacing::CanisterIdNotFound
-        let err: HttpGatewayError = HttpGatewayError::HeaderValueParsingError {
-            header_name: "Test".to_string(),
-            header_value: "Test".to_string(),
+        let ae = AgentError::CertifiedReject {
+            reject: RejectResponse {
+                reject_code: RejectCode::SysFatal,
+                reject_message: "".into(),
+                error_code: None,
+            },
+            operation: None,
         };
-        let err_cause = ErrorCause::HttpGatewayError(err);
-        let err_client_facing = err_cause.to_client_facing_error();
+        let http_gw_error = HttpGatewayError::AgentError(Arc::new(ae));
         assert!(matches!(
-            err_client_facing,
-            ErrorClientFacing::UpstreamError
-        ));
+            ErrorCause::from(http_gw_error),
+            ErrorCause::BackendError(_)
+        ))
     }
 }

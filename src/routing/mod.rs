@@ -403,7 +403,8 @@ pub fn setup_router(
                     .max_ttl(cli.cache.cache_max_ttl)
                     .lock_timeout(cli.cache.cache_lock_timeout)
                     .body_timeout(cli.cache.cache_body_timeout)
-                    .xfetch_beta(cli.cache.cache_xfetch_beta);
+                    .xfetch_beta(cli.cache.cache_xfetch_beta)
+                    .registry(registry);
 
                 let cache = Arc::new(builder.build().context("unable to build cache")?);
                 tasks.add_interval("cache", cache.clone(), Duration::from_secs(5));

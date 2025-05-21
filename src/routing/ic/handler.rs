@@ -38,12 +38,10 @@ pub async fn handler(
     Extension(request_id): Extension<RequestId>,
     Extension(ctx): Extension<Arc<RequestCtx>>,
     request: Request,
-) -> Result<Response, ErrorCause> {
-    let canister_id = request
-        .extensions()
-        .get::<CanisterId>()
-        .ok_or(ErrorCause::CanisterIdNotFound)?
-        .0;
+) -> Response {
+    let Some(canister_id) = request.extensions().get::<CanisterId>().map(|x| x.0) else {
+        return ErrorCause::CanisterIdNotResolved.into_response();
+    };
 
     let (mut parts, body) = request.into_parts();
 
@@ -56,7 +54,7 @@ pub async fn handler(
                 conn_info.close();
             }
 
-            return Err(ErrorCause::from_client_error(e));
+            return ErrorCause::from_client_error(e).into_response();
         }
     };
 
@@ -107,16 +105,22 @@ pub async fn handler(
 
     let ic_status = IcResponseStatus::from(&resp);
 
-    // Check if an error occured in the HTTP gateway library
-    if let Some(e) = resp.metadata.internal_error {
-        return Err(ErrorCause::HttpGatewayError(e));
-    }
+    // Pick one of the responses depending on if there was an error
+    let mut response = if let Some(e) = Option::<ErrorCause>::from(&bn_resp_meta) {
+        // Check if an error was reported by a boundary node
+        e.into_response()
+    } else if let Some(e) = resp.metadata.internal_error {
+        // Check if an error occured in the HTTP gateway library
+        ErrorCause::from(e).into_response()
+    } else {
+        // Convert the HTTP gateway library response into an Axum response
+        resp.canister_response.into_response()
+    };
 
-    // Convert the HTTP gateway library response into an Axum response
-    let mut response = resp.canister_response.into_response();
+    // Inject metadata
     response.extensions_mut().insert(ic_status);
     response.extensions_mut().insert(bn_req_meta);
     response.extensions_mut().insert(bn_resp_meta);
 
-    Ok(response)
+    response
 }

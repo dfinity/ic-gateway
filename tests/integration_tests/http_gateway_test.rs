@@ -112,7 +112,7 @@ pub async fn basic_http_gateway_test(env: &TestEnv) -> anyhow::Result<()> {
                 Some(vec![0; 32]),
             ),
             certified_domain.clone(),
-            ExpectedResponse::new(Some(StatusCode::BAD_GATEWAY), None, None),
+            ExpectedResponse::new(Some(StatusCode::SERVICE_UNAVAILABLE), None, None),
         ),
         (
             "uncertified /invalid_data.txt over raw".to_string(),
@@ -156,7 +156,7 @@ pub async fn basic_http_gateway_test(env: &TestEnv) -> anyhow::Result<()> {
                 Some(vec![0; 32]),
             ),
             certified_domain.clone(),
-            ExpectedResponse::new(Some(StatusCode::BAD_GATEWAY), None, None),
+            ExpectedResponse::new(Some(StatusCode::SERVICE_UNAVAILABLE), None, None),
         ),
         (
             "certified 10mb asset (unverified)".to_string(),
