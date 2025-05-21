@@ -329,7 +329,7 @@ impl ErrorClientFacing {
                 let template =
                     template.replace("{reason}", self.to_string().replace("_", " ").as_str());
 
-                template.replace("{details}", &self.details().replace("\n", "<br />"))
+                template.replace("{details}", &self.details().replace('\n', "<br />"))
             }
         }
     }
