@@ -36,6 +36,13 @@ pub enum RateLimitCause {
     BoundaryNode,
 }
 
+// Creates the response from RateLimitCause and injects itself into extensions to be visible by middleware
+impl IntoResponse for RateLimitCause {
+    fn into_response(self) -> Response {
+        ErrorCause::RateLimited(self).into_response()
+    }
+}
+
 // Categorized possible causes for request processing failures
 // Not using Error as inner type since it's not cloneable
 #[derive(Debug, Clone, Display, IntoStaticStr, Eq, PartialEq)]
@@ -126,13 +133,6 @@ impl IntoResponse for ErrorCause {
         let mut resp = client_facing_error.into_response();
         resp.extensions_mut().insert(self);
         resp
-    }
-}
-
-// Creates the response from RateLimitCause and injects itself into extensions to be visible by middleware
-impl IntoResponse for RateLimitCause {
-    fn into_response(self) -> Response {
-        ErrorCause::RateLimited(self).into_response()
     }
 }
 
@@ -244,7 +244,7 @@ pub enum ErrorClientFacing {
     CanisterFrozen,
     CanisterRouteNotFound,
     CanisterIdNotResolved,
-    CanisterIdIncorrect(String),
+    CanisterIdIncorrect,
     SubnetNotFound,
     SubnetUnavailable,
     ResponseVerificationError,
@@ -273,7 +273,7 @@ impl ErrorClientFacing {
             Self::CanisterFrozen => StatusCode::SERVICE_UNAVAILABLE,
             Self::CanisterRouteNotFound => StatusCode::BAD_REQUEST,
             Self::CanisterIdNotResolved => StatusCode::BAD_REQUEST,
-            Self::CanisterIdIncorrect(_) => StatusCode::BAD_REQUEST,
+            Self::CanisterIdIncorrect => StatusCode::BAD_REQUEST,
             Self::SubnetNotFound => StatusCode::BAD_REQUEST,
             Self::SubnetUnavailable => StatusCode::SERVICE_UNAVAILABLE,
             Self::ResponseVerificationError => StatusCode::SERVICE_UNAVAILABLE,
@@ -300,8 +300,8 @@ impl ErrorClientFacing {
             Self::CanisterError => "The canister encountered an error while processing the request.\nThis issue may be due to resource limitations, configuration problems, or an internal failure.".into(),
             Self::CanisterFrozen => "The canister is temporarily unable to process the request due to insufficient funds.".into(),
             Self::CanisterRouteNotFound => "The requested canister does not seem to belong so any Subnet.".into(),
-            Self::CanisterIdNotResolved => "We weren't able to resolve the ID of the canister where to send the request.".into(),
-            Self::CanisterIdIncorrect(x) => format!("The canister ID is incorrect: {x}"),
+            Self::CanisterIdNotResolved => "HTTP gateway wasn't able to resolve the ID of the canister where to send the request.".into(),
+            Self::CanisterIdIncorrect => "The canister ID is incorrect".into(),
             Self::SubnetNotFound => "The requested subnet was not found.".into(),
             Self::SubnetUnavailable => "The subnet is temporarily unavailable due to maintenance or an ongoing upgrade. Please try again later.".into(),
             Self::ResponseVerificationError => "The response from the canister failed verification and cannot be trusted.\nIf you understand the risks, you can retry using the raw domain to bypass certification.".into(),
@@ -313,7 +313,7 @@ impl ErrorClientFacing {
             Self::MalformedRequest(x) => x.into(),
             Self::NoAuthority => "The request is missing the required authority information (e.g. 'Host' header).".into(),
             Self::Other => "Internal Server Error".into(),
-            Self::PayloadTooLarge => "The payload is too large.".into(),
+            Self::PayloadTooLarge => "The request body exceeds the maximum allowed size.".into(),
             Self::RateLimited => "Rate limit exceeded. Please slow down requests and try again later.".into(),
             Self::UnknownDomain => "The requested domain is not served by this HTTP gateway.".into(),
             Self::UpstreamError => "The HTTP gateway is temporarily unable to process the request. Please try again later.".into(),
@@ -351,7 +351,7 @@ impl From<&ErrorCause> for ErrorClientFacing {
             ErrorCause::CanisterError => Self::CanisterError,
             ErrorCause::CanisterFrozen => Self::CanisterFrozen,
             ErrorCause::CanisterRouteNotFound => Self::CanisterRouteNotFound,
-            ErrorCause::CanisterIdIncorrect(x) => Self::CanisterIdIncorrect(x.clone()),
+            ErrorCause::CanisterIdIncorrect(_) => Self::CanisterIdIncorrect,
             ErrorCause::SubnetNotFound => Self::SubnetNotFound,
             ErrorCause::SubnetUnavailable => Self::SubnetUnavailable,
             ErrorCause::ResponseVerificationError => Self::ResponseVerificationError,
@@ -373,7 +373,7 @@ impl IntoResponse for ErrorClientFacing {
         // Return an HTML error page if it was an HTTP request
         let body = match request_type {
             RequestType::Http => format!("{}\n", self.html()),
-            _ => format!("error: {}\ndetails: {}", self, self.details()),
+            _ => format!("error: {}\ndetails:\n{}", self, self.details()),
         };
 
         let mut resp = (self.status_code(), body).into_response();
