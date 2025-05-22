@@ -161,7 +161,7 @@ const LOAD_SHED: &str = "load_shed";
 
 impl From<&BNResponseMetadata> for Option<ErrorCause> {
     fn from(v: &BNResponseMetadata) -> Self {
-        if v.error_cause.is_empty() {
+        if ["", "none"].contains(&v.error_cause.as_str()) {
             return None;
         };
 
@@ -415,20 +415,25 @@ mod test {
 
         // Mapping of "error_cause" BN headers
         let cases = [
-            (NO_HEALTHY_NODES, ErrorCause::SubnetUnavailable),
-            (NO_ROUTING_TABLE, ErrorCause::NoRoutingTable),
-            (FORBIDDEN, ErrorCause::Forbidden),
-            (LOAD_SHED, ErrorCause::LoadShed),
-            (CANISTER_NOT_FOUND, ErrorCause::CanisterRouteNotFound),
-            (CANISTER_ROUTE_NOT_FOUND, ErrorCause::CanisterRouteNotFound),
-            (SUBNET_NOT_FOUND, ErrorCause::SubnetNotFound),
+            (NO_HEALTHY_NODES, Some(ErrorCause::SubnetUnavailable)),
+            (NO_ROUTING_TABLE, Some(ErrorCause::NoRoutingTable)),
+            (FORBIDDEN, Some(ErrorCause::Forbidden)),
+            (LOAD_SHED, Some(ErrorCause::LoadShed)),
+            (CANISTER_NOT_FOUND, Some(ErrorCause::CanisterRouteNotFound)),
+            (
+                CANISTER_ROUTE_NOT_FOUND,
+                Some(ErrorCause::CanisterRouteNotFound),
+            ),
+            (SUBNET_NOT_FOUND, Some(ErrorCause::SubnetNotFound)),
+            ("", None),
+            ("none", None),
         ];
         for (hdr, err) in cases {
             let mut hm = HeaderMap::new();
             hm.insert(X_IC_ERROR_CAUSE, hval!(hdr));
             let meta = BNResponseMetadata::from(&mut hm);
             let error_cause = Option::<ErrorCause>::from(&meta);
-            assert_eq!(error_cause, Some(err));
+            assert_eq!(error_cause, err);
         }
 
         // Mapping of agent errors
