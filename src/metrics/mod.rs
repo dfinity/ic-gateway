@@ -296,9 +296,10 @@ pub async fn middleware(
         let domain = ctx
             .as_ref()
             .map_or_else(String::new, |x| x.domain.name.to_string());
-        let error_cause = error_cause
+
+        let (error_cause, error_cause_details) = error_cause
             .clone()
-            .map_or_else(String::new, |x| x.to_string());
+            .map_or_else(|| (String::new(), None), |x| (x.to_string(), x.details()));
 
         let upstream = req_meta
             .upstream
@@ -382,6 +383,7 @@ pub async fn middleware(
                 ic_cache_status = resp_meta.cache_status,
                 ic_cache_bypass_reason = resp_meta.cache_bypass_reason,
                 error = error_cause,
+                error_details = error_cause_details,
                 req_size = request_size,
                 request_type,
                 resp_size = response_size,
