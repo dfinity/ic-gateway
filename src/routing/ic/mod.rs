@@ -24,6 +24,7 @@ use ic_bn_lib::http::{
 use ic_http_gateway::{
     HttpGatewayClient, HttpGatewayClientBuilder, HttpGatewayResponse, HttpGatewayResponseMetadata,
 };
+use tracing::warn;
 
 use crate::Cli;
 
@@ -121,6 +122,8 @@ pub fn setup(
         let key = fs::read(v).context("unable to read IC root key")?;
         agent.set_root_key(key);
     } else if cli.ic.ic_unsafe_root_key_fetch {
+        warn!("Fetching IC root key (UNSAFE)");
+
         let agent = agent.clone();
         let _ = futures::executor::block_on(async move {
             tokio::runtime::Handle::current()
