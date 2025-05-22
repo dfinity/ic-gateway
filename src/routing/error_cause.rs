@@ -79,6 +79,7 @@ pub enum ErrorCause {
     BackendBodyError(String),
     BackendTLSErrorOther(String),
     BackendTLSErrorCert(String),
+    BoundaryNodeError(String),
     #[strum(serialize = "rate_limited_{0}")]
     RateLimited(RateLimitCause),
     #[strum(serialize = "internal_server_error")]
@@ -176,7 +177,7 @@ impl From<&BNResponseMetadata> for Option<ErrorCause> {
             FORBIDDEN => ErrorCause::Forbidden,
             LOAD_SHED => ErrorCause::LoadShed,
             NO_ROUTING_TABLE => ErrorCause::NoRoutingTable,
-            _ => ErrorCause::Other(v.error_cause.clone()),
+            _ => ErrorCause::BoundaryNodeError(v.error_cause.clone()),
         })
     }
 }
@@ -425,6 +426,7 @@ mod test {
                 Some(ErrorCause::CanisterRouteNotFound),
             ),
             (SUBNET_NOT_FOUND, Some(ErrorCause::SubnetNotFound)),
+            ("foo", Some(ErrorCause::BoundaryNodeError("foo".into()))),
             ("", None),
             ("none", None),
         ];
