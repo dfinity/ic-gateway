@@ -210,10 +210,7 @@ impl ProvidesCertificates for CertificatesImporter {
             .as_ref()
             .clone()
             .into_iter()
-            .map(|x| Pem {
-                cert: x.pair.1,
-                key: x.pair.0,
-            })
+            .map(|x| Pem([x.pair.0, x.pair.1].concat()))
             .collect::<Vec<_>>();
 
         Ok(certs)

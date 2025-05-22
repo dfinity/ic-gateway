@@ -126,6 +126,11 @@ pub async fn setup(
 
     let mut cert_providers: Vec<Arc<dyn ProvidesCertificates>> = vec![];
 
+    // Create File providers
+    for v in &cli.cert.cert_provider_file {
+        cert_providers.push(Arc::new(providers::File::new(v.clone())));
+    }
+
     // Create Dir providers
     for v in &cli.cert.cert_provider_dir {
         cert_providers.push(Arc::new(providers::Dir::new(v.clone())));

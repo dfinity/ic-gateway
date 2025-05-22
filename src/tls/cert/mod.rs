@@ -3,11 +3,11 @@ pub mod storage;
 
 use std::sync::{Arc, Mutex};
 
-use anyhow::{Error, anyhow};
+use anyhow::{Context, Error, anyhow};
 use async_trait::async_trait;
 use ic_bn_lib::{
     tasks::Run,
-    tls::{extract_sans_der, pem_convert_to_rustls},
+    tls::{extract_sans_der, pem_convert_to_rustls_single},
 };
 use rustls::sign::CertifiedKey;
 use tokio_util::sync::CancellationToken;
@@ -26,10 +26,11 @@ pub struct Cert<T: Clone + Send + Sync> {
 // Commonly used concrete type of the above for Rustls
 pub type CertKey = Cert<Arc<CertifiedKey>>;
 
-pub fn pem_convert_to_certkey(key: &[u8], certs: &[u8]) -> Result<CertKey, Error> {
-    let cert_key = pem_convert_to_rustls(key, certs)?;
+pub fn pem_convert_to_certkey(pem: &[u8]) -> Result<CertKey, Error> {
+    let cert_key = pem_convert_to_rustls_single(pem)
+        .context("unable to convert certificate chain and/or private key from PEM")?;
 
-    let san = extract_sans_der(cert_key.cert[0].as_ref())?;
+    let san = extract_sans_der(cert_key.cert[0].as_ref()).context("unable to extract SANs")?;
     if san.is_empty() {
         return Err(anyhow!(
             "no supported names found in SubjectAlternativeName extension"
@@ -44,7 +45,7 @@ pub fn pem_convert_to_certkey(key: &[u8], certs: &[u8]) -> Result<CertKey, Error
 
 fn parse_pem(pem: &[Pem]) -> Result<Vec<CertKey>, Error> {
     pem.iter()
-        .map(|x| pem_convert_to_certkey(&x.key, &x.cert))
+        .map(|x| pem_convert_to_certkey(&x.0))
         .collect::<Result<Vec<_>, _>>()
 }
 
@@ -316,29 +317,17 @@ pub mod test {
 
     #[test]
     fn test_pem_convert_to_certkey() -> Result<(), Error> {
-        let cert = pem_convert_to_certkey(KEY_1, CERT_1)?;
+        let cert = pem_convert_to_certkey(&[KEY_1, CERT_1].concat())?;
         assert_eq!(cert.san, vec!["novg"]);
-        let cert = pem_convert_to_certkey(KEY_2, CERT_2)?;
+        let cert = pem_convert_to_certkey(&[KEY_2, CERT_2].concat())?;
         assert_eq!(cert.san, vec!["3658153f27e0"]);
         Ok(())
     }
 
     #[tokio::test]
     async fn test_aggregator() -> Result<(), Error> {
-        let prov1 = TestProvider(
-            Pem {
-                key: KEY_1.to_vec(),
-                cert: CERT_1.to_vec(),
-            },
-            AtomicUsize::new(0),
-        );
-        let prov2 = TestProvider(
-            Pem {
-                key: KEY_2.to_vec(),
-                cert: CERT_2.to_vec(),
-            },
-            AtomicUsize::new(0),
-        );
+        let prov1 = TestProvider(Pem([KEY_1, CERT_1].concat().to_vec()), AtomicUsize::new(0));
+        let prov2 = TestProvider(Pem([KEY_2, CERT_2].concat().to_vec()), AtomicUsize::new(0));
 
         let storage = Arc::new(storage::StorageKey::new(
             None,

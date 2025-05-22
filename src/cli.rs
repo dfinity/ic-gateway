@@ -198,6 +198,11 @@ pub struct Ic {
 
 #[derive(Args)]
 pub struct Cert {
+    /// Read certificates from given files.
+    /// Each file should be PEM-encoded concatenated certificate chain with a private key.
+    #[clap(env, long, value_delimiter = ',')]
+    pub cert_provider_file: Vec<PathBuf>,
+
     /// Read certificates from given directories
     /// Each certificate should be a pair .pem + .key files with the same base name.
     #[clap(env, long, value_delimiter = ',')]
