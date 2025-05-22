@@ -1,7 +1,9 @@
 pub mod dir;
+pub mod file;
 pub mod issuer;
 
 pub use dir::Provider as Dir;
+pub use file::Provider as File;
 pub use issuer::CertificatesImporter as Issuer;
 
 use async_trait::async_trait;
@@ -12,10 +14,7 @@ use std::sync::Arc;
 use crate::{cli::Cli, routing::domain::ProvidesCustomDomains};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Pem {
-    pub cert: Vec<u8>,
-    pub key: Vec<u8>,
-}
+pub struct Pem(pub Vec<u8>);
 
 // Trait that the certificate providers should implement
 // It should return a vector of PEM-encoded cert-keys pairs

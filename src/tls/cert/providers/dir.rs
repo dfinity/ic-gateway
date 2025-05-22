@@ -57,7 +57,7 @@ impl ProvidesCertificates for Provider {
                 v.path().to_string_lossy()
             ))?;
 
-            certs.push(Pem { cert, key });
+            certs.push(Pem([cert, key].concat()));
         }
 
         debug!(
@@ -73,17 +73,21 @@ impl ProvidesCertificates for Provider {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::tls::cert::test::{CERT_1, KEY_1};
+    use crate::tls::cert::test::{CERT_1, CERT_2, KEY_1, KEY_2};
 
     #[tokio::test]
     async fn test() -> Result<(), Error> {
         let dir = tempfile::tempdir()?;
 
-        let keyfile = dir.path().join("foobar.key");
-        std::fs::write(keyfile, KEY_1)?;
+        let keyfile1 = dir.path().join("foobar1.key");
+        std::fs::write(keyfile1, KEY_1)?;
+        let certfile1 = dir.path().join("foobar1.pem");
+        std::fs::write(certfile1, CERT_1)?;
 
-        let certfile = dir.path().join("foobar.pem");
-        std::fs::write(certfile, CERT_1)?;
+        let keyfile2 = dir.path().join("foobar2.key");
+        std::fs::write(keyfile2, KEY_2)?;
+        let certfile2 = dir.path().join("foobar2.pem");
+        std::fs::write(certfile2, CERT_2)?;
 
         // Some junk to be ignored
         std::fs::write(dir.path().join("foobar.baz"), b"foobar")?;
@@ -91,9 +95,9 @@ mod test {
         let prov = Provider::new(dir.path().to_path_buf());
         let certs = prov.get_certificates().await?;
 
-        assert_eq!(certs.len(), 1);
-        assert_eq!(certs[0].key, KEY_1);
-        assert_eq!(certs[0].cert, CERT_1);
+        assert_eq!(certs.len(), 2);
+        assert_eq!(certs[0].0, [CERT_1, KEY_1].concat());
+        assert_eq!(certs[1].0, [CERT_2, KEY_2].concat());
 
         Ok(())
     }
