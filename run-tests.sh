@@ -36,7 +36,6 @@ export POCKET_IC_BIN="${POCKETIC_BIN}"
 log "PocketIC setup completed"
 
 log "Downloading ic-boundary"
-# TODO find a way to get the latest version from monorepo
 curl -fsSL --retry 3 --retry-delay 5 "${IC_BOUNDARY_URL}" -o ic-boundary.gz
 gzip -d ic-boundary.gz
 chmod +x ic-boundary
