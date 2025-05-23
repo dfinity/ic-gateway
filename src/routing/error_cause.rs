@@ -162,9 +162,15 @@ const LOAD_SHED: &str = "load_shed";
 
 impl From<&BNResponseMetadata> for Option<ErrorCause> {
     fn from(v: &BNResponseMetadata) -> Self {
+        if let Some(x) = v.status {
+            if x.is_success() {
+                return None;
+            }
+        }
+
         if ["", "none"].contains(&v.error_cause.as_str()) {
             return None;
-        };
+        }
 
         if v.error_cause.starts_with("rate_limited") {
             return Some(ErrorCause::RateLimited(RateLimitCause::BoundaryNode));
@@ -437,6 +443,14 @@ mod test {
             let error_cause = Option::<ErrorCause>::from(&meta);
             assert_eq!(error_cause, err);
         }
+
+        // Check that successful status code emits no error regardless of headers
+        let mut hm = HeaderMap::new();
+        hm.insert(X_IC_ERROR_CAUSE, hval!(NO_HEALTHY_NODES));
+        let mut meta = BNResponseMetadata::from(&mut hm);
+        meta.status = Some(StatusCode::OK);
+        let error_cause = Option::<ErrorCause>::from(&meta);
+        assert_eq!(error_cause, None);
 
         // Mapping of agent errors
         let cases = [

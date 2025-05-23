@@ -10,7 +10,7 @@ pub mod route_provider;
 use std::{fs, sync::Arc};
 
 use anyhow::{Context, Error};
-use http::{HeaderMap, header::HeaderName};
+use http::{HeaderMap, StatusCode, header::HeaderName};
 use http_body_util::Either;
 use ic_agent::agent::route_provider::RouteProvider;
 use ic_bn_lib::http::{
@@ -47,6 +47,7 @@ pub struct BNResponseMetadata {
     pub retries: String,
     pub cache_status: String,
     pub cache_bypass_reason: String,
+    pub status: Option<StatusCode>,
 }
 
 // This defaults to all fields as ""
@@ -78,6 +79,7 @@ impl From<&mut HeaderMap> for BNResponseMetadata {
             retries: extract(&X_IC_RETRIES),
             cache_status: extract(&X_IC_CACHE_STATUS),
             cache_bypass_reason: extract(&X_IC_CACHE_BYPASS_REASON),
+            status: None,
         }
     }
 }

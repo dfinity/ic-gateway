@@ -151,8 +151,10 @@ pub async fn api_proxy(
                     .insert(X_FRAME_OPTIONS, X_FRAME_OPTIONS_DENY);
             }
 
-            let bn_metadata = BNResponseMetadata::from(v.headers_mut());
-            v.extensions_mut().insert(bn_metadata);
+            let mut resp_meta = BNResponseMetadata::from(v.headers_mut());
+            resp_meta.status = Some(v.status());
+
+            v.extensions_mut().insert(resp_meta);
             v.extensions_mut().insert(matched_path);
             Ok(v)
         }
