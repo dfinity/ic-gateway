@@ -278,6 +278,8 @@ pub fn start_ic_boundary(port: &str, replica_addr: &str) -> Child {
         port,
         "--registry-stub-replica",
         replica_addr,
+        "--http-client-timeout-connect",
+        "3s",
         "--obs-log-stdout",
         "--skip-replica-tls-verification",
     ]);
@@ -343,6 +345,7 @@ pub struct TestEnv {
     pub ic_boundary_process: Child,
     pub ic_gateway_addr: SocketAddr,
     pub ic_gateway_domain: String,
+    pub root_key: Vec<u8>,
 }
 
 impl TestEnv {
@@ -354,7 +357,7 @@ impl TestEnv {
         init_logging();
 
         info!("pocket-ic server starting ...");
-        let pic = PocketIcBuilder::new().with_nns_subnet().build_async().await;
+        let mut pic = PocketIcBuilder::new().with_nns_subnet().build_async().await;
         let https_config = HttpsConfig {
             cert_path: "test_data/cert.pem".into(),
             key_path: "test_data/key.pem".into(),
@@ -384,11 +387,7 @@ impl TestEnv {
 
         let ic_boundary_process = start_ic_boundary(
             ic_boundary_port,
-            &format!(
-                "{}:{}",
-                ic_url.host_str().unwrap(),
-                ic_url.port_or_known_default().unwrap()
-            ),
+            &format!("127.0.0.1:{}", ic_url.port_or_known_default().unwrap()),
         );
 
         let ic_gateway_addr =
@@ -407,6 +406,7 @@ impl TestEnv {
             ic_gateway_addr,
             ic_gateway_domain: ic_gateway_domain.to_string(),
             pic,
+            root_key,
         }
     }
 }
