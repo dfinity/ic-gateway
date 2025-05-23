@@ -83,7 +83,8 @@ pub async fn denylist_test(env: &TestEnv) -> anyhow::Result<()> {
         .with_url(url)
         .with_http_client(http_client)
         .build()?;
-    agent.fetch_root_key().await?;
+
+    agent.set_root_key(env.root_key.clone());
 
     info!("verify that API calls to the denylisted canister are NOT blocked");
     agent

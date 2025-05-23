@@ -43,6 +43,9 @@ pub async fn proxy_api_calls_test(env: &TestEnv) -> anyhow::Result<()> {
     info!("api/v2/status - implicit status to fetch the root key");
     agent.fetch_root_key().await?;
 
+    // Set the actual root key
+    agent.set_root_key(env.root_key.clone());
+
     info!("api/v2/query - query counter");
     let out = agent.query(&canister_id, "read").call().await?;
     if !out.eq(&[0, 0, 0, 0]) {
