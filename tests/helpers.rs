@@ -13,6 +13,7 @@ use nix::{
 };
 use pocket_ic::{
     PocketIcBuilder,
+    common::rest::HttpsConfig,
     nonblocking::{PocketIc, update_candid_as},
 };
 use reqwest::Response;
@@ -269,6 +270,34 @@ pub async fn upload_asset_to_asset_canister(
     .unwrap();
 }
 
+pub fn start_ic_boundary(port: &str, replica_addr: &str) -> Child {
+    info!("ic-gateway service starting ...");
+    let mut cmd = Command::new("./ic-boundary");
+    cmd.args([
+        "--listen-http-port",
+        port,
+        "--registry-stub-replica",
+        replica_addr,
+        "--obs-log-stdout",
+        "--skip-replica-tls-verification",
+    ]);
+
+    let child = cmd.spawn().expect("failed to start ic-boundary service");
+    info!("ic-boundary service started");
+    child
+}
+
+pub fn stop_ic_boundary(process: &mut Child) {
+    info!("gracefully terminating ic-boundary process");
+    let pid = process.id() as i32;
+    match signal::kill(Pid::from_raw(pid), Signal::SIGINT) {
+        Ok(_) => info!("Sent SIGINT to process {pid}"),
+        Err(e) => info!("Failed to send SIGINT: {}", e),
+    }
+    let exit_status = process.wait().expect("failed to wait on child process");
+    info!("ic-boundary process exited with: {:?}", exit_status);
+}
+
 pub fn start_ic_gateway(
     addr: &str,
     domain: &str,
@@ -291,6 +320,7 @@ pub fn start_ic_gateway(
         cmd.arg(denylist_seed_path.unwrap().to_str().unwrap());
     }
     cmd.arg("--listen-insecure-serve-http-only");
+
     let child = cmd.spawn().expect("failed to start ic-gateway service");
     info!("ic-gateway service started");
     child
@@ -310,17 +340,28 @@ pub fn stop_ic_gateway(process: &mut Child) {
 pub struct TestEnv {
     pub pic: PocketIc,
     pub ic_gateway_process: Child,
+    pub ic_boundary_process: Child,
     pub ic_gateway_addr: SocketAddr,
     pub ic_gateway_domain: String,
 }
 
 impl TestEnv {
-    pub async fn new(ic_gateway_addr: &str, ic_gateway_domain: &str) -> Self {
+    pub async fn new(
+        ic_gateway_addr: &str,
+        ic_gateway_domain: &str,
+        ic_boundary_port: &str,
+    ) -> Self {
         init_logging();
 
         info!("pocket-ic server starting ...");
         let pic = PocketIcBuilder::new().with_nns_subnet().build_async().await;
-        pic.auto_progress().await;
+        let https_config = HttpsConfig {
+            cert_path: "test_data/cert.pem".into(),
+            key_path: "test_data/key.pem".into(),
+        };
+        let ic_url = pic
+            .make_live_with_params(None, None, None, Some(https_config))
+            .await;
         info!("pocket-ic server started");
 
         // fetch the root key of "local" IC and save it to a file
@@ -341,19 +382,28 @@ impl TestEnv {
         fs::write(DENYLIST_FILE, &denylist_seed.as_bytes())
             .expect("failed to write denylist to file");
 
+        let ic_boundary_process = start_ic_boundary(
+            ic_boundary_port,
+            &format!(
+                "{}:{}",
+                ic_url.host_str().unwrap(),
+                ic_url.port_or_known_default().unwrap()
+            ),
+        );
+
         let ic_gateway_addr =
             SocketAddr::from_str(ic_gateway_addr).expect("failed to parse address");
-        let ic_url = format!("{}instances/{}/", pic.get_server_url(), pic.instance_id);
-        let process = start_ic_gateway(
+        let ic_gateway_process = start_ic_gateway(
             &ic_gateway_addr.to_string(),
             ic_gateway_domain,
-            &ic_url,
+            &format!("http://127.0.0.1:{ic_boundary_port}"),
             ROOT_KEY_FILE.into(),
             Some(DENYLIST_FILE.into()),
         );
 
         Self {
-            ic_gateway_process: process,
+            ic_gateway_process,
+            ic_boundary_process,
             ic_gateway_addr,
             ic_gateway_domain: ic_gateway_domain.to_string(),
             pic,
@@ -364,6 +414,7 @@ impl TestEnv {
 impl Drop for TestEnv {
     fn drop(&mut self) {
         stop_ic_gateway(&mut self.ic_gateway_process);
+        stop_ic_boundary(&mut self.ic_boundary_process);
         let _ = std::fs::remove_file("root_key.der");
     }
 }

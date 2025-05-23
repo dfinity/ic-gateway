@@ -4,6 +4,7 @@ set -eEuo pipefail
 readonly POCKETIC_VERSION="9.0.1"
 readonly POCKETIC_URL="https://github.com/dfinity/pocketic/releases/download/${POCKETIC_VERSION}/pocket-ic-x86_64-linux.gz"
 readonly POCKETIC_CHECKSUM="237272216498074e5250a0685813b96632963ff9abbc51a7030d9b625985028d"
+readonly IC_BOUNDARY_URL="https://download.dfinity.systems/ic/2f52f298de53944209f550774505aa72a1a3ed17/binaries/x86_64-linux/ic-boundary.gz"
 readonly ASSET_WASM_URL="https://github.com/dfinity/sdk/raw/fec030f53814e7eaa2f869189e8852b5c0e60e5e/src/distributed/assetstorage.wasm.gz"
 readonly ASSET_WASM_CHECKSUM="865eb25df5a6d857147e078bb33c727797957247f7af2635846d65c5397b36a6"
 readonly LARGE_ASSETS_WASM_URL="https://github.com/dfinity/http-gateway/raw/42408f658199d7278d8ff3293504a06e1b0ef61d/examples/http-gateway/canister/http_gateway_canister_custom_assets.wasm.gz"
@@ -29,6 +30,12 @@ gzip -df pocket-ic.gz || { log "Failed to extract PocketIC"; exit 1; }
 chmod +x "${POCKETIC_BIN}" || { log "Failed to make PocketIC executable"; exit 1; }
 export POCKET_IC_BIN="${POCKETIC_BIN}"
 log "PocketIC setup completed"
+
+log "Downloading ic-boundary"
+# TODO find a way to get the latest version from monorepo
+curl -fsSL --retry 3 --retry-delay 5 "${IC_BOUNDARY_URL}" -o ic-boundary.gz
+gzip -d ic-boundary.gz
+chmod +x ic-boundary
 
 log "Building ic-gateway"
 cargo build || { log "ic-gateway build failed"; exit 1; }
