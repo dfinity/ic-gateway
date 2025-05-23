@@ -292,7 +292,7 @@ pub fn start_ic_boundary(port: &str, replica_addr: &str) -> Child {
 pub fn stop_ic_boundary(process: &mut Child) {
     info!("gracefully terminating ic-boundary process");
     let pid = process.id() as i32;
-    match signal::kill(Pid::from_raw(pid), Signal::SIGINT) {
+    match signal::kill(Pid::from_raw(pid), Signal::SIGTERM) {
         Ok(_) => info!("Sent SIGINT to process {pid}"),
         Err(e) => info!("Failed to send SIGINT: {}", e),
     }
@@ -331,7 +331,7 @@ pub fn start_ic_gateway(
 pub fn stop_ic_gateway(process: &mut Child) {
     info!("gracefully terminating ic-gateway process");
     let pid = process.id() as i32;
-    match signal::kill(Pid::from_raw(pid), Signal::SIGINT) {
+    match signal::kill(Pid::from_raw(pid), Signal::SIGTERM) {
         Ok(_) => info!("Sent SIGINT to process {pid}"),
         Err(e) => info!("Failed to send SIGINT: {}", e),
     }
