@@ -1,6 +1,7 @@
 use std::{cell::RefCell, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
+use http::StatusCode;
 use ic_agent::{AgentError, agent::HttpService};
 use ic_bn_lib::http::Client as HttpClient;
 use reqwest::{
@@ -15,6 +16,7 @@ pub struct Context {
     pub hostname: Option<String>,
     pub headers_in: HeaderMap<HeaderValue>,
     pub headers_out: HeaderMap<HeaderValue>,
+    pub status: Option<StatusCode>,
 }
 
 impl Context {
@@ -23,6 +25,7 @@ impl Context {
             hostname: None,
             headers_in: HeaderMap::new(),
             headers_out: HeaderMap::new(),
+            status: None,
         })
     }
 }
@@ -61,6 +64,7 @@ impl AgentHttpService {
         if !read_state {
             let _ = CONTEXT.try_with(|x| {
                 let mut ctx = x.borrow_mut();
+                ctx.status = Some(response.status());
 
                 for (k, v) in response.headers() {
                     ctx.headers_in.insert(k, v.clone());

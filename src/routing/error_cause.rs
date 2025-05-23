@@ -79,6 +79,7 @@ pub enum ErrorCause {
     BackendBodyError(String),
     BackendTLSErrorOther(String),
     BackendTLSErrorCert(String),
+    BoundaryNodeError(String),
     #[strum(serialize = "rate_limited_{0}")]
     RateLimited(RateLimitCause),
     #[strum(serialize = "internal_server_error")]
@@ -161,9 +162,15 @@ const LOAD_SHED: &str = "load_shed";
 
 impl From<&BNResponseMetadata> for Option<ErrorCause> {
     fn from(v: &BNResponseMetadata) -> Self {
-        if v.error_cause.is_empty() {
+        if let Some(x) = v.status {
+            if x.is_success() {
+                return None;
+            }
+        }
+
+        if ["", "none"].contains(&v.error_cause.as_str()) {
             return None;
-        };
+        }
 
         if v.error_cause.starts_with("rate_limited") {
             return Some(ErrorCause::RateLimited(RateLimitCause::BoundaryNode));
@@ -176,7 +183,7 @@ impl From<&BNResponseMetadata> for Option<ErrorCause> {
             FORBIDDEN => ErrorCause::Forbidden,
             LOAD_SHED => ErrorCause::LoadShed,
             NO_ROUTING_TABLE => ErrorCause::NoRoutingTable,
-            _ => ErrorCause::Other(v.error_cause.clone()),
+            _ => ErrorCause::BoundaryNodeError(v.error_cause.clone()),
         })
     }
 }
@@ -415,21 +422,35 @@ mod test {
 
         // Mapping of "error_cause" BN headers
         let cases = [
-            (NO_HEALTHY_NODES, ErrorCause::SubnetUnavailable),
-            (NO_ROUTING_TABLE, ErrorCause::NoRoutingTable),
-            (FORBIDDEN, ErrorCause::Forbidden),
-            (LOAD_SHED, ErrorCause::LoadShed),
-            (CANISTER_NOT_FOUND, ErrorCause::CanisterRouteNotFound),
-            (CANISTER_ROUTE_NOT_FOUND, ErrorCause::CanisterRouteNotFound),
-            (SUBNET_NOT_FOUND, ErrorCause::SubnetNotFound),
+            (NO_HEALTHY_NODES, Some(ErrorCause::SubnetUnavailable)),
+            (NO_ROUTING_TABLE, Some(ErrorCause::NoRoutingTable)),
+            (FORBIDDEN, Some(ErrorCause::Forbidden)),
+            (LOAD_SHED, Some(ErrorCause::LoadShed)),
+            (CANISTER_NOT_FOUND, Some(ErrorCause::CanisterRouteNotFound)),
+            (
+                CANISTER_ROUTE_NOT_FOUND,
+                Some(ErrorCause::CanisterRouteNotFound),
+            ),
+            (SUBNET_NOT_FOUND, Some(ErrorCause::SubnetNotFound)),
+            ("foo", Some(ErrorCause::BoundaryNodeError("foo".into()))),
+            ("", None),
+            ("none", None),
         ];
         for (hdr, err) in cases {
             let mut hm = HeaderMap::new();
             hm.insert(X_IC_ERROR_CAUSE, hval!(hdr));
             let meta = BNResponseMetadata::from(&mut hm);
             let error_cause = Option::<ErrorCause>::from(&meta);
-            assert_eq!(error_cause, Some(err));
+            assert_eq!(error_cause, err);
         }
+
+        // Check that successful status code emits no error regardless of headers
+        let mut hm = HeaderMap::new();
+        hm.insert(X_IC_ERROR_CAUSE, hval!(NO_HEALTHY_NODES));
+        let mut meta = BNResponseMetadata::from(&mut hm);
+        meta.status = Some(StatusCode::OK);
+        let error_cause = Option::<ErrorCause>::from(&meta);
+        assert_eq!(error_cause, None);
 
         // Mapping of agent errors
         let cases = [

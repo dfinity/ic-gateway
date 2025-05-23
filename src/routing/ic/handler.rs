@@ -6,7 +6,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use bytes::Bytes;
-use http::{HeaderValue, header::HOST};
+use http::{HeaderValue, StatusCode, header::HOST};
 use ic_bn_lib::http::{ConnInfo, Error as IcBnError, body::buffer_body, headers::X_REQUEST_ID};
 use ic_http_gateway::{CanisterRequest, HttpGatewayClient, HttpGatewayRequestArgs};
 
@@ -90,12 +90,14 @@ pub async fn handler(
 
             let (bn_req_meta, bn_resp_meta) = CONTEXT.with(|x| {
                 let mut x = x.borrow_mut();
+                let mut resp_meta = BNResponseMetadata::from(&mut x.headers_in);
+                resp_meta.status = Some(x.status.unwrap_or(StatusCode::OK));
 
                 (
                     BNRequestMetadata {
                         upstream: x.hostname.clone(),
                     },
-                    BNResponseMetadata::from(&mut x.headers_in),
+                    resp_meta,
                 )
             });
 
