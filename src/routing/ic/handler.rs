@@ -62,7 +62,7 @@ pub async fn handler(
     // HTTP2 lacks it, but canisters might expect it to be present.
     if parts.headers.get(HOST).is_none() {
         let host = ctx.authority.to_string();
-        if let Ok(v) = HeaderValue::from_str(&host) {
+        if let Ok(v) = HeaderValue::from_maybe_shared(Bytes::from(host)) {
             parts.headers.insert(HOST, v);
         }
     }
