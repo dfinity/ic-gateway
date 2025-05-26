@@ -1,8 +1,3 @@
-use crate::helpers::{
-    ExpectedResponse, RETRY_INTERVAL, RETRY_TIMEOUT, StaticAsset, TestEnv, check_response,
-    get_asset_canister_wasm, get_large_assets_canister_wasm, install_canister, retry_async,
-    upload_asset_to_asset_canister,
-};
 use anyhow::{Context, anyhow, bail};
 use candid::Principal;
 use http::{Method, StatusCode};
@@ -10,6 +5,12 @@ use ic_bn_lib::hval;
 use reqwest::{Client, Request};
 use tracing::info;
 use url::Url;
+
+use crate::helpers::{
+    ExpectedResponse, RETRY_INTERVAL, RETRY_TIMEOUT, StaticAsset, TestEnv, check_response,
+    get_asset_canister_wasm, get_large_assets_canister_wasm, install_canister, retry_async,
+    upload_asset_to_asset_canister,
+};
 
 // Test scenario:
 // - deploy asset canister via pocket-ic interface

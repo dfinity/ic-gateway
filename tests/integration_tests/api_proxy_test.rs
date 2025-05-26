@@ -40,8 +40,12 @@ pub async fn proxy_api_calls_test(env: &TestEnv) -> anyhow::Result<()> {
         .build()?;
 
     info!("test proxying of various API calls ...");
-    info!("api/v2/status - implicit status to fetch the root key");
-    agent.fetch_root_key().await?;
+    info!("api/v2/status - status call");
+    let status = agent.status().await?;
+    assert_eq!(status.replica_health_status, Some("healthy".into()));
+
+    // Set the actual root key
+    agent.set_root_key(env.root_key.clone());
 
     info!("api/v2/query - query counter");
     let out = agent.query(&canister_id, "read").call().await?;

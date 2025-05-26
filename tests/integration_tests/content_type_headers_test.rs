@@ -1,12 +1,13 @@
-use crate::helpers::TestEnv;
-use crate::helpers::{
-    ExpectedResponse, RETRY_INTERVAL, RETRY_TIMEOUT, check_response, retry_async,
-};
+use std::collections::HashMap;
+
 use anyhow::{Context, anyhow};
 use http::{Method, StatusCode};
 use reqwest::{Client, Request};
-use std::collections::HashMap;
 use url::Url;
+
+use crate::helpers::{
+    ExpectedResponse, RETRY_INTERVAL, RETRY_TIMEOUT, TestEnv, check_response, retry_async,
+};
 
 // Test scenario:
 // - make an HTTP GET request to http://ic0.app/api/v2/status
