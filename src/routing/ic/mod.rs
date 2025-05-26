@@ -99,7 +99,7 @@ impl From<&HttpGatewayResponse> for IcResponseStatus {
     }
 }
 
-pub fn setup(
+pub async fn setup(
     cli: &Cli,
     http_client: Arc<dyn HttpClient>,
     route_provider: Arc<dyn RouteProvider>,
@@ -125,14 +125,10 @@ pub fn setup(
         agent.set_root_key(key);
     } else if cli.ic.ic_unsafe_root_key_fetch {
         warn!("Fetching IC root key (UNSAFE)");
-
-        let agent = agent.clone();
-        let _ = futures::executor::block_on(async move {
-            tokio::runtime::Handle::current()
-                .spawn(async move { agent.fetch_root_key().await })
-                .await
-        })
-        .context("unable to fetch IC root key")?;
+        agent
+            .fetch_root_key()
+            .await
+            .context("unable to fetch IC root key")?;
     }
 
     let client = HttpGatewayClientBuilder::new()

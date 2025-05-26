@@ -72,7 +72,7 @@ impl ic_bn_lib::http::Client for TestClient {
 }
 
 /// Creates a test router with some defaults and returns it along with a list of random custom domains that it serves
-pub fn setup_test_router(tasks: &mut TaskManager) -> (Router, Vec<String>) {
+pub async fn setup_test_router(tasks: &mut TaskManager) -> (Router, Vec<String>) {
     let mut rng = thread_rng();
 
     // Generate 1k custom domains
@@ -124,6 +124,7 @@ pub fn setup_test_router(tasks: &mut TaskManager) -> (Router, Vec<String>) {
         None,
         None,
     )
+    .await
     .unwrap();
 
     (router, domains)
