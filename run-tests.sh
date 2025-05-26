@@ -3,7 +3,7 @@ set -eEuo pipefail
 
 # Get the latest IC master hash that passed "CI Main".
 # This hash should have binaries published.
-readonly IC_COMMIT=$(gh run list --repo dfinity/ic --branch master --workflow "CI Main" --json headSha,status --jq '.[] | select(.status == "completed") | .headSha' | head -n 1)
+readonly IC_COMMIT=$(gh run list --repo dfinity/ic --branch master --workflow "CI Main" --json headSha,status --jq '.[] | select(.status == "completed") | .headSha' | head -n 3 | tail -n 1)
 
 readonly POCKETIC_VERSION="9.0.1"
 readonly POCKETIC_URL="https://github.com/dfinity/pocketic/releases/download/${POCKETIC_VERSION}/pocket-ic-x86_64-linux.gz"
