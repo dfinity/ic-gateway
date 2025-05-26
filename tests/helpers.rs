@@ -1,3 +1,15 @@
+use std::{
+    collections::HashMap,
+    env,
+    fs::{self, File},
+    io::Read,
+    net::SocketAddr,
+    path::PathBuf,
+    process::{Child, Command, ExitStatus},
+    str::FromStr,
+    time::{Duration, Instant},
+};
+
 use anyhow::anyhow;
 use candid::{Encode, Principal};
 use hex::encode;
@@ -18,17 +30,6 @@ use pocket_ic::{
 };
 use reqwest::Response;
 use sha2::{Digest, Sha256};
-use std::{
-    collections::HashMap,
-    env, fs,
-    fs::File,
-    io::Read,
-    net::SocketAddr,
-    path::PathBuf,
-    process::{Child, Command},
-    str::FromStr,
-    time::{Duration, Instant},
-};
 use tokio::time::sleep;
 use tracing::info;
 
@@ -259,6 +260,7 @@ pub async fn upload_asset_to_asset_canister(
             }),
         ],
     };
+
     update_candid_as::<_, ((),)>(
         pic,
         canister_id,
@@ -270,8 +272,17 @@ pub async fn upload_asset_to_asset_canister(
     .unwrap();
 }
 
+fn stop_process(p: &mut Child) -> ExitStatus {
+    let pid = p.id() as i32;
+    match signal::kill(Pid::from_raw(pid), Signal::SIGINT) {
+        Ok(_) => info!("Sent SIGINT to process {pid}"),
+        Err(e) => info!("Failed to send SIGINT: {}", e),
+    }
+    p.wait().expect("failed to wait on child process")
+}
+
 pub fn start_ic_boundary(port: &str, replica_addr: &str) -> Child {
-    info!("ic-gateway service starting ...");
+    info!("ic-boundary service starting ...");
     let mut cmd = Command::new("./ic-boundary");
     cmd.args([
         "--listen-http-port",
@@ -290,13 +301,10 @@ pub fn start_ic_boundary(port: &str, replica_addr: &str) -> Child {
 
 pub fn stop_ic_boundary(process: &mut Child) {
     info!("gracefully terminating ic-boundary process");
-    let pid = process.id() as i32;
-    match signal::kill(Pid::from_raw(pid), Signal::SIGTERM) {
-        Ok(_) => info!("Sent SIGTERM to process {pid}"),
-        Err(e) => info!("Failed to send SIGINT: {}", e),
-    }
-    let exit_status = process.wait().expect("failed to wait on child process");
-    info!("ic-boundary process exited with: {:?}", exit_status);
+    info!(
+        "ic-boundary process exited with: {:?}",
+        stop_process(process)
+    );
 }
 
 pub fn start_ic_gateway(
@@ -329,13 +337,10 @@ pub fn start_ic_gateway(
 
 pub fn stop_ic_gateway(process: &mut Child) {
     info!("gracefully terminating ic-gateway process");
-    let pid = process.id() as i32;
-    match signal::kill(Pid::from_raw(pid), Signal::SIGTERM) {
-        Ok(_) => info!("Sent SIGTERM to process {pid}"),
-        Err(e) => info!("Failed to send SIGINT: {}", e),
-    }
-    let exit_status = process.wait().expect("failed to wait on child process");
-    info!("ic-gateway process exited with: {:?}", exit_status);
+    info!(
+        "ic-gateway process exited with: {:?}",
+        stop_process(process)
+    );
 }
 
 pub struct TestEnv {

@@ -1,8 +1,5 @@
 use std::collections::HashMap;
 
-use crate::helpers::{
-    ExpectedResponse, RETRY_INTERVAL, RETRY_TIMEOUT, TestEnv, check_response, retry_async,
-};
 use anyhow::{Context, anyhow};
 use candid::Principal;
 use http::{Method, StatusCode};
@@ -10,6 +7,10 @@ use ic_bn_lib::principal;
 use reqwest::{Client, Request};
 use tracing::info;
 use url::Url;
+
+use crate::helpers::{
+    ExpectedResponse, RETRY_INTERVAL, RETRY_TIMEOUT, TestEnv, check_response, retry_async,
+};
 
 // Test scenario:
 // - install counter canister

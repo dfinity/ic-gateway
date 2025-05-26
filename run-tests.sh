@@ -74,3 +74,5 @@ export ASSET_CANISTER_DIR="${CANISTER_DIR}"
 log "Running all tests"
 cargo test --all-features --profile dev --workspace -- --nocapture || { log "Tests failed"; exit 1; }
 log "All tests completed successfully"
+
+rm -rf ic-boundary denylist_seed.json pocket-ic canister_wasms

@@ -1,7 +1,3 @@
-use crate::helpers::{
-    DENYLISTED_CANISTER_ID, ExpectedResponse, RETRY_INTERVAL, RETRY_TIMEOUT, TestEnv,
-    check_response, get_asset_canister_wasm, install_canister, retry_async,
-};
 use anyhow::{Context, anyhow};
 use candid::{Encode, Principal};
 use http::{Method, StatusCode};
@@ -10,6 +6,11 @@ use ic_bn_lib::principal;
 use reqwest::{Client, Request};
 use tracing::info;
 use url::Url;
+
+use crate::helpers::{
+    DENYLISTED_CANISTER_ID, ExpectedResponse, RETRY_INTERVAL, RETRY_TIMEOUT, TestEnv,
+    check_response, get_asset_canister_wasm, install_canister, retry_async,
+};
 
 // Test scenario:
 // - install a counter canister
