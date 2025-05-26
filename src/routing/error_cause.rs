@@ -355,6 +355,7 @@ impl From<&ErrorCause> for ErrorClientFacing {
             ErrorCause::CanisterError => Self::CanisterError,
             ErrorCause::CanisterFrozen => Self::CanisterFrozen,
             ErrorCause::CanisterRouteNotFound => Self::CanisterNotFound,
+            ErrorCause::CanisterIdNotResolved => Self::CanisterIdNotResolved,
             ErrorCause::CanisterIdIncorrect(_) => Self::CanisterIdIncorrect,
             ErrorCause::SubnetNotFound => Self::SubnetNotFound,
             ErrorCause::SubnetUnavailable => Self::SubnetUnavailable,

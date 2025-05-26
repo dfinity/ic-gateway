@@ -183,7 +183,7 @@ pub async fn redirect_to_https(
 
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::cognitive_complexity)]
-pub fn setup_router(
+pub async fn setup_router(
     cli: &Cli,
     custom_domain_providers: Vec<Arc<dyn ProvidesCustomDomains>>,
     tasks: &mut TaskManager,
@@ -331,6 +331,7 @@ pub fn setup_router(
 
     // Prepare the HTTP->IC library
     let ic_client = ic::setup(cli, http_client.clone(), route_provider.clone())
+        .await
         .context("unable to init IC client")?;
 
     // Prepare the states
@@ -624,7 +625,7 @@ mod test {
 
         // Create the test router
         let mut tasks = TaskManager::new();
-        let (mut router, domains) = setup_test_router(&mut tasks);
+        let (mut router, domains) = setup_test_router(&mut tasks).await;
         // Start the tasks and give them some time to finish
         tasks.start();
         tokio::time::sleep(Duration::from_secs(1)).await;

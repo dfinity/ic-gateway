@@ -1,14 +1,9 @@
 #!/usr/bin/env bash
 set -eEuo pipefail
 
-# Get the latest IC master hash that passed "CI Main".
-# This hash should have binaries published.
-readonly IC_COMMIT=$(gh run list --repo dfinity/ic --branch master --workflow "CI Main" --json headSha,status --jq '.[] | select(.status == "completed") | .headSha' | head -n 1)
-
 readonly POCKETIC_VERSION="9.0.1"
 readonly POCKETIC_URL="https://github.com/dfinity/pocketic/releases/download/${POCKETIC_VERSION}/pocket-ic-x86_64-linux.gz"
 readonly POCKETIC_CHECKSUM="237272216498074e5250a0685813b96632963ff9abbc51a7030d9b625985028d"
-readonly IC_BOUNDARY_URL="https://download.dfinity.systems/ic/${IC_COMMIT}/binaries/x86_64-linux/ic-boundary.gz"
 readonly ASSET_WASM_URL="https://github.com/dfinity/sdk/raw/fec030f53814e7eaa2f869189e8852b5c0e60e5e/src/distributed/assetstorage.wasm.gz"
 readonly ASSET_WASM_CHECKSUM="865eb25df5a6d857147e078bb33c727797957247f7af2635846d65c5397b36a6"
 readonly LARGE_ASSETS_WASM_URL="https://github.com/dfinity/http-gateway/raw/42408f658199d7278d8ff3293504a06e1b0ef61d/examples/http-gateway/canister/http_gateway_canister_custom_assets.wasm.gz"
@@ -35,8 +30,27 @@ chmod +x "${POCKETIC_BIN}" || { log "Failed to make PocketIC executable"; exit 1
 export POCKET_IC_BIN="${POCKETIC_BIN}"
 log "PocketIC setup completed"
 
+# Get a list of latest IC master hashes that passed "CI Main".
+# One of them should have ic-boundary binary published.
+readonly IC_COMMITS=$(gh run list --repo dfinity/ic --branch master --workflow "CI Main" --json headSha,status --jq '.[] | select(.status == "completed") | .headSha')
+
 log "Downloading ic-boundary"
-curl -fsSL --retry 3 --retry-delay 5 "${IC_BOUNDARY_URL}" -o ic-boundary.gz
+OK=0
+for COMMIT in ${IC_COMMITS}
+do
+  log "Trying commit ${COMMIT}"
+  URL="https://download.dfinity.systems/ic/${COMMIT}/binaries/x86_64-linux/ic-boundary.gz"
+  if curl -fsSL --retry 3 --retry-delay 5 -o ic-boundary.gz ${URL}; then
+    OK=1
+    break
+  fi
+done
+
+if [ $OK -ne 1 ]; then
+  log "Couldn't download ic-boundary from any of the commits"
+  exit 1
+fi
+
 gzip -d ic-boundary.gz
 chmod +x ic-boundary
 
