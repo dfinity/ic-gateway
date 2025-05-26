@@ -48,7 +48,7 @@ do
 done
 
 if [ $OK -ne 1 ]; then
-  log "Couldnt' download ic-boundary from any of the commits"
+  log "Couldn't download ic-boundary from any of the commits"
   exit 1
 fi
 
