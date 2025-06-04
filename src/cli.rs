@@ -610,3 +610,14 @@ impl From<&Dns> for http::dns::Options {
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_cli() {
+        let args: Vec<&str> = vec![];
+        Cli::parse_from(args);
+    }
+}
