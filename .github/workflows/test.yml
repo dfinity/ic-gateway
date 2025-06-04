@@ -28,7 +28,7 @@ jobs:
       - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6
 
       - name: Install deps
-        run: sudo apt-get update && sudo apt-get -y install protobuf-compiler
+        run: sudo apt-get update && sudo apt-get -y install protobuf-compiler && cargo install cargo-all-features
 
       - name: Run all unit and integration tests
         run: |
