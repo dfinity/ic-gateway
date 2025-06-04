@@ -300,6 +300,7 @@ pub async fn middleware(
             .clone()
             .map_or_else(|| (String::new(), None), |x| (x.to_string(), x.details()));
 
+        let status_upstream = resp_meta.status.map(|x| x.as_u16()).unwrap_or_default();
         let upstream = req_meta
             .upstream
             .as_ref()
@@ -341,22 +342,26 @@ pub async fn middleware(
         let path = uri.path();
         let canister_id = canister_id.map_or_else(String::new, |x| x.0.to_string());
 
+        let conn_id = conn_info.id.to_string();
         let conn_rcvd = conn_info.traffic.rcvd();
         let conn_sent = conn_info.traffic.sent();
-        let conn_req_count = conn_info.req_count();
+        let conn_reqs = conn_info.req_count();
+        let remote_addr = conn_info.remote_addr.ip().to_string();
+        let request_id_str = request_id.to_string();
 
-        let (ic_streaming, ic_upgrade) = ic_status.as_ref().map_or((false, false), |x| {
+        let (ic_http_streaming, ic_http_upgrade) = ic_status.as_ref().map_or((false, false), |x| {
             (x.streaming, x.metadata.upgraded_to_update_call)
         });
 
         // Log the request
         if state.log_requests {
             info!(
-                request_id = request_id.to_string(),
-                conn_id = conn_info.id.to_string(),
+                request_id = request_id_str,
+                conn_id,
                 method,
                 http = http_version,
                 status,
+                status_upstream,
                 tls_version,
                 tls_cipher,
                 tls_handshake = tls_handshake.as_millis(),
@@ -369,8 +374,8 @@ pub async fn middleware(
                 header_referer,
                 header_user_agent,
                 header_content_type,
-                ic_streaming,
-                ic_upgrade,
+                ic_http_streaming,
+                ic_http_upgrade,
                 ic_node_id = resp_meta.node_id,
                 ic_subnet_id = resp_meta.subnet_id,
                 ic_subnet_type = resp_meta.subnet_type,
@@ -383,6 +388,7 @@ pub async fn middleware(
                 ic_cache_bypass_reason = resp_meta.cache_bypass_reason,
                 error = error_cause,
                 error_details = error_cause_details,
+                remote_addr,
                 req_size = request_size,
                 request_type,
                 resp_size = response_size,
@@ -391,7 +397,7 @@ pub async fn middleware(
                 dur_conn = conn_info.accepted_at.elapsed().as_millis(),
                 conn_rcvd,
                 conn_sent,
-                conn_reqs = conn_req_count,
+                conn_reqs,
                 cache_status = cache_status_str,
                 cache_bypass_reason = cache_bypass_reason_str,
                 upstream,
@@ -416,8 +422,8 @@ pub async fn middleware(
                 host: host.into(),
                 path: path.into(),
                 canister_id: canister_id.clone(),
-                ic_streaming,
-                ic_upgrade,
+                ic_streaming: ic_http_streaming,
+                ic_upgrade: ic_http_upgrade,
                 ic_node_id: resp_meta.node_id,
                 ic_subnet_id: resp_meta.subnet_id,
                 ic_subnet_type: resp_meta.subnet_type,
@@ -451,10 +457,13 @@ pub async fn middleware(
             // TODO use proper names when the DB is updated
 
             let val = serde_json::json!({
-                "body_bytes_sent": response_size,
                 "bytes_sent": response_size,
                 "cache_status": cache_status_str,
-                "cache_bypass_reason": resp_meta.cache_bypass_reason,
+                "cache_bypass_reason": cache_bypass_reason_str,
+                "conn_id": conn_id,
+                "conn_reqs": conn_reqs,
+                "conn_rcvd": conn_rcvd,
+                "conn_sent": conn_sent,
                 "content_type": header_content_type,
                 "env": ENV.get().unwrap().as_str(),
                 "error_cause": error_cause,
@@ -466,6 +475,7 @@ pub async fn middleware(
                 "http_referer": header_referer,
                 "http_user_agent": header_user_agent,
                 "ic_cache_status": resp_meta.cache_status,
+                "ic_cache_bypass_reason": resp_meta.cache_bypass_reason,
                 "ic_canister_id": canister_id,
                 "ic_canister_id_cbor": resp_meta.canister_id_cbor,
                 "ic_error_cause": resp_meta.error_cause,
@@ -473,20 +483,24 @@ pub async fn middleware(
                 "ic_node_id": resp_meta.node_id,
                 "ic_request_type": request_type,
                 "ic_sender": resp_meta.sender,
+                "ic_streaming": ic_http_streaming,
                 "ic_subnet_id": resp_meta.subnet_id,
+                "ic_upgrade": ic_http_upgrade,
                 "msec": timestamp.unix_timestamp(),
                 "query_string": uri.query().unwrap_or_default(),
                 "request_length": request_size,
                 "request_uri": uri.path_and_query().map(|x| x.as_str()).unwrap_or_default(),
                 "retries": resp_meta.retries,
-                "remote_addr": conn_info.remote_addr.ip().to_string(),
-                "request_id": request_id.to_string(),
+                "remote_addr": remote_addr,
+                "request_id": request_id_str,
                 "request_method": method,
                 "request_time": duration_full.as_secs_f64(),
                 "server_protocol": http_version,
                 "ssl_protocol": tls_version,
                 "ssl_cipher": tls_cipher,
                 "status": status,
+                "status_upstream": status_upstream,
+                "tls_handshake_msec": tls_handshake.as_millis(),
                 "upstream": upstream,
             });
 

@@ -84,15 +84,10 @@ mod tests {
         routing::post,
     };
     use http::StatusCode;
-    use ic_bn_lib::http::{ConnInfo, Stats};
-    use std::{
-        sync::{Arc, atomic::AtomicU64},
-        time::Duration,
-    };
+    use ic_bn_lib::http::ConnInfo;
+    use std::{sync::Arc, time::Duration};
     use tokio::time::sleep;
-    use tokio_util::sync::CancellationToken;
     use tower::Service;
-    use uuid::Uuid;
 
     use crate::routing::{
         RequestType,
@@ -107,14 +102,7 @@ mod tests {
     async fn send_request(
         router: &mut Router,
     ) -> Result<http::Response<Body>, std::convert::Infallible> {
-        let conn_info = ConnInfo {
-            id: Uuid::now_v7(),
-            accepted_at: std::time::Instant::now(),
-            remote_addr: ic_bn_lib::http::server::Addr::Tcp("127.0.0.1:8080".parse().unwrap()),
-            traffic: Arc::new(Stats::new()),
-            req_count: AtomicU64::new(0),
-            close: CancellationToken::new(),
-        };
+        let conn_info = ConnInfo::default();
         let mut request = Request::post("/").body(Body::from("".to_string())).unwrap();
         request.extensions_mut().insert(Arc::new(conn_info));
         router.call(request).await
