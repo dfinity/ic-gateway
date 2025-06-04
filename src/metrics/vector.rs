@@ -261,6 +261,7 @@ impl Vector {
                 token: token_flushers.child_token(),
                 token_drain: token_flushers_drain.child_token(),
                 retry_interval: cli.log_vector_retry_interval,
+                retry_count: cli.log_vector_retry_count,
                 timeout: cli.log_vector_timeout,
                 metrics: metrics.clone(),
             };
@@ -402,6 +403,7 @@ struct Flusher {
     rx: async_channel::Receiver<Batch>,
     client: Arc<dyn HttpClient>,
     retry_interval: Duration,
+    retry_count: usize,
     timeout: Duration,
     url: Url,
     auth: Option<HeaderValue>,
@@ -501,7 +503,7 @@ impl Flusher {
                 interval = self.retry_interval;
                 timeout = self.timeout;
 
-                if retries > 3 {
+                if retries > self.retry_count {
                     break;
                 }
             }
@@ -676,6 +678,7 @@ mod test {
             log_vector_zstd_level: 3,
             log_vector_batch_queue: 32,
             log_vector_retry_interval: Duration::from_millis(1),
+            log_vector_retry_count: 100,
         }
     }
 
@@ -691,7 +694,7 @@ mod test {
                 format!("foo{i}"): format!("bar{i}"),
             });
 
-            vector.send(event.clone());
+            vector.send(event);
         }
 
         vector.stop().await;

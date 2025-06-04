@@ -493,6 +493,11 @@ pub struct Vector {
     #[clap(env, long, default_value = "2s", value_parser = parse_duration)]
     pub log_vector_retry_interval: Duration,
 
+    /// Retry count when flushing a batch.
+    /// It is taken into account only when shutting down.
+    #[clap(env, long, default_value = "5")]
+    pub log_vector_retry_count: usize,
+
     /// ZSTD compression level to use when sending data
     #[clap(env, long, default_value = "3")]
     pub log_vector_zstd_level: usize,
