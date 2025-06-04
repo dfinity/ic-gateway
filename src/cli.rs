@@ -14,6 +14,7 @@ use ic_bn_lib::tls::acme;
 use ic_bn_lib::{
     http::{
         self,
+        server::ProxyProtocolMode,
         shed::cli::{ShedSharded, ShedSystem},
     },
     parse_size, parse_size_decimal, parse_size_decimal_usize, parse_size_usize,
@@ -361,6 +362,11 @@ pub struct Metrics {
     /// Where to listen for Prometheus metrics scraping
     #[clap(env, long)]
     pub metrics_listen: Option<SocketAddr>,
+
+    /// Proxy Protocol mode for the metrics endpoint.
+    /// Allows for separate configuration and overrides the value of HTTP server configuration.
+    #[clap(env, long, default_value = "off")]
+    pub metrics_proxy_protocol_mode: ProxyProtocolMode,
 }
 
 #[derive(Args)]

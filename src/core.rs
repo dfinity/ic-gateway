@@ -3,7 +3,7 @@ use std::sync::{Arc, OnceLock};
 use anyhow::{Context, Error, anyhow};
 use axum::Router;
 use ic_bn_lib::{
-    http::{self as bnhttp, server::ProxyProtocolMode},
+    http::{self as bnhttp},
     tasks::TaskManager,
     tls::{prepare_client_config, verify::NoopServerCertVerifier},
 };
@@ -233,7 +233,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     if let Some(addr) = cli.metrics.metrics_listen {
         let router = metrics::setup(&registry, &mut tasks, route_provider);
         let mut opts = bnhttp::server::Options::from(&cli.http_server);
-        opts.proxy_protocol_mode = ProxyProtocolMode::Off;
+        opts.proxy_protocol_mode = cli.metrics.metrics_proxy_protocol_mode;
 
         let srv = Arc::new(
             bnhttp::ServerBuilder::new(router)
