@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -eEuo pipefail
 
-readonly POCKETIC_VERSION="9.0.1"
+readonly POCKETIC_VERSION="9.0.2"
 readonly POCKETIC_URL="https://github.com/dfinity/pocketic/releases/download/${POCKETIC_VERSION}/pocket-ic-x86_64-linux.gz"
-readonly POCKETIC_CHECKSUM="237272216498074e5250a0685813b96632963ff9abbc51a7030d9b625985028d"
+readonly POCKETIC_CHECKSUM="b6909f28a4ec50899b114acf73c825d1e4e21b3d62700682665461f209fd194d"
 readonly ASSET_WASM_URL="https://github.com/dfinity/sdk/raw/fec030f53814e7eaa2f869189e8852b5c0e60e5e/src/distributed/assetstorage.wasm.gz"
 readonly ASSET_WASM_CHECKSUM="865eb25df5a6d857147e078bb33c727797957247f7af2635846d65c5397b36a6"
 readonly LARGE_ASSETS_WASM_URL="https://github.com/dfinity/http-gateway/raw/42408f658199d7278d8ff3293504a06e1b0ef61d/examples/http-gateway/canister/http_gateway_canister_custom_assets.wasm.gz"
@@ -86,7 +86,7 @@ log "Asset canister WASM downloaded"
 export ASSET_CANISTER_DIR="${CANISTER_DIR}"
 
 log "Running all tests"
-cargo test --all-features --profile dev --workspace -- --nocapture || { log "Tests failed"; exit 1; }
+cargo test-all-features --all-features --profile dev --workspace -- --nocapture || { log "Tests failed"; exit 1; }
 log "All tests completed successfully"
 
 rm -rf ic-boundary denylist_seed.json pocket-ic canister_wasms

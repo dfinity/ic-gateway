@@ -232,11 +232,13 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     // Setup metrics
     if let Some(addr) = cli.metrics.metrics_listen {
         let router = metrics::setup(&registry, &mut tasks, route_provider);
+        let mut opts = bnhttp::server::Options::from(&cli.http_server);
+        opts.proxy_protocol_mode = cli.metrics.metrics_proxy_protocol_mode;
 
         let srv = Arc::new(
             bnhttp::ServerBuilder::new(router)
                 .listen_tcp(addr)
-                .with_options((&cli.http_server).into())
+                .with_options(opts)
                 .with_metrics(http_metrics.clone())
                 .build()
                 .unwrap(),

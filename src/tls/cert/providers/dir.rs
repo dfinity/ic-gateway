@@ -96,8 +96,8 @@ mod test {
         let certs = prov.get_certificates().await?;
 
         assert_eq!(certs.len(), 2);
-        assert_eq!(certs[0].0, [CERT_1, KEY_1].concat());
-        assert_eq!(certs[1].0, [CERT_2, KEY_2].concat());
+        assert!(certs.iter().any(|x| x.0 == [CERT_1, KEY_1].concat()));
+        assert!(certs.iter().any(|x| x.0 == [CERT_2, KEY_2].concat()));
 
         Ok(())
     }

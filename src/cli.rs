@@ -14,6 +14,7 @@ use ic_bn_lib::tls::acme;
 use ic_bn_lib::{
     http::{
         self,
+        server::ProxyProtocolMode,
         shed::cli::{ShedSharded, ShedSystem},
     },
     parse_size, parse_size_decimal, parse_size_decimal_usize, parse_size_usize,
@@ -361,6 +362,11 @@ pub struct Metrics {
     /// Where to listen for Prometheus metrics scraping
     #[clap(env, long)]
     pub metrics_listen: Option<SocketAddr>,
+
+    /// Proxy Protocol mode for the metrics endpoint.
+    /// Allows for separate configuration and overrides the value of HTTP server configuration.
+    #[clap(env, long, default_value = "off")]
+    pub metrics_proxy_protocol_mode: ProxyProtocolMode,
 }
 
 #[derive(Args)]
@@ -487,6 +493,11 @@ pub struct Vector {
     #[clap(env, long, default_value = "2s", value_parser = parse_duration)]
     pub log_vector_retry_interval: Duration,
 
+    /// Retry count when flushing a batch.
+    /// It is taken into account only when shutting down.
+    #[clap(env, long, default_value = "5")]
+    pub log_vector_retry_count: usize,
+
     /// ZSTD compression level to use when sending data
     #[clap(env, long, default_value = "3")]
     pub log_vector_zstd_level: usize,
@@ -602,5 +613,16 @@ impl From<&Dns> for http::dns::Options {
             tls_name: c.dns_tls_name.clone(),
             cache_size: c.dns_cache_size,
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_cli() {
+        let args: Vec<&str> = vec![];
+        Cli::parse_from(args);
     }
 }
