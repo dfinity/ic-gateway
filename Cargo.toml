@@ -135,6 +135,10 @@ panic = "abort"
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tokio_unstable)'] }
 
+[package.metadata.cargo-all-features]
+always_include_features = ["debug"]
+denylist = ["bench", "tokio_console"]
+
 [[bench]]
 name = "domain_lookup"
 harness = false

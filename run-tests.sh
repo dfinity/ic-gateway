@@ -86,8 +86,12 @@ log "Asset canister WASM downloaded"
 
 export ASSET_CANISTER_DIR="${CANISTER_DIR}"
 
-log "Running all tests"
-cargo test-all-features --all-features --profile dev --workspace -- --nocapture || { log "Tests failed"; exit 1; }
-log "All tests completed successfully"
+log "Running unit tests using all feature combinations"
+cargo test-all-features --all-features --profile dev --workspace -- --nocapture --skip all_intergration_tests || { log "Unit tests failed"; exit 1; }
+log "Unit tests completed successfully"
+
+log "Running integration tests with all features enabled"
+cargo test --all-features --profile dev --workspace -- --nocapture --test all_intergration_tests || { log "Integration tests failed"; exit 1; }
+log "Integration tests completed successfully"
 
 rm -rf ic-boundary denylist_seed.json pocket-ic canister_wasms
