@@ -12,6 +12,7 @@ acme = ["ic-bn-lib/acme_dns", "ic-bn-lib/acme_alpn"]
 bench = ["dep:ic-http-certification", "dep:rand_regex", "dep:serde_cbor"]
 tokio_console = ["dep:console-subscriber"]
 vector = ["ic-bn-lib/vector"]
+debug = []
 
 [dependencies]
 ahash = "0.8.11"
@@ -53,7 +54,7 @@ ic-agent = { version = "0.40.0", features = [
     "ring",
     "_internal_dynamic-routing",
 ] }
-ic-bn-lib = { git = "https://github.com/dfinity/ic-bn-lib", rev = "6dada4de146a8f66838fb5f4e26810baeb9338bd", features = [
+ic-bn-lib = { git = "https://github.com/dfinity/ic-bn-lib", rev = "620fb49a238b3d8a2caa436b5742ed7ca7012098", features = [
     "vector",
 ] }
 ic-http-certification = { version = "3.0.3", optional = true }
@@ -119,7 +120,7 @@ ic-http-certification = "3.0.3"
 ic-transport-types = "0.40.0"
 mockall = "0.13.0"
 nix = { version = "0.30.0", features = ["signal"] }
-pocket-ic = "9.0.0"
+pocket-ic = "=9.0.1"
 rand_regex = "0.17.0"
 serde_cbor = "0.11.2"
 tempfile = "3.18.0"
@@ -133,6 +134,10 @@ panic = "abort"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tokio_unstable)'] }
+
+[package.metadata.cargo-all-features]
+always_include_features = ["debug"]
+denylist = ["bench", "tokio_console"]
 
 [[bench]]
 name = "domain_lookup"

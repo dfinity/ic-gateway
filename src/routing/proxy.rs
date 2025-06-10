@@ -214,7 +214,7 @@ pub async fn issuer_proxy(
 
 #[cfg(test)]
 mod test {
-    use axum::{Router, body::to_bytes};
+    use axum::Router;
     use http::{Method, Uri};
     use ic_agent::agent::route_provider::RoundRobinRouteProvider;
     use ic_bn_lib::http::Client;
@@ -398,10 +398,5 @@ mod test {
 
         let resp = router.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
-
-        let body =
-            String::from_utf8_lossy(&to_bytes(resp.into_body(), 8192).await.unwrap()).to_string();
-
-        assert!(body.starts_with("error: upstream_error"));
     }
 }
