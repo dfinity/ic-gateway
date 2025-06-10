@@ -12,6 +12,7 @@ acme = ["ic-bn-lib/acme_dns", "ic-bn-lib/acme_alpn"]
 bench = ["dep:ic-http-certification", "dep:rand_regex", "dep:serde_cbor"]
 tokio_console = ["dep:console-subscriber"]
 vector = ["ic-bn-lib/vector"]
+debug = []
 
 [dependencies]
 ahash = "0.8.11"

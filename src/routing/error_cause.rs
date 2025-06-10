@@ -97,6 +97,7 @@ impl ErrorCause {
             Self::BackendBodyError(x) => Some(x.clone()),
             Self::BackendTLSErrorOther(x) => Some(x.clone()),
             Self::BackendTLSErrorCert(x) => Some(x.clone()),
+            Self::BoundaryNodeError(x) => Some(x.clone()),
             Self::RateLimited(x) => Some(x.to_string()),
             Self::HttpGatewayError(x) => Some(x.to_string()),
             Self::Other(x) => Some(x.clone()),
@@ -129,9 +130,25 @@ impl ErrorCause {
 
 // Creates the response from ErrorCause and injects itself into extensions to be visible by middleware
 impl IntoResponse for ErrorCause {
+    #[cfg(not(feature = "debug"))]
     fn into_response(self) -> Response {
         let client_facing_error: ErrorClientFacing = (&self).into();
         let mut resp = client_facing_error.into_response();
+        resp.extensions_mut().insert(self);
+        resp
+    }
+
+    #[cfg(feature = "debug")]
+    fn into_response(self) -> Response {
+        let client_facing_error: ErrorClientFacing = (&self).into();
+
+        let body = format!(
+            "error: {}\ndetails:\n{}",
+            self,
+            self.details().unwrap_or_default()
+        );
+
+        let mut resp = (client_facing_error.status_code(), body).into_response();
         resp.extensions_mut().insert(self);
         resp
     }

@@ -292,6 +292,9 @@ pub fn start_ic_boundary(port: &str, replica_addr: &str) -> Child {
         "--http-client-timeout-connect",
         "3s",
         "--skip-replica-tls-verification",
+        "--obs-log-stdout",
+        "--obs-max-logging-level",
+        "debug",
     ]);
 
     let child = cmd.spawn().expect("failed to start ic-boundary service");
@@ -329,6 +332,9 @@ pub fn start_ic_gateway(
         cmd.arg(denylist_seed_path.unwrap().to_str().unwrap());
     }
     cmd.arg("--listen-insecure-serve-http-only");
+    cmd.arg("--log-level");
+    cmd.arg("debug");
+    cmd.arg("--log-stdout");
 
     let child = cmd.spawn().expect("failed to start ic-gateway service");
     info!("ic-gateway service started");
