@@ -463,16 +463,20 @@ pub async fn check_response(response: Response, expected: &ExpectedResponse) -> 
 
     if let Some(expected_status) = expected.status {
         if expected_status != status {
-            anyhow::bail!("unexpected status code: got {status}, expected {expected_status}",);
+            anyhow::bail!(
+                "unexpected status code: got {status}, expected {expected_status}, body: {}",
+                String::from_utf8_lossy(&body_bytes)
+            );
         }
     }
 
     if let Some(ref expected_body) = expected.body {
         if &body_bytes != expected_body {
             anyhow::bail!(
-                "unexpected response body: got size={}, expected={}",
+                "unexpected response body: got size={}, expected={}, body: {}",
                 body_bytes.len(),
-                expected_body.len()
+                expected_body.len(),
+                String::from_utf8_lossy(&body_bytes),
             );
         }
     }
