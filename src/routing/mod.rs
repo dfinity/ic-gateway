@@ -492,6 +492,7 @@ pub async fn setup_router(
     let validate_state = ValidateState {
         resolver: domain_resolver,
         canister_id_from_query_params: cli.domain.domain_canister_id_from_query_params,
+        canister_id_from_referer: cli.domain.domain_canister_id_from_referer,
     };
 
     // Common layers for all routes

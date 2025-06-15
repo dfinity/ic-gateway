@@ -283,6 +283,12 @@ pub struct Domain {
     /// If canister id is present both in hostname and query params - then the hostname takes precedence.
     #[clap(env, long)]
     pub domain_canister_id_from_query_params: bool,
+
+    /// Whether to try to resolve canister id from the requests referer.
+    /// If a canister ID is present in multiple locations (hostname, query params, and referer),
+    /// then the resolution precedence is: hostname > query parameters > referer.
+    #[clap(env, long)]
+    pub domain_canister_id_from_referer: bool,
 }
 
 #[derive(Args)]
