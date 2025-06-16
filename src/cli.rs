@@ -10,7 +10,6 @@ use fqdn::FQDN;
 use hickory_resolver::config::CLOUDFLARE_IPS;
 use humantime::parse_duration;
 #[cfg(feature = "acme")]
-use ic_bn_lib::tls::acme;
 use ic_bn_lib::{
     http::{
         self,
@@ -18,6 +17,7 @@ use ic_bn_lib::{
         shed::cli::{ShedSharded, ShedSystem},
     },
     parse_size, parse_size_decimal, parse_size_decimal_usize, parse_size_usize,
+    tls::acme::{self, AcmeUrl},
 };
 use reqwest::Url;
 
@@ -108,7 +108,8 @@ pub struct Dns {
     #[clap(env, long, value_delimiter = ',', default_values_t = CLOUDFLARE_IPS)]
     pub dns_servers: Vec<IpAddr>,
 
-    /// DNS protocol to use (clear/tls/https)
+    /// DNS protocol to use (clear/tls/https) with an optional port separated by a colon.
+    /// E.g. "clear:8053". If the port is omitted then the default is used.
     #[clap(env, long, default_value = "tls")]
     pub dns_protocol: http::dns::Protocol,
 
@@ -348,9 +349,10 @@ pub struct Acme {
     #[clap(env, long, value_parser = parse_duration, default_value = "30d")]
     pub acme_renew_before: Duration,
 
-    /// Whether to use LetsEncrypt staging API for testing to avoid hitting the limits
-    #[clap(env, long)]
-    pub acme_staging: bool,
+    /// Which ACME provider URL to use. Can be "le_stag", "le_prod" for LetsEncrypt, or a custom URL.
+    /// Defaults to "le_stag".
+    #[clap(env, long, default_value = "le_stag")]
+    pub acme_url: AcmeUrl,
 
     /// E-Mail to use when creating ACME accounts, must start with mailto:
     #[clap(env, long, default_value = "mailto:boundary-nodes@dfinity.org")]
