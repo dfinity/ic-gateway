@@ -44,13 +44,15 @@ pub async fn middleware(
     }
 
     if state.canister_id_from_referer && lookup.canister_id.is_none() {
-        lookup.canister_id =
-            if let Some(referer) = request.headers().get(REFERER).and_then(|x| x.to_str().ok()) {
-                canister_id_from_referer_host(referer)
-                    .or_else(|| canister_id_from_referer_query_params(referer))
-            } else {
-                None
-            };
+        lookup.canister_id = request
+            .headers()
+            .get(REFERER)
+            .and_then(|x| x.to_str().ok())
+            .and_then(|referer| Url::parse(referer).ok())
+            .and_then(|url| {
+                canister_id_from_referer_host(url.clone())
+                    .or_else(|| canister_id_from_referer_query_params(url))
+            });
     }
 
     // Inject canister_id separately if it was resolved
@@ -98,10 +100,10 @@ fn canister_id_from_query_params(request: &Request) -> Result<Option<Principal>,
 }
 
 /// Tries to extract canister id from referer host
-fn canister_id_from_referer_host(referer: &str) -> Option<Principal> {
-    let Some(domain) = Url::parse(referer)
-        .ok()
-        .and_then(|url| url.host_str().map(|host| FQDN::from_str(host).ok()))
+fn canister_id_from_referer_host(url: Url) -> Option<Principal> {
+    let Some(domain) = url
+        .host_str()
+        .map(|host| FQDN::from_str(host).ok())
         .flatten()
     else {
         return None;
@@ -114,12 +116,12 @@ fn canister_id_from_referer_host(referer: &str) -> Option<Principal> {
 }
 
 /// Tries to extract canister id from referer query parameters
-fn canister_id_from_referer_query_params(referer: &str) -> Option<Principal> {
-    let Some(id) = Url::parse(referer).ok().and_then(|url| {
-        url.query_pairs()
-            .find(|(key, _)| key == "canisterId")
-            .map(|(_, value)| value.into_owned())
-    }) else {
+fn canister_id_from_referer_query_params(url: Url) -> Option<Principal> {
+    let Some(id) = url
+        .query_pairs()
+        .find(|(key, _)| key == "canisterId")
+        .map(|(_, value)| value.into_owned())
+    else {
         return None;
     };
 
@@ -177,50 +179,50 @@ mod test {
     #[test]
     fn test_canister_id_from_referer_header_host() {
         // good
-        let uri = "http://aaaaa-aa.foo.bar/?xyz=abc";
+        let uri = Url::parse("http://aaaaa-aa.foo.bar/?xyz=abc").unwrap();
         assert_eq!(
             canister_id_from_referer_host(uri),
             Some(principal!("aaaaa-aa"))
         );
 
         // good
-        let uri = "http://aaaaa-aa.foo.bar.baz/?xyz=abc";
+        let uri = Url::parse("http://aaaaa-aa.foo.bar.baz/?xyz=abc").unwrap();
         assert_eq!(
             canister_id_from_referer_host(uri),
             Some(principal!("aaaaa-aa"))
         );
 
         // bad canister id
-        let uri = "http://aa.foo.bar/";
+        let uri = Url::parse("http://aa.foo.bar/").unwrap();
         assert_eq!(canister_id_from_referer_host(uri), None);
 
         // no canister id
-        let uri = "http://foo.bar/";
+        let uri = Url::parse("http://foo.bar/").unwrap();
         assert_eq!(canister_id_from_referer_host(uri), None);
 
         // canister id is not first subdomain
-        let uri = "http://foo.aaaaa-aa.bar/";
+        let uri = Url::parse("http://foo.aaaaa-aa.bar/").unwrap();
         assert_eq!(canister_id_from_referer_host(uri), None);
     }
 
     #[test]
     fn test_canister_id_from_referer_header_query_params() {
         // good
-        let uri = "http://foo.bar/?canisterId=aaaaa-aa";
+        let uri = Url::parse("http://foo.bar/?canisterId=aaaaa-aa").unwrap();
         assert_eq!(
             canister_id_from_referer_query_params(uri),
             Some(principal!("aaaaa-aa"))
         );
 
         // good
-        let uri = "http://foo.bar/?foo=bar&canisterId=aaaaa-aa";
+        let uri = Url::parse("http://foo.bar/?foo=bar&canisterId=aaaaa-aa").unwrap();
         assert_eq!(
             canister_id_from_referer_query_params(uri),
             Some(principal!("aaaaa-aa"))
         );
 
         // no canister id
-        let uri = "http://foo.bar/?foo=bar";
+        let uri = Url::parse("http://foo.bar/?foo=bar").unwrap();
         assert_eq!(canister_id_from_referer_query_params(uri), None);
     }
 }
