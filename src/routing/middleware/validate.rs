@@ -50,8 +50,8 @@ pub async fn middleware(
             .and_then(|x| x.to_str().ok())
             .and_then(|referer| Url::parse(referer).ok())
             .and_then(|url| {
-                canister_id_from_referer_host(url.clone())
-                    .or_else(|| canister_id_from_referer_query_params(url))
+                canister_id_from_referer_host(&url)
+                    .or_else(|| canister_id_from_referer_query_params(&url))
             });
     }
 
@@ -100,30 +100,22 @@ fn canister_id_from_query_params(request: &Request) -> Result<Option<Principal>,
 }
 
 /// Tries to extract canister id from referer host
-fn canister_id_from_referer_host(url: Url) -> Option<Principal> {
-    let Some(domain) = url
+fn canister_id_from_referer_host(url: &Url) -> Option<Principal> {
+    let domain = url
         .host_str()
         .map(|host| FQDN::from_str(host).ok())
-        .flatten()
-    else {
-        return None;
-    };
+        .flatten()?;
 
-    let Some(subdomain) = domain.labels().next() else {
-        return None;
-    };
+    let subdomain = domain.labels().next()?;
     Principal::from_text(subdomain).ok()
 }
 
 /// Tries to extract canister id from referer query parameters
-fn canister_id_from_referer_query_params(url: Url) -> Option<Principal> {
-    let Some(id) = url
+fn canister_id_from_referer_query_params(url: &Url) -> Option<Principal> {
+    let id = url
         .query_pairs()
         .find(|(key, _)| key == "canisterId")
-        .map(|(_, value)| value.into_owned())
-    else {
-        return None;
-    };
+        .map(|(_, value)| value.into_owned())?;
 
     Principal::from_text(id).ok()
 }
@@ -181,28 +173,28 @@ mod test {
         // good
         let uri = Url::parse("http://aaaaa-aa.foo.bar/?xyz=abc").unwrap();
         assert_eq!(
-            canister_id_from_referer_host(uri),
+            canister_id_from_referer_host(&uri),
             Some(principal!("aaaaa-aa"))
         );
 
         // good
         let uri = Url::parse("http://aaaaa-aa.foo.bar.baz/?xyz=abc").unwrap();
         assert_eq!(
-            canister_id_from_referer_host(uri),
+            canister_id_from_referer_host(&uri),
             Some(principal!("aaaaa-aa"))
         );
 
         // bad canister id
         let uri = Url::parse("http://aa.foo.bar/").unwrap();
-        assert_eq!(canister_id_from_referer_host(uri), None);
+        assert_eq!(canister_id_from_referer_host(&uri), None);
 
         // no canister id
         let uri = Url::parse("http://foo.bar/").unwrap();
-        assert_eq!(canister_id_from_referer_host(uri), None);
+        assert_eq!(canister_id_from_referer_host(&uri), None);
 
         // canister id is not first subdomain
         let uri = Url::parse("http://foo.aaaaa-aa.bar/").unwrap();
-        assert_eq!(canister_id_from_referer_host(uri), None);
+        assert_eq!(canister_id_from_referer_host(&uri), None);
     }
 
     #[test]
@@ -210,19 +202,19 @@ mod test {
         // good
         let uri = Url::parse("http://foo.bar/?canisterId=aaaaa-aa").unwrap();
         assert_eq!(
-            canister_id_from_referer_query_params(uri),
+            canister_id_from_referer_query_params(&uri),
             Some(principal!("aaaaa-aa"))
         );
 
         // good
         let uri = Url::parse("http://foo.bar/?foo=bar&canisterId=aaaaa-aa").unwrap();
         assert_eq!(
-            canister_id_from_referer_query_params(uri),
+            canister_id_from_referer_query_params(&uri),
             Some(principal!("aaaaa-aa"))
         );
 
         // no canister id
         let uri = Url::parse("http://foo.bar/?foo=bar").unwrap();
-        assert_eq!(canister_id_from_referer_query_params(uri), None);
+        assert_eq!(canister_id_from_referer_query_params(&uri), None);
     }
 }
