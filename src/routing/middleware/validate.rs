@@ -8,8 +8,9 @@ use axum::{
 };
 use candid::Principal;
 use fqdn::FQDN;
+use http::header::REFERER;
 use ic_bn_lib::http::extract_authority;
-use url::form_urlencoded;
+use url::{Url, form_urlencoded};
 
 use crate::routing::{CanisterId, ErrorCause, RequestCtx, RequestType, domain::ResolvesDomain};
 
@@ -17,6 +18,7 @@ use crate::routing::{CanisterId, ErrorCause, RequestCtx, RequestType, domain::Re
 pub struct ValidateState {
     pub resolver: Arc<dyn ResolvesDomain>,
     pub canister_id_from_query_params: bool,
+    pub canister_id_from_referer: bool,
 }
 
 pub async fn middleware(
@@ -39,6 +41,18 @@ pub async fn middleware(
     if state.canister_id_from_query_params && lookup.canister_id.is_none() {
         lookup.canister_id = canister_id_from_query_params(&request)
             .map_err(|e| ErrorCause::CanisterIdIncorrect(e.to_string()))?
+    }
+
+    if state.canister_id_from_referer && lookup.canister_id.is_none() {
+        lookup.canister_id = request
+            .headers()
+            .get(REFERER)
+            .and_then(|x| x.to_str().ok())
+            .and_then(|referer| Url::parse(referer).ok())
+            .and_then(|url| {
+                canister_id_from_referer_host(&url)
+                    .or_else(|| canister_id_from_referer_query_params(&url))
+            });
     }
 
     // Inject canister_id separately if it was resolved
@@ -83,6 +97,27 @@ fn canister_id_from_query_params(request: &Request) -> Result<Option<Principal>,
 
     let id = Principal::from_text(id.1)?;
     Ok(Some(id))
+}
+
+/// Tries to extract canister id from referer host
+fn canister_id_from_referer_host(url: &Url) -> Option<Principal> {
+    let domain = url
+        .host_str()
+        .map(|host| FQDN::from_str(host).ok())
+        .flatten()?;
+
+    let subdomain = domain.labels().next()?;
+    Principal::from_text(subdomain).ok()
+}
+
+/// Tries to extract canister id from referer query parameters
+fn canister_id_from_referer_query_params(url: &Url) -> Option<Principal> {
+    let id = url
+        .query_pairs()
+        .find(|(key, _)| key == "canisterId")
+        .map(|(_, value)| value.into_owned())?;
+
+    Principal::from_text(id).ok()
 }
 
 #[cfg(test)]
@@ -131,5 +166,55 @@ mod test {
             .unwrap();
 
         assert_eq!(canister_id_from_query_params(&req).unwrap(), None);
+    }
+
+    #[test]
+    fn test_canister_id_from_referer_header_host() {
+        // good
+        let uri = Url::parse("http://aaaaa-aa.foo.bar/?xyz=abc").unwrap();
+        assert_eq!(
+            canister_id_from_referer_host(&uri),
+            Some(principal!("aaaaa-aa"))
+        );
+
+        // good
+        let uri = Url::parse("http://aaaaa-aa.foo.bar.baz/?xyz=abc").unwrap();
+        assert_eq!(
+            canister_id_from_referer_host(&uri),
+            Some(principal!("aaaaa-aa"))
+        );
+
+        // bad canister id
+        let uri = Url::parse("http://aa.foo.bar/").unwrap();
+        assert_eq!(canister_id_from_referer_host(&uri), None);
+
+        // no canister id
+        let uri = Url::parse("http://foo.bar/").unwrap();
+        assert_eq!(canister_id_from_referer_host(&uri), None);
+
+        // canister id is not first subdomain
+        let uri = Url::parse("http://foo.aaaaa-aa.bar/").unwrap();
+        assert_eq!(canister_id_from_referer_host(&uri), None);
+    }
+
+    #[test]
+    fn test_canister_id_from_referer_header_query_params() {
+        // good
+        let uri = Url::parse("http://foo.bar/?canisterId=aaaaa-aa").unwrap();
+        assert_eq!(
+            canister_id_from_referer_query_params(&uri),
+            Some(principal!("aaaaa-aa"))
+        );
+
+        // good
+        let uri = Url::parse("http://foo.bar/?foo=bar&canisterId=aaaaa-aa").unwrap();
+        assert_eq!(
+            canister_id_from_referer_query_params(&uri),
+            Some(principal!("aaaaa-aa"))
+        );
+
+        // no canister id
+        let uri = Url::parse("http://foo.bar/?foo=bar").unwrap();
+        assert_eq!(canister_id_from_referer_query_params(&uri), None);
     }
 }
