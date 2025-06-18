@@ -9,7 +9,6 @@ use clap::{Args, Parser};
 use fqdn::FQDN;
 use hickory_resolver::config::CLOUDFLARE_IPS;
 use humantime::parse_duration;
-#[cfg(feature = "acme")]
 use ic_bn_lib::{
     http::{
         self,
@@ -17,9 +16,11 @@ use ic_bn_lib::{
         shed::cli::{ShedSharded, ShedSystem},
     },
     parse_size, parse_size_decimal, parse_size_decimal_usize, parse_size_usize,
-    tls::acme::{self, AcmeUrl},
 };
 use reqwest::Url;
+
+#[cfg(feature = "acme")]
+use ic_bn_lib::tls::acme::{self, AcmeUrl};
 
 use crate::{
     core::{AUTHOR_NAME, SERVICE_NAME},
