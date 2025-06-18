@@ -64,7 +64,7 @@ pub enum ErrorCause {
     CanisterIdNotResolved,
     CanisterRouteNotFound,
     SubnetNotFound,
-    SubnetUnavailable,
+    SubnetUnavailable(String),
     NoRoutingTable,
     ResponseVerificationError,
     HttpGatewayError(String),
@@ -194,7 +194,7 @@ impl From<&BNResponseMetadata> for Option<ErrorCause> {
         }
 
         Some(match v.error_cause.as_ref() {
-            NO_HEALTHY_NODES => ErrorCause::SubnetUnavailable,
+            NO_HEALTHY_NODES => ErrorCause::SubnetUnavailable(v.subnet_id.clone()),
             CANISTER_NOT_FOUND | CANISTER_ROUTE_NOT_FOUND => ErrorCause::CanisterRouteNotFound,
             SUBNET_NOT_FOUND => ErrorCause::SubnetNotFound,
             FORBIDDEN => ErrorCause::Forbidden,
@@ -269,7 +269,7 @@ pub enum ErrorClientFacing {
     CanisterIdNotResolved,
     CanisterIdIncorrect,
     SubnetNotFound,
-    SubnetUnavailable,
+    SubnetUnavailable(String),
     ResponseVerificationError,
     Denylisted,
     Forbidden,
@@ -297,7 +297,7 @@ impl ErrorClientFacing {
             Self::CanisterIdNotResolved => StatusCode::BAD_REQUEST,
             Self::CanisterIdIncorrect => StatusCode::BAD_REQUEST,
             Self::SubnetNotFound => StatusCode::BAD_REQUEST,
-            Self::SubnetUnavailable => StatusCode::SERVICE_UNAVAILABLE,
+            Self::SubnetUnavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
             Self::ResponseVerificationError => StatusCode::SERVICE_UNAVAILABLE,
             Self::Denylisted => StatusCode::UNAVAILABLE_FOR_LEGAL_REASONS,
             Self::Forbidden => StatusCode::FORBIDDEN,
@@ -324,7 +324,7 @@ impl ErrorClientFacing {
             Self::CanisterIdNotResolved => "HTTP gateway wasn't able to resolve the ID of the canister where to send the request.".into(),
             Self::CanisterIdIncorrect => "The canister ID is incorrect".into(),
             Self::SubnetNotFound => "The requested subnet was not found.".into(),
-            Self::SubnetUnavailable => "The subnet is temporarily unavailable due to maintenance or an ongoing upgrade. Please try again later.".into(),
+            Self::SubnetUnavailable(_) => "The subnet is temporarily unavailable due to maintenance or an ongoing upgrade. Please try again later.".into(),
             Self::ResponseVerificationError => "The response from the canister failed verification and cannot be trusted.\nIf you understand the risks, you can retry using the raw domain to bypass certification.".into(),
             Self::Denylisted => "Access to this resource is denied due to a violation of the code of conduct.".into(),
             Self::Forbidden => "Access to this resource is denied by the current set of application firewall rules.".into(),
@@ -344,6 +344,11 @@ impl ErrorClientFacing {
     pub fn html(&self) -> String {
         match self {
             Self::Denylisted => include_str!("error_pages/451.html").to_string(),
+            Self::SubnetUnavailable(subnet)
+                if subnet == "uzr34-akd3s-xrdag-3ql62-ocgoh-ld2ao-tamcv-54e7j-krwgb-2gm4z-oqe" =>
+            {
+                include_str!("error_pages/identity.html").to_string()
+            }
             _ => {
                 let template = ERROR_PAGE_TEMPLATE;
                 let template = template.replace("{status_code}", self.status_code().as_str());
@@ -375,7 +380,7 @@ impl From<&ErrorCause> for ErrorClientFacing {
             ErrorCause::CanisterIdNotResolved => Self::CanisterIdNotResolved,
             ErrorCause::CanisterIdIncorrect(_) => Self::CanisterIdIncorrect,
             ErrorCause::SubnetNotFound => Self::SubnetNotFound,
-            ErrorCause::SubnetUnavailable => Self::SubnetUnavailable,
+            ErrorCause::SubnetUnavailable(x) => Self::SubnetUnavailable(x.clone()),
             ErrorCause::ResponseVerificationError => Self::ResponseVerificationError,
             ErrorCause::DomainCanisterMismatch => Self::DomainCanisterMismatch,
             ErrorCause::Denylisted => Self::Denylisted,
@@ -440,7 +445,10 @@ mod test {
 
         // Mapping of "error_cause" BN headers
         let cases = [
-            (NO_HEALTHY_NODES, Some(ErrorCause::SubnetUnavailable)),
+            (
+                NO_HEALTHY_NODES,
+                Some(ErrorCause::SubnetUnavailable("".into())),
+            ),
             (NO_ROUTING_TABLE, Some(ErrorCause::NoRoutingTable)),
             (FORBIDDEN, Some(ErrorCause::Forbidden)),
             (LOAD_SHED, Some(ErrorCause::LoadShed)),
