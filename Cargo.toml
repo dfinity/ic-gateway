@@ -5,7 +5,7 @@ description = "HTTP-to-IC gateway"
 edition = "2024"
 
 [features]
-default = ["vector", "sev_snp", "acme"]
+default = ["vector", "sev_snp"]
 sev_snp = ["dep:sev"]
 clickhouse = ["dep:clickhouse"]
 acme = ["ic-bn-lib/acme_dns", "ic-bn-lib/acme_alpn"]
