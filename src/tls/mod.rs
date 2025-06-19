@@ -21,10 +21,8 @@ use {
     ic_bn_lib::{
         http::{ALPN_ACME, dns::Resolves},
         tls::acme::{
-            self, AcmeOptions, Challenge,
-            acme::Acme,
+            self, Challenge,
             dns::{AcmeDns, DnsBackend, DnsManager, TokenManagerDns},
-            instant_acme::ChallengeType,
         },
     },
     std::{fs, time::Duration},
@@ -60,17 +58,19 @@ async fn setup_acme(
     challenge: &acme::Challenge,
     dns_resolver: Arc<dyn Resolves>,
 ) -> Result<Arc<dyn ResolvesServerCertRustls>, Error> {
-    let opts = AcmeOptions::new(
-        domains.iter().map(|x| x.to_string()).collect::<Vec<_>>(),
-        cli.acme.acme_cache_path.clone().unwrap(),
-        cli.acme.acme_renew_before,
-        cli.acme.acme_wildcard,
-        cli.acme.acme_staging,
-        cli.acme.acme_contact.clone(),
-    );
+    let cache_path = cli.acme.acme_cache_path.clone().unwrap();
 
     let resolver = match challenge {
-        acme::Challenge::Alpn => acme::alpn::new(opts, tasks.token()),
+        acme::Challenge::Alpn => {
+            let opts = acme::alpn::Opts {
+                acme_url: cli.acme.acme_url.clone(),
+                domains: domains.iter().map(|x| x.to_string()).collect::<Vec<_>>(),
+                contact: cli.acme.acme_contact.clone(),
+                cache_path,
+            };
+
+            acme::alpn::new(opts, tasks.token())
+        }
 
         acme::Challenge::Dns => {
             let dns_backend = match cli.acme.acme_dns_backend {
@@ -91,11 +91,20 @@ async fn setup_acme(
                 }
             };
 
-            let token_manager = TokenManagerDns::new(dns_resolver, dns_backend);
-            let acme_client = Acme::new(ChallengeType::Dns01, Arc::new(token_manager), opts)
-                .await
-                .context("unable to create ACME client")?;
-            let acme_dns = Arc::new(AcmeDns::new(acme_client, domains, cli.acme.acme_wildcard));
+            let token_manager = Arc::new(TokenManagerDns::new(dns_resolver, dns_backend));
+
+            let opts = acme::dns::Opts {
+                acme_url: cli.acme.acme_url.clone(),
+                domains,
+                path: cache_path,
+                wildcard: cli.acme.acme_wildcard,
+                renew_before: cli.acme.acme_renew_before,
+                account_credentials: None,
+                token_manager,
+                insecure_tls: false,
+            };
+
+            let acme_dns = Arc::new(AcmeDns::new(opts).await.context("unable to init AcmeDns")?);
             tasks.add_interval(
                 "acme_dns_runner",
                 acme_dns.clone(),

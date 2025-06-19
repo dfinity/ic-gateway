@@ -269,6 +269,7 @@ pub enum ErrorClientFacing {
     CanisterIdNotResolved,
     CanisterIdIncorrect,
     SubnetNotFound,
+    #[strum(serialize = "subnet_updating")]
     SubnetUnavailable(String),
     ResponseVerificationError,
     Denylisted,
@@ -324,7 +325,7 @@ impl ErrorClientFacing {
             Self::CanisterIdNotResolved => "HTTP gateway wasn't able to resolve the ID of the canister where to send the request.".into(),
             Self::CanisterIdIncorrect => "The canister ID is incorrect".into(),
             Self::SubnetNotFound => "The requested subnet was not found.".into(),
-            Self::SubnetUnavailable(_) => "The subnet is temporarily unavailable due to maintenance or an ongoing upgrade. Please try again later.".into(),
+            Self::SubnetUnavailable(_) => "This part of the Internet Computer is currently upgrading. It should be back in a couple of minutes. No worries – your data is safe! Please try again later.".into(),
             Self::ResponseVerificationError => "The response from the canister failed verification and cannot be trusted.\nIf you understand the risks, you can retry using the raw domain to bypass certification.".into(),
             Self::Denylisted => "Access to this resource is denied due to a violation of the code of conduct.".into(),
             Self::Forbidden => "Access to this resource is denied by the current set of application firewall rules.".into(),
