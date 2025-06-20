@@ -47,7 +47,7 @@ pub async fn middleware(
     if let Some(v) = canister_id {
         // Do not run for custom domains
         if !ctx.domain.custom && !state.0.check(v.0, &ctx.authority) {
-            return Err(ErrorCause::DomainCanisterMismatch);
+            return Err(ErrorCause::DomainCanisterMismatch(v.0));
         }
     }
 
