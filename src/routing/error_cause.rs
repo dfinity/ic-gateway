@@ -156,7 +156,7 @@ impl IntoResponse for ErrorCause {
     #[cfg(feature = "debug")]
     fn into_response(self) -> Response {
         let client_facing_error: ErrorClientFacing = (&self).into();
-        let error_data = client_facing_error.page_data();
+        let error_data = client_facing_error.data();
 
         let body = format!("error: {}\ndetails:\n{}", self, error_data.description);
 
