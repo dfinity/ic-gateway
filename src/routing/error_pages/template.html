@@ -251,30 +251,6 @@
             50% { background-position: 100% 50%; }
         }
 
-        .theme-toggle {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            background: var(--bg-primary);
-            border: 2px solid var(--text-secondary);
-            border-radius: var(--radius-full);
-            width: var(--button-md);
-            height: var(--button-md);
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all var(--transition-base);
-            z-index: var(--z-toggle);
-            box-shadow: var(--shadow-sm);
-        }
-
-        .theme-toggle:hover {
-            transform: scale(1.1);
-            border-color: var(--text-primary);
-            box-shadow: var(--shadow-md);
-        }
-
         .theme-icon {
             font-size: clamp(18px, 4vw, 24px);
             line-height: 1;
@@ -647,7 +623,6 @@
 
         @media (prefers-reduced-motion: reduce) {
             .try-again-button,
-            .theme-toggle,
             .action-button {
                 transition: none;
             }
@@ -696,12 +671,6 @@
     <div class="progress-bar" role="progressbar" aria-label="Page loading progress"></div>
 
     <div class="container">
-        <!-- Dark mode toggle -->
-        <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle dark mode">
-            <span class="theme-icon sun-icon">☀️</span>
-            <span class="theme-icon moon-icon">🌙</span>
-        </button>
-
         <!-- Main content -->
         <main class="main-content">
             <!-- Icon -->
@@ -719,7 +688,7 @@
                 <div class="content-wrapper">
                     <header class="header-content">
                         <div class="title-section">
-                            <p class="error-code font-system-regular">{{ERROR_CODE}}</p>
+                            <p class="error-code font-system-regular">Error {{ERROR_CODE}}</p>
                             <h1 class="main-title font-system-medium">{{ERROR_TITLE}}</h1>
                         </div>
                         <p class="description font-system-regular">{{ERROR_DESCRIPTION}}</p>
@@ -828,8 +797,7 @@
         // Canister action functionality
         function copyCanisterId() {
             const canisterElement = document.querySelector('.canister-id-text');
-            const canisterId = canisterElement ?
-                (canisterElement.getAttribute('data-full-id') || canisterElement.textContent.trim()) : null;
+            const canisterId = canisterElement?.getAttribute('data-full-id')?.trim() || canisterElement?.textContent?.trim();
 
             if (!canisterId) {
                 console.error('No canister ID found');
@@ -838,28 +806,41 @@
 
             const showToast = () => {
                 const toast = document.getElementById('toast');
-                toast.classList.add('show');
-                setTimeout(() => {
-                    toast.classList.remove('show');
-                }, 3000);
+                if (toast) {
+                    toast.classList.add('show');
+                    setTimeout(() => toast.classList.remove('show'), 3000);
+                }
             };
 
-            navigator.clipboard.writeText(canisterId).then(showToast).catch(err => {
-                console.error('Failed to copy canister ID:', err);
-                // Fallback for older browsers
+            const fallbackCopy = () => {
                 const textArea = document.createElement('textarea');
                 textArea.value = canisterId;
+                textArea.style.position = 'fixed'; // Prevent scrolling to bottom on iOS
                 document.body.appendChild(textArea);
                 textArea.focus();
                 textArea.select();
+
                 try {
-                    document.execCommand('copy');
-                    showToast();
+                    const successful = document.execCommand('copy');
+                    if (successful) showToast();
+                    else console.error('Fallback copy was unsuccessful');
                 } catch (err) {
                     console.error('Fallback copy failed:', err);
                 }
+
                 document.body.removeChild(textArea);
-            });
+            };
+
+            if (navigator.clipboard?.writeText) {
+                navigator.clipboard.writeText(canisterId)
+                    .then(showToast)
+                    .catch(err => {
+                        console.error('Clipboard API failed:', err);
+                        fallbackCopy();
+                    });
+            } else {
+                fallbackCopy();
+            }
         }
 
         function openCanisterLink() {
@@ -877,15 +858,6 @@
         }
 
         {{RETRY_LOGIC}}
-
-        // Theme toggle functionality
-        function toggleTheme() {
-            const html = document.documentElement;
-            const currentTheme = html.getAttribute('data-theme');
-            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-
-            html.setAttribute('data-theme', newTheme);
-        }
 
         // Initialize theme with system preference detection
         function initTheme() {

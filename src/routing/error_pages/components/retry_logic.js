@@ -2,7 +2,7 @@
         let retryCount = 0;
         const maxRetries = 5;
         let retryTimer;
-        let timeLeft = 60;
+        let timeLeft = 30;
 
         function retryConnection() {
             const button = document.querySelector('.try-again-button');
@@ -22,7 +22,7 @@
 
                 if (timeLeft <= 0) {
                     retryCount++;
-                    timeLeft = 60;
+                    timeLeft = 30;
                     retryConnection();
                 } else {
                     // Update the retry message with current countdown

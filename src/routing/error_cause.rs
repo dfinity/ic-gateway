@@ -30,8 +30,7 @@ const CANISTER_WARNING_LIGHT_SVG: &str =
     include_str!("error_pages/assets/canister-warning-light.svg");
 const CANISTER_WARNING_DARK_SVG: &str =
     include_str!("error_pages/assets/canister-warning-dark.svg");
-const SPACE_MAN_LIGHT_SVG: &str = include_str!("error_pages/assets/space-man-light.svg");
-const SPACE_MAN_DARK_SVG: &str = include_str!("error_pages/assets/space-man-dark.svg");
+const GENERAL_ERROR_SVG: &str = include_str!("error_pages/assets/general-error.svg");
 const SUBNET_LIGHT_SVG: &str = include_str!("error_pages/assets/subnet-light.svg");
 const SUBNET_DARK_SVG: &str = include_str!("error_pages/assets/subnet-dark.svg");
 
@@ -301,17 +300,15 @@ pub enum ErrorClientFacing {
 }
 
 impl ErrorClientFacing {
-    fn page_data(&self) -> ErrorPageData {
+    fn data(&self) -> ErrorData {
         match self {
-            Self::BodyTimedOut => ErrorPageData {
+            Self::BodyTimedOut => ErrorData {
                 status_code: StatusCode::REQUEST_TIMEOUT,
                 title: "Request Timed Out".into(),
-                description: "The request took too long to complete because data was arriving too slowly. This is often caused by a slow or unstable connection.".into(),
-                icon_light: SPACE_MAN_LIGHT_SVG.into(),
-                icon_dark: SPACE_MAN_DARK_SVG.into(),
+                description: "The request took too long to complete because data was arriving too slowly. Check your network connection and try again. If you are on a spotty network, switch to a more stable connection.".into(),
                 ..Default::default()
             },
-            Self::CanisterNotFound => ErrorPageData {
+            Self::CanisterNotFound => ErrorData {
                 status_code: StatusCode::NOT_FOUND,
                 title: "Canister Not Found".into(),
                 description: "The requested canister does not exist or is no longer available on the Internet Computer.".into(),
@@ -319,7 +316,7 @@ impl ErrorClientFacing {
                 icon_dark: CANISTER_ERROR_DARK_SVG.into(),
                 ..Default::default()
             },
-            Self::CanisterReject => ErrorPageData {
+            Self::CanisterReject => ErrorData {
                 status_code: StatusCode::SERVICE_UNAVAILABLE,
                 title: "Request Rejected".into(),
                 description: "The canister explicitly rejected the request.".into(),
@@ -327,21 +324,24 @@ impl ErrorClientFacing {
                 icon_dark: CANISTER_WARNING_DARK_SVG.into(),
                 ..Default::default()
             },
-            Self::CanisterError => ErrorPageData {
+            Self::CanisterError => ErrorData {
                 status_code: StatusCode::SERVICE_UNAVAILABLE,
                 title: "Canister Error".into(),
-                description: "The canister failed to process your request. This may be due to resource limitations, configuration problems, or an issue with the canister itself. This is not an IC Gateway issue—only the canister itself is affected.".into(),
+                description: r#"The canister failed to process your request.
+                    This may be due to an issue with the canister's program, the resources it has allocated, or its configuration.
+                    This is not an ICP issue, but local to this specific canister. You might want to try again in a moment.
+                    If the problem persists, please reach out to the developers or check the ICP developer forum."#.trim().into(),
                 icon_light: CANISTER_ERROR_LIGHT_SVG.into(),
                 icon_dark: CANISTER_ERROR_DARK_SVG.into(),
                 ..Default::default()
             },
-            Self::CanisterFrozen => ErrorPageData {
+            Self::CanisterFrozen => ErrorData {
                 status_code: StatusCode::SERVICE_UNAVAILABLE,
                 title: "Canister Temporarily Unavailable".into(),
                 description: "The canister has run out of cycles. You or others can top it up to restore functionality.".into(),
                 description_html: Some(r#"
-                    The canister has run out of "cycles"—the computational resources it needs to operate.<br>
-                    You or others can top it up to restore functionality.<br>
+                    The canister has run out of "cycles", the computational resource it needs to operate.
+                    You or others can top it up to restore functionality:<br>
                     <a href="https://internetcomputer.org/docs/building-apps/canister-management/topping-up"
                         target="_blank" rel="noopener noreferrer" class="external-link">
                         Learn how to top up a canister.
@@ -351,7 +351,7 @@ impl ErrorClientFacing {
                 icon_dark: CANISTER_ERROR_DARK_SVG.into(),
                 ..Default::default()
             },
-            Self::CanisterIdNotResolved => ErrorPageData {
+            Self::CanisterIdNotResolved => ErrorData {
                 status_code: StatusCode::BAD_REQUEST,
                 title: "Canister ID Not Resolved".into(),
                 description: "The gateway couldn't determine the destination canister for this request. Ensure the request includes a valid canister ID or uses a recognized domain.".into(),
@@ -359,15 +359,15 @@ impl ErrorClientFacing {
                 icon_dark: CANISTER_WARNING_DARK_SVG.into(),
                 ..Default::default()
             },
-            Self::CanisterIdIncorrect => ErrorPageData {
+            Self::CanisterIdIncorrect => ErrorData {
                 status_code: StatusCode::BAD_REQUEST,
                 title: "Incorrect Canister ID".into(),
-                description: "The canister ID you provided is invalid. Please check that it's correct and try again.".into(),
+                description: "The canister ID you provided is invalid. Please verify the canister ID and try again.".into(),
                 icon_light: CANISTER_ERROR_LIGHT_SVG.into(),
                 icon_dark: CANISTER_ERROR_DARK_SVG.into(),
                 ..Default::default()
             },
-            Self::SubnetNotFound => ErrorPageData {
+            Self::SubnetNotFound => ErrorData {
                 status_code: StatusCode::BAD_REQUEST,
                 title: "Subnet Not Found".into(),
                 description: "The requested subnet was not found.".into(),
@@ -375,43 +375,33 @@ impl ErrorClientFacing {
                 icon_dark: SUBNET_DARK_SVG.into(),
                 ..Default::default()
             },
-            Self::SubnetUnavailable => ErrorPageData {
+            Self::SubnetUnavailable => ErrorData {
                 status_code: StatusCode::SERVICE_UNAVAILABLE,
-                title: "Subnet Updating".into(),
-                description: "This part of the Internet Computer is currently upgrading. It should be back in a couple of minutes. No worries—your data is safe!".into(),
+                title: "Subnet Upgrade".into(),
+                description: "The protocol currently upgrades this part of the Internet Computer. It should be back momentarily. No worries—your data is safe!".into(),
                 retry_message: Some("Wait a few minutes and refresh this page.".into()),
                 icon_light: SUBNET_LIGHT_SVG.into(),
                 icon_dark: SUBNET_DARK_SVG.into(),
                 ..Default::default()
             },
-            Self::ResponseVerificationError => ErrorPageData {
+            Self::ResponseVerificationError => ErrorData {
                 status_code: StatusCode::SERVICE_UNAVAILABLE,
                 title: "Response Verification Error".into(),
-                description: "The response from the canister failed verification and cannot be trusted.\nIf you understand the risks, you can retry using the raw domain to bypass certification.".into(),
-                description_html: Some(r#"
-                    The response from the canister failed verification and cannot be trusted.<br>
-                    If you understand the risks, you can retry using the raw domain to bypass certification.
-                "#.trim().into()),
-                icon_light: SPACE_MAN_LIGHT_SVG.into(),
-                icon_dark: SPACE_MAN_DARK_SVG.into(),
+                description: "The response from the canister failed verification and cannot be trusted. If you understand the risks, you can retry using the raw domain to bypass certification.".into(),
                 ..Default::default()
             },
-            Self::Denylisted => ErrorPageData {
+            Self::Denylisted => ErrorData {
                 status_code: StatusCode::UNAVAILABLE_FOR_LEGAL_REASONS,
                 title: "Unavailable Due to Policy Violation".into(),
                 description: "Access to this resource is denied due to a violation of the code of conduct.".into(),
                 description_html: Some(r#"
-                    This content is currently blocked.<br>
-                    The HTTP gateway has flagged the associated canister for potential
-                    <a href="https://dfinity.org/boundary-nodes/ic0-app/code-of-conduct/" target="_blank" rel="noopener noreferrer" class="external-link">
-                        Code of Conduct
-                    </a> violations and placed it under review."#.trim().into()),
+                    This gateway denies access to the requested resource due to a violation of the
+                    <a href="https://dfinity.org/boundary-nodes/ic0-app/code-of-conduct/" target="_blank" rel="noopener noreferrer" class="external-link">code of conduct.</a>.
+                    If you believe this is an error, please file an appeal:"#.trim().into()),
                 appeal_section: true,
-                icon_light: SPACE_MAN_LIGHT_SVG.into(),
-                icon_dark: SPACE_MAN_DARK_SVG.into(),
                 ..Default::default()
             },
-            Self::Forbidden => ErrorPageData {
+            Self::Forbidden => ErrorData {
                 status_code: StatusCode::FORBIDDEN,
                 title: "Access Forbidden".into(),
                 description: "Access to this resource is denied by the current set of application firewall rules.".into(),
@@ -419,91 +409,72 @@ impl ErrorClientFacing {
                 icon_dark: SUBNET_DARK_SVG.into(),
                 ..Default::default()
             },
-            Self::DomainCanisterMismatch(canister_id) => ErrorPageData {
+            Self::DomainCanisterMismatch(canister_id) => ErrorData {
                 status_code: StatusCode::BAD_REQUEST,
                 title: "Canister Not Available Through This Gateway".into(),
-                description: "Access to the canister is forbidden through the current gateway domain. Try accessing it through an allowed gateway domain.".into(),
+                description: "This canister is not served through this gateway. Use a gateway that matches the canister's configuration.".into(),
                 description_html: Some(format!(
                     r#"
-                        The canister you're trying to access isn't served by this HTTP gateway.<br>
-                        Try using a compatible gateway:<br>
+                        This canister is not served through this gateway. Use a gateway that matches the canister's configuration:<br>
                         <a href="https://{id}.icp0.io" target="_blank" rel="noopener noreferrer" class="external-link">
                             {id}.icp0.io
                     </a>.
                 "#, id=canister_id).trim().into()),
                 canister_id: Some(*canister_id),
-                icon_light: SPACE_MAN_LIGHT_SVG.into(),
-                icon_dark: SPACE_MAN_DARK_SVG.into(),
                 ..Default::default()
             },
-            Self::IncorrectPrincipal => ErrorPageData {
+            Self::IncorrectPrincipal => ErrorData {
                 status_code: StatusCode::BAD_REQUEST,
                 title: "Incorrect Principal".into(),
                 description: "The principal in the request is incorrectly formatted.".into(),
-                icon_light: SPACE_MAN_LIGHT_SVG.into(),
-                icon_dark: SPACE_MAN_DARK_SVG.into(),
                 ..Default::default()
             },
-            Self::LoadShed => ErrorPageData {
+            Self::LoadShed => ErrorData {
                 status_code: StatusCode::TOO_MANY_REQUESTS,
                 title: "Too Many Requests".into(),
                 description: "The HTTP gateway is experiencing high load and cannot process your request right now. Please try again later.".into(),
-                icon_light: SPACE_MAN_LIGHT_SVG.into(),
-                icon_dark: SPACE_MAN_DARK_SVG.into(),
                 ..Default::default()
             },
-            Self::MalformedRequest(x) => ErrorPageData {
+            Self::MalformedRequest(x) => ErrorData {
                 status_code: StatusCode::BAD_REQUEST,
                 title: "Malformed Request".into(),
                 description: x.clone(),
-                icon_light: SPACE_MAN_LIGHT_SVG.into(),
-                icon_dark: SPACE_MAN_DARK_SVG.into(),
                 ..Default::default()
             },
-            Self::NoAuthority => ErrorPageData {
+            Self::NoAuthority => ErrorData {
                 status_code: StatusCode::BAD_REQUEST,
                 title: "Missing Authority".into(),
                 description: "The request is missing the required authority information (e.g. 'Host' header).".into(),
-                icon_light: SPACE_MAN_LIGHT_SVG.into(),
-                icon_dark: SPACE_MAN_DARK_SVG.into(),
                 ..Default::default()
             },
-            Self::Other => ErrorPageData {
+            Self::Other => ErrorData {
                 status_code: StatusCode::INTERNAL_SERVER_ERROR,
                 title: "Internal Gateway Error".into(),
-                description: "Something went wrong on our end. We're looking into it—please try again later.".into(),
-                icon_light: SPACE_MAN_LIGHT_SVG.into(),
-                icon_dark: SPACE_MAN_DARK_SVG.into(),
+                description: "Something went wrong. Please try again later.".into(),
                 ..Default::default()
             },
-            Self::PayloadTooLarge => ErrorPageData {
+            Self::PayloadTooLarge => ErrorData {
                 status_code: StatusCode::PAYLOAD_TOO_LARGE,
-                title: "Payload Too Large".into(),
+                title: "Payload too Large".into(),
                 description: "The data you sent is too large for the Internet Computer to handle. Please reduce your payload and try again.".into(),
-                icon_light: SPACE_MAN_LIGHT_SVG.into(),
-                icon_dark: SPACE_MAN_DARK_SVG.into(),
                 ..Default::default()
             },
-            Self::RateLimited => ErrorPageData {
+            Self::RateLimited => ErrorData {
                 status_code: StatusCode::TOO_MANY_REQUESTS,
                 title: "Rate Limited".into(),
-                description: "You have exceeded the rate limit. Please slow down your requests and try again in a moment.".into(),
-                icon_light: SPACE_MAN_LIGHT_SVG.into(),
-                icon_dark: SPACE_MAN_DARK_SVG.into(),
+                description: "Your request has exceeded the rate limit. Please slow down your requests and try again in a moment.".into(),
                 ..Default::default()
             },
-            Self::UnknownDomain => ErrorPageData {
+            Self::UnknownDomain => ErrorData {
                 status_code: StatusCode::BAD_REQUEST,
                 title: "Unknown Domain".into(),
-                description: "The requested domain is not served by this HTTP gateway. Please check that you typed the address correctly.".into(),
-                icon_light: SPACE_MAN_LIGHT_SVG.into(),
-                icon_dark: SPACE_MAN_DARK_SVG.into(),
+                description: "The requested domain is not served by this HTTP gateway. Please check that the address is correct.".into(),
                 ..Default::default()
             },
-            Self::UpstreamError => ErrorPageData {
+            Self::UpstreamError => ErrorData {
                 status_code: StatusCode::SERVICE_UNAVAILABLE,
                 title: "Upstream Unavailable".into(),
-                description: "The HTTP gateway is temporarily unable to process the request. Please try again later.".into(),
+                description: "The HTTP gateway is temporarily unable to process the request. Please try again later. If this persists, check the status page for updates and reach out on the ICP developer forum.".into(),
                 icon_light: SUBNET_LIGHT_SVG.into(),
                 icon_dark: SUBNET_DARK_SVG.into(),
                 ..Default::default()
@@ -548,15 +519,15 @@ impl IntoResponse for ErrorClientFacing {
     fn into_response(self) -> Response {
         let request_type = ERROR_CONTEXT.try_with(|x| *x).unwrap_or_default();
 
-        let page_data = self.page_data();
+        let error_data = self.data();
 
         // Return an HTML error page if it was an HTTP request
         let body = match request_type {
-            RequestType::Http => page_data.html(),
-            _ => format!("error: {}\ndetails:\n{}", self, page_data.description),
+            RequestType::Http => error_data.html(),
+            _ => format!("error: {}\ndetails:\n{}", self, error_data.description),
         };
 
-        let mut resp = (page_data.status_code, body).into_response();
+        let mut resp = (error_data.status_code, body).into_response();
         if request_type == RequestType::Http {
             resp.headers_mut().insert(CONTENT_TYPE, CONTENT_TYPE_HTML);
         }
@@ -564,8 +535,7 @@ impl IntoResponse for ErrorClientFacing {
     }
 }
 
-#[derive(Default)]
-struct ErrorPageData {
+struct ErrorData {
     status_code: StatusCode,
     title: String,
     description: String,
@@ -577,42 +547,62 @@ struct ErrorPageData {
     icon_dark: String,
 }
 
-impl ErrorPageData {
-    pub fn html(&self) -> String {
-        let mut template = ERROR_PAGE_TEMPLATE.to_string();
-        template = template.replace("{{ERROR_CODE}}", self.status_code.as_str());
-        template = template.replace("{{ERROR_TITLE}}", &self.title);
-        if let Some(description) = &self.description_html {
-            template = template.replace("{{ERROR_DESCRIPTION}}", description);
-        } else {
-            template = template.replace("{{ERROR_DESCRIPTION}}", &self.description);
+impl Default for ErrorData {
+    fn default() -> Self {
+        ErrorData {
+            status_code: StatusCode::INTERNAL_SERVER_ERROR, // or whatever default makes sense
+            title: String::new(),
+            description: String::new(),
+            description_html: None,
+            retry_message: None,
+            canister_id: None,
+            appeal_section: false,
+            icon_light: GENERAL_ERROR_SVG.into(),
+            icon_dark: GENERAL_ERROR_SVG.into(),
         }
-        template = template.replace("{{IMAGE_SVG_LIGHT}}", self.icon_light.as_str());
-        template = template.replace("{{IMAGE_SVG_DARK}}", self.icon_dark.as_str());
+    }
+}
+
+impl ErrorData {
+    pub fn html(&self) -> String {
+        let mut tpl = ERROR_PAGE_TEMPLATE
+            .replace("{{ERROR_CODE}}", self.status_code.as_str())
+            .replace("{{ERROR_TITLE}}", &self.title);
+        if let Some(description) = &self.description_html {
+            tpl = tpl.replace("{{ERROR_DESCRIPTION}}", description);
+        } else {
+            tpl = tpl.replace("{{ERROR_DESCRIPTION}}", &self.description);
+        }
+        tpl = tpl
+            .replace("{{IMAGE_SVG_LIGHT}}", self.icon_light.as_str())
+            .replace("{{IMAGE_SVG_DARK}}", self.icon_dark.as_str());
 
         if let Some(retry_message) = &self.retry_message {
-            template = template.replace("{{RETRY_SECTION}}", RETRY_SECTION_TEMPLATE);
-            template = template.replace("{{RETRY_LOGIC}}", RETRY_LOGIC);
-            template = template.replace("{{RETRY_MESSAGE}}", retry_message);
+            tpl = tpl
+                .replace("{{RETRY_SECTION}}", RETRY_SECTION_TEMPLATE)
+                .replace("{{RETRY_LOGIC}}", RETRY_LOGIC)
+                .replace("{{RETRY_MESSAGE}}", retry_message);
         } else {
-            template = template.replace("{{RETRY_SECTION}}", "");
-            template = template.replace("{{RETRY_LOGIC}}", "");
+            tpl = tpl
+                .replace("{{RETRY_SECTION}}", "")
+                .replace("{{RETRY_LOGIC}}", "");
         }
 
         if let Some(canister_id) = &self.canister_id {
-            template = template.replace("{{CANISTER_SECTION}}", CANISTER_SECTION_TEMPLATE);
-            template = template.replace("{{CANISTER_ID}}", canister_id.to_string().as_str());
+            tpl = tpl
+                .replace("{{CANISTER_SECTION}}", CANISTER_SECTION_TEMPLATE)
+                .replace("{{CANISTER_ID}}", canister_id.to_string().as_str());
         } else {
-            template = template.replace("{{CANISTER_SECTION}}", "");
+            tpl = tpl.replace("{{CANISTER_SECTION}}", "");
         }
 
         if self.appeal_section {
-            template = template.replace("{{APPEAL_SECTION}}", APPEAL_SECTION);
+            tpl = tpl.replace("{{APPEAL_SECTION}}", APPEAL_SECTION);
         } else {
-            template = template.replace("{{APPEAL_SECTION}}", "");
+            tpl = tpl.replace("{{APPEAL_SECTION}}", "");
         }
 
-        template
+        tpl
     }
 }
 
