@@ -184,7 +184,7 @@ mod tests {
                 let result = app.call(request).await.unwrap();
 
                 assert_eq!(result.status(), StatusCode::INTERNAL_SERVER_ERROR);
-                let body = to_bytes(result.into_body(), 100).await.unwrap().to_vec();
+                let body = to_bytes(result.into_body(), 1024).await.unwrap().to_vec();
                 assert!(body.starts_with(b"error: internal_server_error\n"));
             })
             .await;

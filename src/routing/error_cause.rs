@@ -2,6 +2,7 @@ use std::error::Error as StdError;
 
 use crate::routing::RequestType;
 use axum::response::{IntoResponse, Response};
+use candid::Principal;
 use hickory_resolver::ResolveError;
 use http::{StatusCode, header::CONTENT_TYPE};
 use ic_agent::AgentError;
@@ -18,6 +19,21 @@ task_local! {
 }
 
 const ERROR_PAGE_TEMPLATE: &str = include_str!("error_pages/template.html");
+const CANISTER_SECTION_TEMPLATE: &str =
+    include_str!("error_pages/components/canister_section.html");
+const RETRY_SECTION_TEMPLATE: &str = include_str!("error_pages/components/retry_section.html");
+const RETRY_LOGIC: &str = include_str!("error_pages/components/retry_logic.js");
+const APPEAL_SECTION: &str = include_str!("error_pages/components/appeal_section.html");
+const CANISTER_ERROR_LIGHT_SVG: &str = include_str!("error_pages/assets/canister-error-light.svg");
+const CANISTER_ERROR_DARK_SVG: &str = include_str!("error_pages/assets/canister-error-dark.svg");
+const CANISTER_WARNING_LIGHT_SVG: &str =
+    include_str!("error_pages/assets/canister-warning-light.svg");
+const CANISTER_WARNING_DARK_SVG: &str =
+    include_str!("error_pages/assets/canister-warning-dark.svg");
+const GENERAL_ERROR_LIGHT_SVG: &str = include_str!("error_pages/assets/general-error-light.svg");
+const GENERAL_ERROR_DARK_SVG: &str = include_str!("error_pages/assets/general-error-dark.svg");
+const SUBNET_LIGHT_SVG: &str = include_str!("error_pages/assets/subnet-light.svg");
+const SUBNET_DARK_SVG: &str = include_str!("error_pages/assets/subnet-dark.svg");
 
 // Process error chain trying to find given error type
 pub fn error_infer<E: StdError + Send + Sync + 'static>(error: &anyhow::Error) -> Option<&E> {
@@ -64,11 +80,11 @@ pub enum ErrorCause {
     CanisterIdNotResolved,
     CanisterRouteNotFound,
     SubnetNotFound,
-    SubnetUnavailable(String),
+    SubnetUnavailable,
     NoRoutingTable,
     ResponseVerificationError,
     HttpGatewayError(String),
-    DomainCanisterMismatch,
+    DomainCanisterMismatch(Principal),
     Denylisted,
     Forbidden,
     BackendError(String),
@@ -141,14 +157,11 @@ impl IntoResponse for ErrorCause {
     #[cfg(feature = "debug")]
     fn into_response(self) -> Response {
         let client_facing_error: ErrorClientFacing = (&self).into();
+        let error_data = client_facing_error.data();
 
-        let body = format!(
-            "error: {}\ndetails:\n{}",
-            self,
-            self.details().unwrap_or_default()
-        );
+        let body = format!("error: {}\ndetails:\n{}", self, error_data.description);
 
-        let mut resp = (client_facing_error.status_code(), body).into_response();
+        let mut resp = (error_data.status_code, body).into_response();
         resp.extensions_mut().insert(self);
         resp
     }
@@ -194,7 +207,7 @@ impl From<&BNResponseMetadata> for Option<ErrorCause> {
         }
 
         Some(match v.error_cause.as_ref() {
-            NO_HEALTHY_NODES => ErrorCause::SubnetUnavailable(v.subnet_id.clone()),
+            NO_HEALTHY_NODES => ErrorCause::SubnetUnavailable,
             CANISTER_NOT_FOUND | CANISTER_ROUTE_NOT_FOUND => ErrorCause::CanisterRouteNotFound,
             SUBNET_NOT_FOUND => ErrorCause::SubnetNotFound,
             FORBIDDEN => ErrorCause::Forbidden,
@@ -270,11 +283,11 @@ pub enum ErrorClientFacing {
     CanisterIdIncorrect,
     SubnetNotFound,
     #[strum(serialize = "subnet_updating")]
-    SubnetUnavailable(String),
+    SubnetUnavailable,
     ResponseVerificationError,
     Denylisted,
     Forbidden,
-    DomainCanisterMismatch,
+    DomainCanisterMismatch(Principal),
     IncorrectPrincipal,
     LoadShed,
     MalformedRequest(String),
@@ -288,76 +301,185 @@ pub enum ErrorClientFacing {
 }
 
 impl ErrorClientFacing {
-    pub const fn status_code(&self) -> StatusCode {
+    fn data(&self) -> ErrorData {
         match self {
-            Self::BodyTimedOut => StatusCode::REQUEST_TIMEOUT,
-            Self::CanisterNotFound => StatusCode::NOT_FOUND,
-            Self::CanisterReject => StatusCode::SERVICE_UNAVAILABLE,
-            Self::CanisterError => StatusCode::SERVICE_UNAVAILABLE,
-            Self::CanisterFrozen => StatusCode::SERVICE_UNAVAILABLE,
-            Self::CanisterIdNotResolved => StatusCode::BAD_REQUEST,
-            Self::CanisterIdIncorrect => StatusCode::BAD_REQUEST,
-            Self::SubnetNotFound => StatusCode::BAD_REQUEST,
-            Self::SubnetUnavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
-            Self::ResponseVerificationError => StatusCode::SERVICE_UNAVAILABLE,
-            Self::Denylisted => StatusCode::UNAVAILABLE_FOR_LEGAL_REASONS,
-            Self::Forbidden => StatusCode::FORBIDDEN,
-            Self::DomainCanisterMismatch => StatusCode::BAD_REQUEST,
-            Self::IncorrectPrincipal => StatusCode::BAD_REQUEST,
-            Self::LoadShed => StatusCode::TOO_MANY_REQUESTS,
-            Self::MalformedRequest(_) => StatusCode::BAD_REQUEST,
-            Self::NoAuthority => StatusCode::BAD_REQUEST,
-            Self::Other => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::PayloadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
-            Self::RateLimited => StatusCode::TOO_MANY_REQUESTS,
-            Self::UnknownDomain => StatusCode::BAD_REQUEST,
-            Self::UpstreamError => StatusCode::SERVICE_UNAVAILABLE,
-        }
-    }
-
-    pub fn details(&self) -> String {
-        match self {
-            Self::BodyTimedOut => "Reading the request body timed out due to data arriving too slowly.".into(),
-            Self::CanisterNotFound => "The requested canister does not exist.".into(),
-            Self::CanisterReject => "The canister explicitly rejected the request.".into(),
-            Self::CanisterError => "The canister encountered an error while processing the request.\nThis issue may be due to resource limitations, configuration problems, or an internal failure.".into(),
-            Self::CanisterFrozen => "The canister is temporarily unable to process the request due to insufficient funds.".into(),
-            Self::CanisterIdNotResolved => "HTTP gateway wasn't able to resolve the ID of the canister where to send the request.".into(),
-            Self::CanisterIdIncorrect => "The canister ID is incorrect".into(),
-            Self::SubnetNotFound => "The requested subnet was not found.".into(),
-            Self::SubnetUnavailable(_) => "This part of the Internet Computer is currently upgrading. It should be back in a couple of minutes. No worries – your data is safe! Please try again later.".into(),
-            Self::ResponseVerificationError => "The response from the canister failed verification and cannot be trusted.\nIf you understand the risks, you can retry using the raw domain to bypass certification.".into(),
-            Self::Denylisted => "Access to this resource is denied due to a violation of the code of conduct.".into(),
-            Self::Forbidden => "Access to this resource is denied by the current set of application firewall rules.".into(),
-            Self::DomainCanisterMismatch => "Access to the canister is forbidden through the current gateway domain. Try accessing it through an allowed gateway domain.".into(),
-            Self::IncorrectPrincipal => "The principal in the request is incorrectly formatted.".into(),
-            Self::LoadShed => "The HTTP gateway is temporarily unable to handle the request due to high load. Please try again later.".into(),
-            Self::MalformedRequest(x) => x.into(),
-            Self::NoAuthority => "The request is missing the required authority information (e.g. 'Host' header).".into(),
-            Self::Other => "Internal Server Error".into(),
-            Self::PayloadTooLarge => "The request body exceeds the maximum allowed size.".into(),
-            Self::RateLimited => "Rate limit exceeded. Please slow down requests and try again later.".into(),
-            Self::UnknownDomain => "The requested domain is not served by this HTTP gateway.".into(),
-            Self::UpstreamError => "The HTTP gateway is temporarily unable to process the request. Please try again later.".into(),
-        }
-    }
-
-    pub fn html(&self) -> String {
-        match self {
-            Self::Denylisted => include_str!("error_pages/451.html").to_string(),
-            Self::SubnetUnavailable(subnet)
-                if subnet == "uzr34-akd3s-xrdag-3ql62-ocgoh-ld2ao-tamcv-54e7j-krwgb-2gm4z-oqe" =>
-            {
-                include_str!("error_pages/identity.html").to_string()
-            }
-            _ => {
-                let template = ERROR_PAGE_TEMPLATE;
-                let template = template.replace("{status_code}", self.status_code().as_str());
-                let template =
-                    template.replace("{reason}", self.to_string().replace("_", " ").as_str());
-
-                template.replace("{details}", &self.details().replace('\n', "<br />"))
-            }
+            Self::BodyTimedOut => ErrorData {
+                status_code: StatusCode::REQUEST_TIMEOUT,
+                title: "Request Timed Out".into(),
+                description: "The request took too long to complete because data was arriving too slowly. Check your network connection and try again. If you are on a spotty network, switch to a more stable connection.".into(),
+                ..Default::default()
+            },
+            Self::CanisterNotFound => ErrorData {
+                status_code: StatusCode::NOT_FOUND,
+                title: "Canister Not Found".into(),
+                description: "The requested canister does not exist or is no longer available on the Internet Computer.".into(),
+                icon_light: CANISTER_ERROR_LIGHT_SVG.into(),
+                icon_dark: CANISTER_ERROR_DARK_SVG.into(),
+                ..Default::default()
+            },
+            Self::CanisterReject => ErrorData {
+                status_code: StatusCode::SERVICE_UNAVAILABLE,
+                title: "Request Rejected".into(),
+                description: "The canister explicitly rejected the request.".into(),
+                icon_light: CANISTER_WARNING_LIGHT_SVG.into(),
+                icon_dark: CANISTER_WARNING_DARK_SVG.into(),
+                ..Default::default()
+            },
+            Self::CanisterError => ErrorData {
+                status_code: StatusCode::SERVICE_UNAVAILABLE,
+                title: "Canister Error".into(),
+                description: r#"The canister failed to process your request.
+                    This may be due to an issue with the canister's program, the resources it has allocated, or its configuration.
+                    This is not an ICP issue, but local to this specific canister. You might want to try again in a moment.
+                    If the problem persists, please reach out to the developers or check the ICP developer forum."#.trim().into(),
+                icon_light: CANISTER_ERROR_LIGHT_SVG.into(),
+                icon_dark: CANISTER_ERROR_DARK_SVG.into(),
+                ..Default::default()
+            },
+            Self::CanisterFrozen => ErrorData {
+                status_code: StatusCode::SERVICE_UNAVAILABLE,
+                title: "Canister Temporarily Unavailable".into(),
+                description: "The canister has run out of cycles. You or others can top it up to restore functionality.".into(),
+                description_html: Some(r#"
+                    The canister has run out of "cycles", the computational resource it needs to operate.
+                    You or others can top it up to restore functionality:<br>
+                    <a href="https://internetcomputer.org/docs/building-apps/canister-management/topping-up"
+                        target="_blank" rel="noopener noreferrer" class="external-link">
+                        Learn how to top up a canister.
+                    </a>
+                "#.trim().into()),
+                icon_light: CANISTER_ERROR_LIGHT_SVG.into(),
+                icon_dark: CANISTER_ERROR_DARK_SVG.into(),
+                ..Default::default()
+            },
+            Self::CanisterIdNotResolved => ErrorData {
+                status_code: StatusCode::BAD_REQUEST,
+                title: "Canister ID Not Resolved".into(),
+                description: "The gateway couldn't determine the destination canister for this request. Ensure the request includes a valid canister ID or uses a recognized domain.".into(),
+                icon_light: CANISTER_WARNING_LIGHT_SVG.into(),
+                icon_dark: CANISTER_WARNING_DARK_SVG.into(),
+                ..Default::default()
+            },
+            Self::CanisterIdIncorrect => ErrorData {
+                status_code: StatusCode::BAD_REQUEST,
+                title: "Incorrect Canister ID".into(),
+                description: "The canister ID you provided is invalid. Please verify the canister ID and try again.".into(),
+                icon_light: CANISTER_ERROR_LIGHT_SVG.into(),
+                icon_dark: CANISTER_ERROR_DARK_SVG.into(),
+                ..Default::default()
+            },
+            Self::SubnetNotFound => ErrorData {
+                status_code: StatusCode::BAD_REQUEST,
+                title: "Subnet Not Found".into(),
+                description: "The requested subnet was not found.".into(),
+                icon_light: SUBNET_LIGHT_SVG.into(),
+                icon_dark: SUBNET_DARK_SVG.into(),
+                ..Default::default()
+            },
+            Self::SubnetUnavailable => ErrorData {
+                status_code: StatusCode::SERVICE_UNAVAILABLE,
+                title: "Subnet Upgrade".into(),
+                description: "The protocol currently upgrades this part of the Internet Computer. It should be back momentarily. No worries—your data is safe!".into(),
+                retry_message: Some("Wait a few minutes and refresh this page.".into()),
+                icon_light: SUBNET_LIGHT_SVG.into(),
+                icon_dark: SUBNET_DARK_SVG.into(),
+                ..Default::default()
+            },
+            Self::ResponseVerificationError => ErrorData {
+                status_code: StatusCode::SERVICE_UNAVAILABLE,
+                title: "Response Verification Error".into(),
+                description: "The response from the canister failed verification and cannot be trusted. If you understand the risks, you can retry using the raw domain to bypass certification.".into(),
+                ..Default::default()
+            },
+            Self::Denylisted => ErrorData {
+                status_code: StatusCode::UNAVAILABLE_FOR_LEGAL_REASONS,
+                title: "Unavailable Due to Policy Violation".into(),
+                description: "Access to this resource is denied due to a violation of the code of conduct.".into(),
+                description_html: Some(r#"
+                    This gateway denies access to the requested resource due to a violation of the
+                    <a href="https://dfinity.org/boundary-nodes/ic0-app/code-of-conduct/" target="_blank" rel="noopener noreferrer" class="external-link">code of conduct.</a>.
+                    If you believe this is an error, please file an appeal:"#.trim().into()),
+                appeal_section: true,
+                ..Default::default()
+            },
+            Self::Forbidden => ErrorData {
+                status_code: StatusCode::FORBIDDEN,
+                title: "Access Forbidden".into(),
+                description: "Access to this resource is denied by the current set of application firewall rules.".into(),
+                icon_light: SUBNET_LIGHT_SVG.into(),
+                icon_dark: SUBNET_DARK_SVG.into(),
+                ..Default::default()
+            },
+            Self::DomainCanisterMismatch(canister_id) => ErrorData {
+                status_code: StatusCode::BAD_REQUEST,
+                title: "Canister Not Available Through This Gateway".into(),
+                description: "This canister is not served through this gateway. Use a gateway that matches the canister's configuration.".into(),
+                description_html: Some(format!(
+                    r#"
+                        This canister is not served through this gateway. Use a gateway that matches the canister's configuration:<br>
+                        <a href="https://{id}.icp0.io" target="_blank" rel="noopener noreferrer" class="external-link">
+                            {id}.icp0.io
+                    </a>.
+                "#, id=canister_id).trim().into()),
+                canister_id: Some(*canister_id),
+                ..Default::default()
+            },
+            Self::IncorrectPrincipal => ErrorData {
+                status_code: StatusCode::BAD_REQUEST,
+                title: "Incorrect Principal".into(),
+                description: "The principal in the request is incorrectly formatted.".into(),
+                ..Default::default()
+            },
+            Self::LoadShed => ErrorData {
+                status_code: StatusCode::TOO_MANY_REQUESTS,
+                title: "Too Many Requests".into(),
+                description: "The HTTP gateway is experiencing high load and cannot process your request right now. Please try again later.".into(),
+                ..Default::default()
+            },
+            Self::MalformedRequest(x) => ErrorData {
+                status_code: StatusCode::BAD_REQUEST,
+                title: "Malformed Request".into(),
+                description: x.clone(),
+                ..Default::default()
+            },
+            Self::NoAuthority => ErrorData {
+                status_code: StatusCode::BAD_REQUEST,
+                title: "Missing Authority".into(),
+                description: "The request is missing the required authority information (e.g. 'Host' header).".into(),
+                ..Default::default()
+            },
+            Self::Other => ErrorData {
+                status_code: StatusCode::INTERNAL_SERVER_ERROR,
+                title: "Internal Gateway Error".into(),
+                description: "Something went wrong. Please try again later.".into(),
+                ..Default::default()
+            },
+            Self::PayloadTooLarge => ErrorData {
+                status_code: StatusCode::PAYLOAD_TOO_LARGE,
+                title: "Payload too Large".into(),
+                description: "The data you sent is too large for the Internet Computer to handle. Please reduce your payload and try again.".into(),
+                ..Default::default()
+            },
+            Self::RateLimited => ErrorData {
+                status_code: StatusCode::TOO_MANY_REQUESTS,
+                title: "Rate Limited".into(),
+                description: "Your request has exceeded the rate limit. Please slow down your requests and try again in a moment.".into(),
+                ..Default::default()
+            },
+            Self::UnknownDomain => ErrorData {
+                status_code: StatusCode::BAD_REQUEST,
+                title: "Unknown Domain".into(),
+                description: "The requested domain is not served by this HTTP gateway. Please check that the address is correct.".into(),
+                ..Default::default()
+            },
+            Self::UpstreamError => ErrorData {
+                status_code: StatusCode::SERVICE_UNAVAILABLE,
+                title: "Upstream Unavailable".into(),
+                description: "The HTTP gateway is temporarily unable to process the request. Please try again later. If this persists, check the status page for updates and reach out on the ICP developer forum.".into(),
+                icon_light: SUBNET_LIGHT_SVG.into(),
+                icon_dark: SUBNET_DARK_SVG.into(),
+                ..Default::default()
+            },
         }
     }
 }
@@ -381,9 +503,9 @@ impl From<&ErrorCause> for ErrorClientFacing {
             ErrorCause::CanisterIdNotResolved => Self::CanisterIdNotResolved,
             ErrorCause::CanisterIdIncorrect(_) => Self::CanisterIdIncorrect,
             ErrorCause::SubnetNotFound => Self::SubnetNotFound,
-            ErrorCause::SubnetUnavailable(x) => Self::SubnetUnavailable(x.clone()),
+            ErrorCause::SubnetUnavailable => Self::SubnetUnavailable,
             ErrorCause::ResponseVerificationError => Self::ResponseVerificationError,
-            ErrorCause::DomainCanisterMismatch => Self::DomainCanisterMismatch,
+            ErrorCause::DomainCanisterMismatch(cid) => Self::DomainCanisterMismatch(*cid),
             ErrorCause::Denylisted => Self::Denylisted,
             ErrorCause::Forbidden => Self::Forbidden,
             ErrorCause::NoAuthority => Self::NoAuthority,
@@ -398,17 +520,90 @@ impl IntoResponse for ErrorClientFacing {
     fn into_response(self) -> Response {
         let request_type = ERROR_CONTEXT.try_with(|x| *x).unwrap_or_default();
 
+        let error_data = self.data();
+
         // Return an HTML error page if it was an HTTP request
         let body = match request_type {
-            RequestType::Http => format!("{}\n", self.html()),
-            _ => format!("error: {}\ndetails:\n{}", self, self.details()),
+            RequestType::Http => error_data.html(),
+            _ => format!("error: {}\ndetails:\n{}", self, error_data.description),
         };
 
-        let mut resp = (self.status_code(), body).into_response();
+        let mut resp = (error_data.status_code, body).into_response();
         if request_type == RequestType::Http {
             resp.headers_mut().insert(CONTENT_TYPE, CONTENT_TYPE_HTML);
         }
         resp
+    }
+}
+
+struct ErrorData {
+    status_code: StatusCode,
+    title: String,
+    description: String,
+    description_html: Option<String>,
+    retry_message: Option<String>,
+    canister_id: Option<Principal>,
+    appeal_section: bool,
+    icon_light: String,
+    icon_dark: String,
+}
+
+impl Default for ErrorData {
+    fn default() -> Self {
+        ErrorData {
+            status_code: StatusCode::INTERNAL_SERVER_ERROR, // or whatever default makes sense
+            title: String::new(),
+            description: String::new(),
+            description_html: None,
+            retry_message: None,
+            canister_id: None,
+            appeal_section: false,
+            icon_light: GENERAL_ERROR_LIGHT_SVG.into(),
+            icon_dark: GENERAL_ERROR_DARK_SVG.into(),
+        }
+    }
+}
+
+impl ErrorData {
+    pub fn html(&self) -> String {
+        let mut tpl = ERROR_PAGE_TEMPLATE
+            .replace("{{ERROR_CODE}}", self.status_code.as_str())
+            .replace("{{ERROR_TITLE}}", &self.title);
+        if let Some(description) = &self.description_html {
+            tpl = tpl.replace("{{ERROR_DESCRIPTION}}", description);
+        } else {
+            tpl = tpl.replace("{{ERROR_DESCRIPTION}}", &self.description);
+        }
+        tpl = tpl
+            .replace("{{IMAGE_SVG_LIGHT}}", self.icon_light.as_str())
+            .replace("{{IMAGE_SVG_DARK}}", self.icon_dark.as_str());
+
+        if let Some(retry_message) = &self.retry_message {
+            tpl = tpl
+                .replace("{{RETRY_SECTION}}", RETRY_SECTION_TEMPLATE)
+                .replace("{{RETRY_LOGIC}}", RETRY_LOGIC)
+                .replace("{{RETRY_MESSAGE}}", retry_message);
+        } else {
+            tpl = tpl
+                .replace("{{RETRY_SECTION}}", "")
+                .replace("{{RETRY_LOGIC}}", "");
+        }
+
+        if let Some(canister_id) = &self.canister_id {
+            tpl = tpl
+                .replace("{{CANISTER_SECTION}}", CANISTER_SECTION_TEMPLATE)
+                .replace("{{CANISTER_ID}}", canister_id.to_string().as_str());
+        } else {
+            tpl = tpl.replace("{{CANISTER_SECTION}}", "");
+        }
+
+        if self.appeal_section {
+            tpl = tpl.replace("{{APPEAL_SECTION}}", APPEAL_SECTION);
+        } else {
+            tpl = tpl.replace("{{APPEAL_SECTION}}", "");
+        }
+
+        tpl
     }
 }
 
@@ -446,10 +641,7 @@ mod test {
 
         // Mapping of "error_cause" BN headers
         let cases = [
-            (
-                NO_HEALTHY_NODES,
-                Some(ErrorCause::SubnetUnavailable("".into())),
-            ),
+            (NO_HEALTHY_NODES, Some(ErrorCause::SubnetUnavailable)),
             (NO_ROUTING_TABLE, Some(ErrorCause::NoRoutingTable)),
             (FORBIDDEN, Some(ErrorCause::Forbidden)),
             (LOAD_SHED, Some(ErrorCause::LoadShed)),

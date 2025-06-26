@@ -101,10 +101,7 @@ fn canister_id_from_query_params(request: &Request) -> Result<Option<Principal>,
 
 /// Tries to extract canister id from referer host
 fn canister_id_from_referer_host(url: &Url) -> Option<Principal> {
-    let domain = url
-        .host_str()
-        .map(|host| FQDN::from_str(host).ok())
-        .flatten()?;
+    let domain = url.host_str().and_then(|host| FQDN::from_str(host).ok())?;
 
     let subdomain = domain.labels().next()?;
     Principal::from_text(subdomain).ok()
