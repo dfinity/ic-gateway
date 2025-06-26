@@ -30,7 +30,8 @@ const CANISTER_WARNING_LIGHT_SVG: &str =
     include_str!("error_pages/assets/canister-warning-light.svg");
 const CANISTER_WARNING_DARK_SVG: &str =
     include_str!("error_pages/assets/canister-warning-dark.svg");
-const GENERAL_ERROR_SVG: &str = include_str!("error_pages/assets/general-error.svg");
+const GENERAL_ERROR_LIGHT_SVG: &str = include_str!("error_pages/assets/general-error-light.svg");
+const GENERAL_ERROR_DARK_SVG: &str = include_str!("error_pages/assets/general-error-dark.svg");
 const SUBNET_LIGHT_SVG: &str = include_str!("error_pages/assets/subnet-light.svg");
 const SUBNET_DARK_SVG: &str = include_str!("error_pages/assets/subnet-dark.svg");
 
@@ -557,8 +558,8 @@ impl Default for ErrorData {
             retry_message: None,
             canister_id: None,
             appeal_section: false,
-            icon_light: GENERAL_ERROR_SVG.into(),
-            icon_dark: GENERAL_ERROR_SVG.into(),
+            icon_light: GENERAL_ERROR_LIGHT_SVG.into(),
+            icon_dark: GENERAL_ERROR_DARK_SVG.into(),
         }
     }
 }
