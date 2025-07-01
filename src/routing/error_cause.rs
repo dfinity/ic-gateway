@@ -550,7 +550,7 @@ struct ErrorData {
 
 impl Default for ErrorData {
     fn default() -> Self {
-        ErrorData {
+        Self {
             status_code: StatusCode::INTERNAL_SERVER_ERROR, // or whatever default makes sense
             title: String::new(),
             description: String::new(),

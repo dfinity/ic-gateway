@@ -15,7 +15,7 @@ use ic_bn_lib::{principal, tasks::TaskManager};
 use ic_http_certification::HttpResponse;
 use ic_transport_types::{QueryResponse, ReplyResponse};
 use prometheus::Registry;
-use rand::{Rng, thread_rng};
+use rand::{Rng, SeedableRng};
 use serde_cbor::to_vec;
 
 use crate::{
@@ -57,8 +57,7 @@ pub fn generate_response(response_size: usize) -> reqwest::Response {
         .header(CONTENT_LENGTH, content_length)
         .body(cbor_data)
         .expect("Failed to build response")
-        .try_into()
-        .unwrap()
+        .into()
 }
 
 #[derive(Debug)]
@@ -73,7 +72,8 @@ impl ic_bn_lib::http::Client for TestClient {
 
 /// Creates a test router with some defaults and returns it along with a list of random custom domains that it serves
 pub async fn setup_test_router(tasks: &mut TaskManager) -> (Router, Vec<String>) {
-    let mut rng = thread_rng();
+    // SmallRng is Send which we require
+    let mut rng = rand::rngs::SmallRng::from_entropy();
 
     // Generate 1k custom domains
     let rgx_domains =

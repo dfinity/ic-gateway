@@ -28,11 +28,10 @@ pub async fn denylist_test(env: &TestEnv) -> anyhow::Result<()> {
 
     info!("setup HTTP client ...");
     let certified_domain = format!("{}.{}", denylisted_canister_id, env.ic_gateway_domain);
-    let api_domain = format!("{}", env.ic_gateway_domain);
 
     let http_client = Client::builder()
         .resolve(certified_domain.as_str(), env.ic_gateway_addr)
-        .resolve(api_domain.as_str(), env.ic_gateway_addr)
+        .resolve(&env.ic_gateway_domain, env.ic_gateway_addr)
         .build()
         .context(anyhow!("failed to build http client"))?;
 
@@ -47,7 +46,7 @@ pub async fn denylist_test(env: &TestEnv) -> anyhow::Result<()> {
     };
 
     retry_async(
-        format!("verifying that canister is blocked at the HTTP gateway level"),
+        "verifying that canister is blocked at the HTTP gateway level".to_string(),
         RETRY_TIMEOUT,
         RETRY_INTERVAL,
         || async {
@@ -75,7 +74,7 @@ pub async fn denylist_test(env: &TestEnv) -> anyhow::Result<()> {
     info!("create an agent to interact with the canister ...");
     let url = Url::parse(&format!(
         "http://{}:{}",
-        api_domain,
+        env.ic_gateway_domain,
         env.ic_gateway_addr.port(),
     ))
     .context(anyhow!("failed to parse URL"))?;

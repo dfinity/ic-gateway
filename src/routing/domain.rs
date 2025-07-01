@@ -465,7 +465,7 @@ mod test {
         assert_eq!(
             resolver.resolve(&fqdn!("icp-api.io")),
             Some(DomainLookup {
-                domain: domain_icp_api_io.clone(),
+                domain: domain_icp_api_io,
                 canister_id: None,
                 verify: true,
             })
@@ -526,7 +526,7 @@ mod test {
         assert_eq!(
             resolver.resolve(&fqdn!("aaaaa-aaa.icp0.io")),
             Some(DomainLookup {
-                domain: domain_icp0_io.clone(),
+                domain: domain_icp0_io,
                 canister_id: None,
                 verify: true,
             })
@@ -544,7 +544,7 @@ mod test {
         assert_eq!(
             resolver.resolve(&fqdn!("foo--bar--baz--aaaaa-aa.ic0.app")),
             Some(DomainLookup {
-                domain: domain_ic0_app.clone(),
+                domain: domain_ic0_app,
                 canister_id: Some(canister_id),
                 verify: true,
             })
@@ -558,7 +558,7 @@ mod test {
         assert_eq!(
             resolver.resolve(&fqdn!("foo.baz")),
             Some(DomainLookup {
-                domain: domain_foo_baz.clone(),
+                domain: domain_foo_baz,
                 canister_id: Some(principal!(TEST_CANISTER_ID)),
                 verify: true,
             })

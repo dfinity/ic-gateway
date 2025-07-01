@@ -327,9 +327,9 @@ pub fn start_ic_gateway(
     cmd.arg(domain);
     cmd.arg("--ic-root-key");
     cmd.arg(root_key_path.to_str().unwrap());
-    if denylist_seed_path.is_some() {
+    if let Some(v) = denylist_seed_path {
         cmd.arg("--policy-denylist-seed");
-        cmd.arg(denylist_seed_path.unwrap().to_str().unwrap());
+        cmd.arg(v.to_str().unwrap());
     }
     cmd.arg("--listen-insecure-serve-http-only");
     cmd.arg("--log-stdout");
@@ -392,7 +392,7 @@ impl TestEnv {
         }}"#,
             DENYLISTED_CANISTER_ID
         );
-        fs::write(DENYLIST_FILE, &denylist_seed.as_bytes())
+        fs::write(DENYLIST_FILE, denylist_seed.as_bytes())
             .expect("failed to write denylist to file");
 
         let ic_boundary_process = start_ic_boundary(
