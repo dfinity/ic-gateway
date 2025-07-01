@@ -131,9 +131,21 @@ impl ProvidesCustomDomains for GenericProviderTimestamped {
             }
         }
 
+        // Try to parse the response URL and use it if we can do it
+        let domains_url = if let Ok(v) = Url::parse(&resp.url) {
+            v
+        } else {
+            // Otherwise treat it as a path relative to our base URL
+            let mut u = self.url.clone();
+            u.set_path(&resp.url);
+            u
+        };
+
         // Otherwise fetch a fresh version from the provided URL
-        let url = Url::parse(&resp.url).context("unable to parse source URL")?;
-        let domains = get_custom_domains_from_url(&self.http_client, &url, self.timeout).await?;
+        let domains = get_custom_domains_from_url(&self.http_client, &domains_url, self.timeout)
+            .await
+            .context("unable to fetch custom domains")?;
+
         warn!("{self:?}: new timestamp, got {} domains", domains.len());
 
         // Store the new version in cache
@@ -199,10 +211,12 @@ mod test {
         ) -> Result<reqwest::Response, reqwest::Error> {
             if req.url().as_str().contains("subdomains") {
                 return Ok(HttpResponse::new(
-                    if req.url().as_str().ends_with("/subdomains1") {
+                    if req.url().as_str() == "http://foo/subdomains1" {
                         json!({"foo.bar": "aaaaa-aa", "bar.foo": "qoctq-giaaa-aaaaa-aaaea-cai"})
-                    } else {
+                    } else if req.url().as_str() == "https://caffeine.ai/subdomains2" {
                         json!({"foo.barr": "aaaaa-aa", "bar.foos": "qoctq-giaaa-aaaaa-aaaea-cai"})
+                    } else {
+                        panic!("shouldn't happen");
                     }
                     .to_string(),
                 )
@@ -212,9 +226,9 @@ mod test {
             let i = self.0.fetch_add(1, Ordering::SeqCst);
             return Ok(HttpResponse::new(
                 if i <= 1 {
-                    json!({"timestamp": 1743756162, "url": "https://boundary.caffeine.ai/subdomains1"})
+                    json!({"timestamp": 1743756162, "url": "/subdomains1"})
                 } else {
-                    json!({"timestamp": 1743756163, "url": "https://boundary.caffeine.ai/subdomains2"})
+                    json!({"timestamp": 1743756163, "url": "https://caffeine.ai/subdomains2"})
                 }
                 .to_string(),
             )
