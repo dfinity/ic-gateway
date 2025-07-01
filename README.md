@@ -8,7 +8,7 @@
 
 `ic-gateway` also provides essential features for running a production HTTP gateway, including:
 
-- **TLS Termination**: Automatically obtains and renews certificates using an ACME client and transparent OCSP stapling.
+- **TLS Termination**: Automatically obtains and renews certificates using an ACME client.
 - **Caching Layer**: Improves user-perceived performance of hosted dapps.
 - **Denylist**: Allows compliance with local legal frameworks (e.g., by restricting access to illegal content).
 - **Load Shedding**: Drops the incoming requests if the moving average latency grows over defined threshold.
