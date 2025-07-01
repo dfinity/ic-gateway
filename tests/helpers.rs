@@ -387,10 +387,9 @@ impl TestEnv {
             "$schema": "./schema.json",
             "version": "1",
             "canisters": {{
-                "{}": {{}}
+                "{DENYLISTED_CANISTER_ID}": {{}}
             }}
-        }}"#,
-            DENYLISTED_CANISTER_ID
+        }}"#
         );
         fs::write(DENYLIST_FILE, denylist_seed.as_bytes())
             .expect("failed to write denylist to file");

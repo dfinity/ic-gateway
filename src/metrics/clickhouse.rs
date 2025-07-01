@@ -124,6 +124,7 @@ impl Actor {
         Ok(Self { inserter, rx })
     }
 
+    #[allow(clippy::cognitive_complexity)]
     async fn run(mut self, token: CancellationToken) -> Result<(), Error> {
         let mut interval = tokio::time::interval(Duration::from_secs(1));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
