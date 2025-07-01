@@ -417,10 +417,10 @@ impl ErrorClientFacing {
                 description_html: Some(format!(
                     r#"
                         This canister is not served through this gateway. Use a gateway that matches the canister's configuration:<br>
-                        <a href="https://{id}.icp0.io" target="_blank" rel="noopener noreferrer" class="external-link">
-                            {id}.icp0.io
+                        <a href="https://{canister_id}.icp0.io" target="_blank" rel="noopener noreferrer" class="external-link">
+                            {canister_id}.icp0.io
                     </a>.
-                "#, id=canister_id).trim().into()),
+                "#).trim().into()),
                 canister_id: Some(*canister_id),
                 ..Default::default()
             },
@@ -550,7 +550,7 @@ struct ErrorData {
 
 impl Default for ErrorData {
     fn default() -> Self {
-        ErrorData {
+        Self {
             status_code: StatusCode::INTERNAL_SERVER_ERROR, // or whatever default makes sense
             title: String::new(),
             description: String::new(),

@@ -6,7 +6,6 @@ use ic_bn_lib::principal;
 use rand::{Rng, seq::SliceRandom, thread_rng};
 
 use ic_gateway::{
-    principal,
     routing::domain::{CustomDomain, CustomDomainStorage, ResolvesDomain},
     test::FakeDomainProvider,
 };

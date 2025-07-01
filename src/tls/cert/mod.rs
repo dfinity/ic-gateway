@@ -136,6 +136,7 @@ impl Aggregator {
         snapshot
     }
 
+    #[allow(clippy::cognitive_complexity)]
     #[allow(clippy::significant_drop_tightening)]
     async fn refresh(&self) {
         // Get a snapshot of current data to update

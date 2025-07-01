@@ -96,7 +96,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("vector_encode_batch_10k", |b| {
         b.iter_batched(
             || create_batch(10000, &mut rng, &rgx_principal, &rgx_canister),
-            |r| encode_batch(r),
+            encode_batch,
             criterion::BatchSize::SmallInput,
         )
     });

@@ -451,6 +451,7 @@ impl Flusher {
         Ok(())
     }
 
+    #[allow(clippy::cognitive_complexity)]
     async fn send_batch_retry(&self, batch: Bytes) -> Result<(), Error> {
         let raw_size = batch.len();
 
@@ -514,6 +515,7 @@ impl Flusher {
         Err(anyhow!("unable to flush batch: retries exhausted"))
     }
 
+    #[allow(clippy::cognitive_complexity)]
     async fn process_batch(&self, batch: Batch) {
         let len = batch.events.len();
         self.metrics.batch_buffer_size.dec();
@@ -562,6 +564,7 @@ impl Flusher {
         Ok(())
     }
 
+    #[allow(clippy::cognitive_complexity)]
     async fn run(self) {
         loop {
             select! {

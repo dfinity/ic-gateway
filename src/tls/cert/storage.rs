@@ -199,11 +199,12 @@ pub mod test {
         let fqdn1 = &fqdn::fqdn!("rbar.baz");
         let fqdn2 = FQDN::from_str("rbar.baz").unwrap();
 
-        assert!(t.get(fqdn1).is_some());
+        assert!(t.contains_key(fqdn1));
         assert!(get(fqdn1, &t).is_some());
         assert!(get(&fqdn2, &t).is_some());
     }
 
+    #[allow(clippy::cognitive_complexity)]
     #[test]
     fn test_storage() -> Result<(), Error> {
         let storage = create_test_storage();

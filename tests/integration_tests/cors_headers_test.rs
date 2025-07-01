@@ -50,7 +50,7 @@ pub async fn cors_headers_test(env: &TestEnv) -> anyhow::Result<()> {
                 .await
                 .context("failed to execute request")?;
 
-            check_response(response, &expected_response).await
+            check_response(response, expected_response).await
         })
         .await
         .context(anyhow!("failed to verify HTTP response"))?;

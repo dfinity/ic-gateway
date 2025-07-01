@@ -31,11 +31,13 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     // Create the test router
     let mut tasks = TaskManager::new();
-    let (router, domains) = setup_test_router(&mut tasks);
+
     // Start the tasks and give them some time to finish
-    runtime.block_on(async {
+    let (router, domains) = runtime.block_on(async {
+        let (router, domains) = setup_test_router(&mut tasks).await;
         tasks.start();
         tokio::time::sleep(Duration::from_secs(5)).await;
+        (router, domains)
     });
 
     c.bench_function("router_nocache", |b| {

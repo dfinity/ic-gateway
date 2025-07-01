@@ -26,6 +26,7 @@ pub const AUTHOR_NAME: &str = "Boundary Node Team <boundary-nodes@dfinity.org>";
 pub static ENV: OnceLock<String> = OnceLock::new();
 pub static HOSTNAME: OnceLock<String> = OnceLock::new();
 
+#[allow(clippy::cognitive_complexity)]
 pub async fn main(cli: &Cli) -> Result<(), Error> {
     ENV.set(cli.misc.env.clone()).unwrap();
     HOSTNAME.set(cli.misc.hostname.clone()).unwrap();

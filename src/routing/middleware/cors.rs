@@ -596,7 +596,7 @@ mod test {
 
         // Check non-empty body
         let mut r = Response::new(Body::new(http_body_util::Full::new(Bytes::from_static(
-            "foo".as_bytes(),
+            b"foo",
         ))));
         r.headers_mut()
             .insert(ACCESS_CONTROL_ALLOW_HEADERS, hval!("foo"));

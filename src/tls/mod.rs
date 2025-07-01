@@ -4,15 +4,12 @@ pub mod resolver;
 use std::sync::Arc;
 
 use anyhow::{Error, bail};
-use async_trait::async_trait;
 use ic_bn_lib::{
-    tasks::{Run, TaskManager},
+    tasks::TaskManager,
     tls::{self, prepare_server_config},
 };
-use ocsp_stapler::Stapler;
 use prometheus::Registry;
 use rustls::server::{ResolvesServerCert as ResolvesServerCertRustls, ServerConfig};
-use tokio_util::sync::CancellationToken;
 
 #[cfg(feature = "acme")]
 use {
@@ -37,18 +34,6 @@ use crate::{
 };
 
 use cert::{providers::ProvidesCertificates, storage};
-
-// Wrapper is needed since we can't implement foreign traits
-struct OcspStaplerWrapper(Arc<ocsp_stapler::Stapler>);
-
-#[async_trait]
-impl Run for OcspStaplerWrapper {
-    async fn run(&self, token: CancellationToken) -> Result<(), Error> {
-        token.cancelled().await;
-        self.0.stop().await;
-        Ok(())
-    }
-}
 
 #[cfg(feature = "acme")]
 async fn setup_acme(
@@ -186,19 +171,6 @@ pub async fn setup(
         vec![cert_storage],
         resolver::Metrics::new(registry),
     ));
-
-    // Optionally wrap resolver with OCSP stapler
-    let certificate_resolver: Arc<dyn ResolvesServerCertRustls> =
-        if !cli.cert.cert_ocsp_stapling_enable {
-            certificate_resolver
-        } else {
-            let stapler = Arc::new(Stapler::new_with_registry(certificate_resolver, registry));
-            tasks.add(
-                "ocsp_stapler",
-                Arc::new(OcspStaplerWrapper(stapler.clone())),
-            );
-            stapler
-        };
 
     let mut tls_opts: tls::Options = (&cli.http_server).into();
     tls_opts.tls_versions = vec![&rustls::version::TLS13, &rustls::version::TLS12];

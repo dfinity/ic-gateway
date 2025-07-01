@@ -6,12 +6,9 @@ use bytes::Bytes;
 use candid::{CandidType, Encode};
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use fqdn::fqdn;
-use http::{
-    HeaderValue,
-    header::{
-        ACCEPT, ACCEPT_ENCODING, ACCEPT_LANGUAGE, ACCESS_CONTROL_REQUEST_HEADERS,
-        ACCESS_CONTROL_REQUEST_METHOD, ORIGIN, USER_AGENT,
-    },
+use http::header::{
+    ACCEPT, ACCEPT_ENCODING, ACCEPT_LANGUAGE, ACCESS_CONTROL_REQUEST_HEADERS,
+    ACCESS_CONTROL_REQUEST_METHOD, ORIGIN, USER_AGENT,
 };
 use ic_agent::{
     AgentError,
@@ -27,7 +24,6 @@ use reqwest::{Request, Response};
 use uuid::Uuid;
 
 use ic_gateway::{
-    principal,
     routing::{
         CanisterId, RequestCtx, RequestType,
         domain::Domain,
@@ -192,12 +188,11 @@ fn criterion_benchmark(c: &mut Criterion) {
         let r = handler(
             State(state.clone()),
             Extension(conn_info.clone()),
-            Extension(request_id.clone()),
+            Extension(request_id),
             Extension(ctx.clone()),
             req,
         )
-        .await
-        .unwrap();
+        .await;
 
         // Make sure we get the correct body
         let body = buffer_body(r.into_body(), 100000, Duration::from_secs(10))
@@ -208,17 +203,16 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     group.bench_function("handler", |b| {
         b.to_async(&runtime).iter_batched(
-            || create_request(),
+            create_request,
             |req| async {
                 handler(
                     State(state.clone()),
                     Extension(conn_info.clone()),
-                    Extension(request_id.clone()),
+                    Extension(request_id),
                     Extension(ctx.clone()),
                     req,
                 )
-                .await
-                .unwrap();
+                .await;
             },
             criterion::BatchSize::SmallInput,
         )
@@ -226,7 +220,7 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     group.bench_function("request_encode", |b| {
         b.iter_batched(
-            || create_request_bytes(),
+            create_request_bytes,
             |r| {
                 encode_request(r);
             },
