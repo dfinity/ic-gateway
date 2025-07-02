@@ -495,7 +495,7 @@ impl From<&ErrorCause> for ErrorClientFacing {
             ErrorCause::Forbidden => Self::Forbidden,
             ErrorCause::NoAuthority => Self::NoAuthority,
             ErrorCause::RateLimited(_) => Self::RateLimited,
-            _ => Self::DomainCanisterMismatch(Principal::anonymous()), // Default to anonymous canister for other cases
+            _ => Self::UpstreamError,
         }
     }
 }
