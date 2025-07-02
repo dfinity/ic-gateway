@@ -24,16 +24,10 @@ const CANISTER_SECTION_TEMPLATE: &str =
 const RETRY_SECTION_TEMPLATE: &str = include_str!("error_pages/components/retry_section.html");
 const RETRY_LOGIC: &str = include_str!("error_pages/components/retry_logic.js");
 const APPEAL_SECTION: &str = include_str!("error_pages/components/appeal_section.html");
-const CANISTER_ERROR_LIGHT_SVG: &str = include_str!("error_pages/assets/canister-error-light.svg");
-const CANISTER_ERROR_DARK_SVG: &str = include_str!("error_pages/assets/canister-error-dark.svg");
-const CANISTER_WARNING_LIGHT_SVG: &str =
-    include_str!("error_pages/assets/canister-warning-light.svg");
-const CANISTER_WARNING_DARK_SVG: &str =
-    include_str!("error_pages/assets/canister-warning-dark.svg");
-const GENERAL_ERROR_LIGHT_SVG: &str = include_str!("error_pages/assets/general-error-light.svg");
-const GENERAL_ERROR_DARK_SVG: &str = include_str!("error_pages/assets/general-error-dark.svg");
-const SUBNET_LIGHT_SVG: &str = include_str!("error_pages/assets/subnet-light.svg");
-const SUBNET_DARK_SVG: &str = include_str!("error_pages/assets/subnet-dark.svg");
+const CANISTER_ERROR_SVG: &str = include_str!("error_pages/assets/canister-error.svg");
+const CANISTER_WARNING_SVG: &str = include_str!("error_pages/assets/canister-warning.svg");
+const GENERAL_ERROR_SVG: &str = include_str!("error_pages/assets/general-error.svg");
+const SUBNET_SVG: &str = include_str!("error_pages/assets/subnet.svg");
 
 // Process error chain trying to find given error type
 pub fn error_infer<E: StdError + Send + Sync + 'static>(error: &anyhow::Error) -> Option<&E> {
@@ -313,16 +307,14 @@ impl ErrorClientFacing {
                 status_code: StatusCode::NOT_FOUND,
                 title: "Canister Not Found".into(),
                 description: "The requested canister does not exist or is no longer available on the Internet Computer.".into(),
-                icon_light: CANISTER_ERROR_LIGHT_SVG.into(),
-                icon_dark: CANISTER_ERROR_DARK_SVG.into(),
+                icon: CANISTER_ERROR_SVG.into(),
                 ..Default::default()
             },
             Self::CanisterReject => ErrorData {
                 status_code: StatusCode::SERVICE_UNAVAILABLE,
                 title: "Request Rejected".into(),
                 description: "The canister explicitly rejected the request.".into(),
-                icon_light: CANISTER_WARNING_LIGHT_SVG.into(),
-                icon_dark: CANISTER_WARNING_DARK_SVG.into(),
+                icon: CANISTER_WARNING_SVG.into(),
                 ..Default::default()
             },
             Self::CanisterError => ErrorData {
@@ -332,8 +324,7 @@ impl ErrorClientFacing {
                     This may be due to an issue with the canister's program, the resources it has allocated, or its configuration.
                     This is not an ICP issue, but local to this specific canister. You might want to try again in a moment.
                     If the problem persists, please reach out to the developers or check the ICP developer forum."#.trim().into(),
-                icon_light: CANISTER_ERROR_LIGHT_SVG.into(),
-                icon_dark: CANISTER_ERROR_DARK_SVG.into(),
+                icon: CANISTER_ERROR_SVG.into(),
                 ..Default::default()
             },
             Self::CanisterFrozen => ErrorData {
@@ -348,32 +339,29 @@ impl ErrorClientFacing {
                         Learn how to top up a canister.
                     </a>
                 "#.trim().into()),
-                icon_light: CANISTER_ERROR_LIGHT_SVG.into(),
-                icon_dark: CANISTER_ERROR_DARK_SVG.into(),
+                icon: CANISTER_ERROR_SVG.into(),
                 ..Default::default()
             },
             Self::CanisterIdNotResolved => ErrorData {
                 status_code: StatusCode::BAD_REQUEST,
                 title: "Canister ID Not Resolved".into(),
                 description: "The gateway couldn't determine the destination canister for this request. Ensure the request includes a valid canister ID or uses a recognized domain.".into(),
-                icon_light: CANISTER_WARNING_LIGHT_SVG.into(),
-                icon_dark: CANISTER_WARNING_DARK_SVG.into(),
+                icon: CANISTER_WARNING_SVG.into(),
                 ..Default::default()
             },
             Self::CanisterIdIncorrect => ErrorData {
                 status_code: StatusCode::BAD_REQUEST,
                 title: "Incorrect Canister ID".into(),
                 description: "The canister ID you provided is invalid. Please verify the canister ID and try again.".into(),
-                icon_light: CANISTER_ERROR_LIGHT_SVG.into(),
-                icon_dark: CANISTER_ERROR_DARK_SVG.into(),
+                icon: CANISTER_ERROR_SVG.into(),
                 ..Default::default()
             },
             Self::SubnetNotFound => ErrorData {
                 status_code: StatusCode::BAD_REQUEST,
                 title: "Subnet Not Found".into(),
                 description: "The requested subnet was not found.".into(),
-                icon_light: SUBNET_LIGHT_SVG.into(),
-                icon_dark: SUBNET_DARK_SVG.into(),
+                icon: SUBNET_SVG.into(),
+
                 ..Default::default()
             },
             Self::SubnetUnavailable => ErrorData {
@@ -381,8 +369,7 @@ impl ErrorClientFacing {
                 title: "Subnet Upgrade".into(),
                 description: "The protocol currently upgrades this part of the Internet Computer. It should be back momentarily. No worries—your data is safe!".into(),
                 retry_message: Some("Wait a few minutes and refresh this page.".into()),
-                icon_light: SUBNET_LIGHT_SVG.into(),
-                icon_dark: SUBNET_DARK_SVG.into(),
+                icon: SUBNET_SVG.into(),
                 ..Default::default()
             },
             Self::ResponseVerificationError => ErrorData {
@@ -406,8 +393,7 @@ impl ErrorClientFacing {
                 status_code: StatusCode::FORBIDDEN,
                 title: "Access Forbidden".into(),
                 description: "Access to this resource is denied by the current set of application firewall rules.".into(),
-                icon_light: SUBNET_LIGHT_SVG.into(),
-                icon_dark: SUBNET_DARK_SVG.into(),
+                icon: SUBNET_SVG.into(),
                 ..Default::default()
             },
             Self::DomainCanisterMismatch(canister_id) => ErrorData {
@@ -476,8 +462,7 @@ impl ErrorClientFacing {
                 status_code: StatusCode::SERVICE_UNAVAILABLE,
                 title: "Upstream Unavailable".into(),
                 description: "The HTTP gateway is temporarily unable to process the request. Please try again later. If this persists, check the status page for updates and reach out on the ICP developer forum.".into(),
-                icon_light: SUBNET_LIGHT_SVG.into(),
-                icon_dark: SUBNET_DARK_SVG.into(),
+                icon: SUBNET_SVG.into(),
                 ..Default::default()
             },
         }
@@ -510,7 +495,7 @@ impl From<&ErrorCause> for ErrorClientFacing {
             ErrorCause::Forbidden => Self::Forbidden,
             ErrorCause::NoAuthority => Self::NoAuthority,
             ErrorCause::RateLimited(_) => Self::RateLimited,
-            _ => Self::UpstreamError,
+            _ => Self::DomainCanisterMismatch(Principal::anonymous()), // Default to anonymous canister for other cases
         }
     }
 }
@@ -544,8 +529,7 @@ struct ErrorData {
     retry_message: Option<String>,
     canister_id: Option<Principal>,
     appeal_section: bool,
-    icon_light: String,
-    icon_dark: String,
+    icon: String,
 }
 
 impl Default for ErrorData {
@@ -558,8 +542,7 @@ impl Default for ErrorData {
             retry_message: None,
             canister_id: None,
             appeal_section: false,
-            icon_light: GENERAL_ERROR_LIGHT_SVG.into(),
-            icon_dark: GENERAL_ERROR_DARK_SVG.into(),
+            icon: GENERAL_ERROR_SVG.into(),
         }
     }
 }
@@ -574,9 +557,7 @@ impl ErrorData {
         } else {
             tpl = tpl.replace("{{ERROR_DESCRIPTION}}", &self.description);
         }
-        tpl = tpl
-            .replace("{{IMAGE_SVG_LIGHT}}", self.icon_light.as_str())
-            .replace("{{IMAGE_SVG_DARK}}", self.icon_dark.as_str());
+        tpl = tpl.replace("{{IMAGE_SVG}}", self.icon.as_str());
 
         if let Some(retry_message) = &self.retry_message {
             tpl = tpl
