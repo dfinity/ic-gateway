@@ -3,6 +3,7 @@ use std::error::Error as StdError;
 use crate::routing::RequestType;
 use axum::response::{IntoResponse, Response};
 use candid::Principal;
+use fqdn::FQDN;
 use hickory_resolver::ResolveError;
 use http::{StatusCode, header::CONTENT_TYPE};
 use ic_agent::AgentError;
@@ -24,6 +25,9 @@ const CANISTER_SECTION_TEMPLATE: &str =
 const RETRY_SECTION_TEMPLATE: &str = include_str!("error_pages/components/retry_section.html");
 const RETRY_LOGIC: &str = include_str!("error_pages/components/retry_logic.js");
 const APPEAL_SECTION: &str = include_str!("error_pages/components/appeal_section.html");
+
+const ALTERNATE_ERROR: &str = include_str!("error_pages/caffeine_error.html");
+
 const CANISTER_ERROR_SVG: &str = include_str!("error_pages/assets/canister-error.svg");
 const CANISTER_WARNING_SVG: &str = include_str!("error_pages/assets/canister-warning.svg");
 const GENERAL_ERROR_SVG: &str = include_str!("error_pages/assets/general-error.svg");
@@ -65,7 +69,7 @@ pub enum ErrorCause {
     IncorrectPrincipal,
     MalformedRequest(String),
     NoAuthority,
-    UnknownDomain,
+    UnknownDomain(FQDN),
     CanisterNotFound,
     CanisterReject,
     CanisterError,
@@ -290,7 +294,7 @@ pub enum ErrorClientFacing {
     Other,
     PayloadTooLarge,
     RateLimited,
-    UnknownDomain,
+    UnknownDomain(FQDN),
     UpstreamError,
 }
 
@@ -452,7 +456,7 @@ impl ErrorClientFacing {
                 description: "Your request has exceeded the rate limit. Please slow down your requests and try again in a moment.".into(),
                 ..Default::default()
             },
-            Self::UnknownDomain => ErrorData {
+            Self::UnknownDomain(_) => ErrorData {
                 status_code: StatusCode::BAD_REQUEST,
                 title: "Unknown Domain".into(),
                 description: "The requested domain is not served by this HTTP gateway. Please check that the address is correct.".into(),
@@ -479,7 +483,7 @@ impl From<&ErrorCause> for ErrorClientFacing {
             ErrorCause::LoadShed => Self::LoadShed,
             ErrorCause::IncorrectPrincipal => Self::IncorrectPrincipal,
             ErrorCause::MalformedRequest(x) => Self::MalformedRequest(x.clone()),
-            ErrorCause::UnknownDomain => Self::UnknownDomain,
+            ErrorCause::UnknownDomain(x) => Self::UnknownDomain(x.clone()),
             ErrorCause::CanisterNotFound => Self::CanisterNotFound,
             ErrorCause::CanisterReject => Self::CanisterReject,
             ErrorCause::CanisterError => Self::CanisterError,
@@ -509,7 +513,14 @@ impl IntoResponse for ErrorClientFacing {
 
         // Return an HTML error page if it was an HTTP request
         let body = match request_type {
-            RequestType::Http => error_data.html(),
+            RequestType::Http => match self {
+                ErrorClientFacing::UnknownDomain(domain)
+                    if domain.to_string().contains("caffeine.xyz") =>
+                {
+                    ALTERNATE_ERROR.to_string()
+                }
+                _ => error_data.html(),
+            },
             _ => format!("error: {}\ndetails:\n{}", self, error_data.description),
         };
 
