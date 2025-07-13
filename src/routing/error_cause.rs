@@ -3,7 +3,7 @@ use std::error::Error as StdError;
 use crate::routing::RequestType;
 use axum::response::{IntoResponse, Response};
 use candid::Principal;
-use fqdn::FQDN;
+use fqdn::{FQDN, fqdn};
 use hickory_resolver::ResolveError;
 use http::{StatusCode, header::CONTENT_TYPE};
 use ic_agent::AgentError;
@@ -515,7 +515,7 @@ impl IntoResponse for ErrorClientFacing {
         let body = match request_type {
             RequestType::Http => match self {
                 ErrorClientFacing::UnknownDomain(domain)
-                    if domain.to_string().contains("caffeine.xyz") =>
+                    if domain.is_subdomain_of(&fqdn!("caffeine.xyz")) =>
                 {
                     ALTERNATE_ERROR.to_string()
                 }
