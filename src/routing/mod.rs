@@ -476,7 +476,10 @@ pub async fn setup_router(
 
     // Common layers for all routes
     let common_layers = ServiceBuilder::new()
-        .layer(from_fn(request_id::middleware))
+        .layer(from_fn_with_state(
+            request_id::RequestIdState::new(cli.network.network_trust_x_request_id),
+            request_id::middleware,
+        ))
         .layer(from_fn(headers::middleware))
         .layer(from_fn(request_type::middleware))
         .layer(metrics_mw)

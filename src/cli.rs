@@ -97,6 +97,10 @@ pub struct Network {
     /// *** Dangerous *** - use only for testing.
     #[clap(env, long)]
     pub network_http_client_insecure_bypass_tls_verification: bool,
+
+    /// Whether to trust incoming `X-Request-Id` header or override it
+    #[clap(env, long)]
+    pub network_trust_x_request_id: bool,
 }
 
 #[derive(Args)]
