@@ -1,4 +1,3 @@
-pub mod custom_domains;
 pub mod domain;
 pub mod error_cause;
 pub mod ic;
@@ -12,18 +11,19 @@ use std::{ops::Deref, str::FromStr, sync::Arc, time::Duration};
 use anyhow::{Context, Error};
 use axum::{
     Extension, Router,
-    extract::{MatchedPath, OriginalUri, Request},
+    extract::{MatchedPath, Request},
     middleware::{FromFnLayer, from_fn, from_fn_with_state},
     response::{IntoResponse, Redirect},
     routing::{get, post},
 };
-use axum_extra::{either::Either, extract::Host, middleware::option_layer};
+use axum_extra::{either::Either, middleware::option_layer};
 use candid::Principal;
-use domain::{CustomDomainStorage, DomainResolver, ProvidesCustomDomains};
 use fqdn::FQDN;
-use http::{StatusCode, Uri, method::Method, uri::PathAndQuery};
+use http::{StatusCode, method::Method};
 use ic_agent::agent::route_provider::RouteProvider;
+use ic_bn_lib::vector::client::Vector;
 use ic_bn_lib::{
+    custom_domains::ProvidesCustomDomains,
     http::{
         Client,
         cache::{CacheBuilder, KeyExtractorUriRange},
@@ -35,11 +35,6 @@ use ic_bn_lib::{
     },
     tasks::TaskManager,
     types::RequestType as RequestTypeApi,
-};
-use middleware::{
-    cache,
-    cors::{ALLOW_HEADERS, ALLOW_HEADERS_HTTP, ALLOW_METHODS_HTTP},
-    validate::ValidateState,
 };
 use prometheus::Registry;
 use strum::{Display, IntoStaticStr};
@@ -53,11 +48,15 @@ use crate::{
         canister_match, cors, geoip, headers, rate_limiter, request_id, request_type, validate,
     },
 };
+use domain::{CustomDomainStorage, DomainResolver};
+use middleware::{
+    cache,
+    cors::{ALLOW_HEADERS, ALLOW_HEADERS_HTTP, ALLOW_METHODS_HTTP},
+    validate::ValidateState,
+};
 
 #[cfg(feature = "clickhouse")]
 use crate::metrics::Clickhouse;
-#[cfg(feature = "vector")]
-use crate::metrics::Vector;
 
 use self::middleware::denylist;
 
@@ -162,25 +161,6 @@ impl TypeExtractor for RequestTypeExtractor {
     }
 }
 
-// Redirects any request to an HTTPS scheme
-pub async fn redirect_to_https(
-    Host(host): Host,
-    OriginalUri(uri): OriginalUri,
-) -> Result<impl IntoResponse, ErrorCause> {
-    let fallback_path = PathAndQuery::from_static("/");
-    let pq = uri.path_and_query().unwrap_or(&fallback_path).as_str();
-
-    Ok(Redirect::permanent(
-        &Uri::builder()
-            .scheme("https")
-            .authority(host)
-            .path_and_query(pq)
-            .build()
-            .map_err(|_| ErrorCause::MalformedRequest("Incorrect URL".into()))?
-            .to_string(),
-    ))
-}
-
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::cognitive_complexity)]
 pub async fn setup_router(
@@ -190,8 +170,8 @@ pub async fn setup_router(
     http_client: Arc<dyn Client>,
     route_provider: Arc<dyn RouteProvider>,
     registry: &Registry,
+    vector: Option<Arc<Vector>>,
     #[cfg(feature = "clickhouse")] clickhouse: Option<Arc<Clickhouse>>,
-    #[cfg(feature = "vector")] vector: Option<Arc<Vector>>,
 ) -> Result<Router, Error> {
     let custom_domain_storage = Arc::new(CustomDomainStorage::new(custom_domain_providers));
     tasks.add_interval(
@@ -270,10 +250,9 @@ pub async fn setup_router(
     let metrics_state = Arc::new(metrics::HttpMetrics::new(
         registry,
         cli.log.log_requests,
+        vector,
         #[cfg(feature = "clickhouse")]
         clickhouse,
-        #[cfg(feature = "vector")]
-        vector,
     ));
     let metrics_mw = from_fn_with_state(metrics_state, metrics::middleware);
 
@@ -569,6 +548,7 @@ mod test {
 
     use super::*;
     use axum::body::{Body, to_bytes};
+    use http::Uri;
     use ic_bn_lib::http::ConnInfo;
     use rand::{seq::SliceRandom, thread_rng};
     use std::str::FromStr;

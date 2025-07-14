@@ -2,6 +2,7 @@
 //#![warn(clippy::pedantic)]
 #![warn(clippy::nursery)]
 #![allow(clippy::too_many_lines)]
+#![allow(clippy::type_complexity)]
 // Needed for certain macros
 #![recursion_limit = "256"]
 

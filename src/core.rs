@@ -3,9 +3,11 @@ use std::sync::{Arc, OnceLock};
 use anyhow::{Context, Error, anyhow};
 use axum::Router;
 use ic_bn_lib::{
-    http::{self as bnhttp},
+    custom_domains::{self, ProvidesCustomDomains},
+    http::{self as bnhttp, redirect_to_https},
     tasks::TaskManager,
     tls::{prepare_client_config, verify::NoopServerCertVerifier},
+    vector::client::Vector,
 };
 use itertools::Itertools;
 use prometheus::Registry;
@@ -15,8 +17,8 @@ use tracing::warn;
 use crate::{
     cli::Cli,
     metrics,
-    routing::{self, domain::ProvidesCustomDomains, ic::route_provider::setup_route_provider},
-    tls::{self},
+    routing::{self, ic::route_provider::setup_route_provider},
+    tls::{self, setup_issuer_providers},
 };
 
 pub const SERVICE_NAME: &str = "ic_gateway";
@@ -73,8 +75,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     let dns_resolver = bnhttp::dns::Resolver::new((&cli.dns).into());
 
     // HTTP client
-    let mut http_client_opts: bnhttp::client::Options<_> = (&cli.http_client).into();
-    http_client_opts.dns_resolver = Some(dns_resolver.clone());
+    let mut http_client_opts: bnhttp::client::Options = (&cli.http_client).into();
 
     // Prepare TLS client config
     let mut tls_config = prepare_client_config(&[&rustls::version::TLS13, &rustls::version::TLS12]);
@@ -93,13 +94,15 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
 
     let http_client = Arc::new(bnhttp::ReqwestClientLeastLoaded::new(
         http_client_opts.clone(),
+        Some(dns_resolver.clone()),
         cli.network.network_http_client_count as usize,
         Some(&registry),
     )?);
 
     // Bare reqwest client is for now needed for Discovery Library
     // TODO improve
-    let reqwest_client = bnhttp::client::clients_reqwest::new(http_client_opts)?;
+    let reqwest_client =
+        bnhttp::client::clients_reqwest::new(http_client_opts, Some(dns_resolver.clone()))?;
 
     // Event sinks
     #[cfg(feature = "clickhouse")]
@@ -110,14 +113,12 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     } else {
         None
     };
-    #[cfg(feature = "vector")]
-    let vector = cli.log.vector.log_vector_url.as_ref().map(|_| {
-        Arc::new(metrics::Vector::new(
-            &cli.log.vector,
-            http_client.clone(),
-            &registry,
-        ))
-    });
+    let vector = cli
+        .log
+        .vector
+        .log_vector_url
+        .as_ref()
+        .map(|_| Arc::new(Vector::new(&cli.log.vector, http_client.clone(), &registry)));
 
     // List of cancellable tasks to execute & track
     let mut tasks = TaskManager::new();
@@ -132,18 +133,13 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
 
     // Custom domains from issuers
     let (issuer_certificate_providers, mut custom_domain_providers) =
-        tls::cert::providers::setup_issuer_providers(
-            cli,
-            &mut tasks,
-            http_client.clone(),
-            &registry,
-        );
+        setup_issuer_providers(cli, &mut tasks, http_client.clone(), &registry);
 
     // Load generic custom domain providers
     custom_domain_providers.extend(cli.domain.domain_custom_provider.iter().map(|x| {
         warn!("Adding custom domain provider: {x}");
 
-        Arc::new(routing::custom_domains::GenericProvider::new(
+        Arc::new(custom_domains::GenericProvider::new(
             http_client.clone(),
             x.clone(),
             cli.domain.domain_custom_provider_timeout,
@@ -157,7 +153,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
             .map(|x| {
                 warn!("Adding timestamped custom domain provider: {x}");
 
-                Arc::new(routing::custom_domains::GenericProviderTimestamped::new(
+                Arc::new(custom_domains::GenericProviderTimestamped::new(
                     http_client.clone(),
                     x.clone(),
                     cli.domain.domain_custom_provider_timeout,
@@ -175,17 +171,16 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         http_client.clone(),
         Arc::clone(&route_provider),
         &registry,
+        vector.clone(),
         #[cfg(feature = "clickhouse")]
         clickhouse.clone(),
-        #[cfg(feature = "vector")]
-        vector.clone(),
     )
     .await
     .context("unable to setup Axum router")?;
 
     // Set up HTTP router (redirecting to HTTPS or serving all endpoints)
     let http_router = if !cli.listen.listen_insecure_serve_http_only {
-        Router::new().fallback(routing::redirect_to_https)
+        Router::new().fallback(redirect_to_https)
     } else {
         gateway_router.clone()
     };
@@ -258,12 +253,12 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     tasks.stop().await;
 
     // Clickhouse/Vector should stop last to ensure that all requests are finished & flushed
-    #[cfg(feature = "clickhouse")]
-    if let Some(v) = clickhouse {
+    if let Some(v) = vector {
         v.stop().await;
     }
-    #[cfg(feature = "vector")]
-    if let Some(v) = vector {
+
+    #[cfg(feature = "clickhouse")]
+    if let Some(v) = clickhouse {
         v.stop().await;
     }
 
