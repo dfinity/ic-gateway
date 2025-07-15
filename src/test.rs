@@ -11,20 +11,18 @@ use http::{
     header::{CONTENT_LENGTH, CONTENT_TYPE},
 };
 use ic_agent::agent::route_provider::RoundRobinRouteProvider;
-use ic_bn_lib::{principal, tasks::TaskManager};
+use ic_bn_lib::{
+    custom_domains::{CustomDomain, ProvidesCustomDomains},
+    principal,
+    tasks::TaskManager,
+};
 use ic_http_certification::HttpResponse;
 use ic_transport_types::{QueryResponse, ReplyResponse};
 use prometheus::Registry;
 use rand::{Rng, SeedableRng};
 use serde_cbor::to_vec;
 
-use crate::{
-    Cli,
-    routing::{
-        domain::{CustomDomain, ProvidesCustomDomains},
-        setup_router,
-    },
-};
+use crate::{Cli, routing::setup_router};
 
 #[derive(Debug)]
 pub struct FakeDomainProvider(pub Vec<CustomDomain>);

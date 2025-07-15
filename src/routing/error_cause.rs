@@ -514,9 +514,7 @@ impl IntoResponse for ErrorClientFacing {
         // Return an HTML error page if it was an HTTP request
         let body = match request_type {
             RequestType::Http => match self {
-                ErrorClientFacing::UnknownDomain(domain)
-                    if domain.is_subdomain_of(&fqdn!("caffeine.xyz")) =>
-                {
+                Self::UnknownDomain(domain) if domain.is_subdomain_of(&fqdn!("caffeine.xyz")) => {
                     ALTERNATE_ERROR.to_string()
                 }
                 _ => error_data.html(),

@@ -1,12 +1,15 @@
-pub mod cert;
-pub mod resolver;
-
 use std::sync::Arc;
 
 use anyhow::{Error, bail};
 use ic_bn_lib::{
+    custom_domains::ProvidesCustomDomains,
+    http::Client,
     tasks::TaskManager,
-    tls::{self, prepare_server_config},
+    tls::{
+        self, prepare_server_config,
+        providers::{self, Aggregator, Issuer, ProvidesCertificates, issuer, storage},
+        resolver,
+    },
 };
 use prometheus::Registry;
 use rustls::server::{ResolvesServerCert as ResolvesServerCertRustls, ServerConfig};
@@ -25,15 +28,39 @@ use {
     std::{fs, time::Duration},
 };
 
-use crate::{
-    cli::Cli,
-    tls::{
-        cert::{Aggregator, providers},
-        resolver::AggregatingResolver,
-    },
-};
+use crate::cli::Cli;
 
-use cert::{providers::ProvidesCertificates, storage};
+pub fn setup_issuer_providers(
+    cli: &Cli,
+    tasks: &mut TaskManager,
+    http_client: Arc<dyn Client>,
+    registry: &Registry,
+) -> (
+    Vec<Arc<dyn ProvidesCertificates>>,
+    Vec<Arc<dyn ProvidesCustomDomains>>,
+) {
+    let mut cert_providers: Vec<Arc<dyn ProvidesCertificates>> = vec![];
+    let mut custom_domain_providers: Vec<Arc<dyn ProvidesCustomDomains>> = vec![];
+
+    let issuer_metrics = issuer::Metrics::new(registry);
+    for v in &cli.cert.cert_provider_issuer_url {
+        let issuer = Arc::new(Issuer::new(
+            http_client.clone(),
+            v.clone(),
+            issuer_metrics.clone(),
+        ));
+
+        cert_providers.push(issuer.clone());
+        custom_domain_providers.push(issuer.clone());
+        tasks.add_interval(
+            &format!("{issuer:?}"),
+            issuer,
+            cli.cert.cert_provider_issuer_poll_interval,
+        );
+    }
+
+    (cert_providers, custom_domain_providers)
+}
 
 #[cfg(feature = "acme")]
 async fn setup_acme(
@@ -45,7 +72,7 @@ async fn setup_acme(
 ) -> Result<Arc<dyn ResolvesServerCertRustls>, Error> {
     let cache_path = cli.acme.acme_cache_path.clone().unwrap();
 
-    let resolver = match challenge {
+    let resolver: Arc<dyn ResolvesServerCertRustls> = match challenge {
         acme::Challenge::Alpn => {
             let opts = acme::alpn::Opts {
                 acme_url: cli.acme.acme_url.clone(),
@@ -54,7 +81,10 @@ async fn setup_acme(
                 cache_path,
             };
 
-            acme::alpn::new(opts, tasks.token())
+            let acme_alpn = Arc::new(acme::alpn::AcmeAlpn::new(opts));
+            tasks.add("acme_alpn", acme_alpn.clone());
+
+            acme_alpn
         }
 
         acme::Challenge::Dns => {
@@ -163,7 +193,7 @@ pub async fn setup(
     );
 
     // Set up certificate resolver
-    let certificate_resolver = Arc::new(AggregatingResolver::new(
+    let certificate_resolver = Arc::new(resolver::AggregatingResolver::new(
         #[cfg(feature = "acme")]
         acme_resolver,
         #[cfg(not(feature = "acme"))]

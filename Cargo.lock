@@ -2431,13 +2431,15 @@ dependencies = [
 [[package]]
 name = "ic-bn-lib"
 version = "0.1.0"
-source = "git+https://github.com/dfinity/ic-bn-lib?rev=6eedf0c2742295d70cdbbc800299aaee91042f11#6eedf0c2742295d70cdbbc800299aaee91042f11"
+source = "git+https://github.com/dfinity/ic-bn-lib?rev=48697c9823477e7cff58764369c3faabb35f2d58#48697c9823477e7cff58764369c3faabb35f2d58"
 dependencies = [
  "ahash",
  "anyhow",
  "arc-swap",
+ "async-channel 2.3.1",
  "async-trait",
  "axum 0.8.4",
+ "axum-extra",
  "base64 0.22.1",
  "bytes",
  "candid",
@@ -2461,6 +2463,7 @@ dependencies = [
  "hyper-util",
  "indoc",
  "instant-acme",
+ "itertools 0.14.0",
  "moka",
  "nix",
  "parse-size",
@@ -2499,6 +2502,7 @@ dependencies = [
  "webpki-root-certs",
  "x509-parser 0.17.0",
  "zeroize",
+ "zstd",
 ]
 
 [[package]]
@@ -2651,7 +2655,6 @@ dependencies = [
  "ahash",
  "anyhow",
  "arc-swap",
- "async-channel 2.3.1",
  "async-trait",
  "axum 0.8.4",
  "axum-extra",
@@ -2717,7 +2720,6 @@ dependencies = [
  "uuid",
  "wat",
  "x509-parser 0.17.0",
- "zstd",
 ]
 
 [[package]]

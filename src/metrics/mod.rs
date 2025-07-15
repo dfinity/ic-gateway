@@ -1,8 +1,6 @@
 #[cfg(feature = "clickhouse")]
 pub mod clickhouse;
 pub mod runner;
-#[cfg(feature = "vector")]
-pub mod vector;
 
 use std::{
     sync::Arc,
@@ -19,6 +17,7 @@ use axum::{
 };
 use http::header::{CONTENT_TYPE, ORIGIN, REFERER, USER_AGENT};
 use ic_agent::agent::route_provider::RouteProvider;
+use ic_bn_lib::vector::client::Vector;
 use ic_bn_lib::{
     http::{
         body::CountingBody,
@@ -35,7 +34,6 @@ use prometheus::{
 use tower_http::compression::CompressionLayer;
 use tracing::info;
 
-#[cfg(feature = "vector")]
 use crate::core::{ENV, HOSTNAME};
 
 use crate::routing::{
@@ -47,8 +45,6 @@ use crate::routing::{
 
 #[cfg(feature = "clickhouse")]
 pub use clickhouse::{Clickhouse, Row};
-#[cfg(feature = "vector")]
-pub use vector::Vector;
 
 const KB: f64 = 1024.0;
 
@@ -91,18 +87,17 @@ pub struct HttpMetrics {
     pub request_size: HistogramVec,
     pub response_size: HistogramVec,
 
+    pub vector: Option<Arc<Vector>>,
     #[cfg(feature = "clickhouse")]
     pub clickhouse: Option<Arc<Clickhouse>>,
-    #[cfg(feature = "vector")]
-    pub vector: Option<Arc<Vector>>,
 }
 
 impl HttpMetrics {
     pub fn new(
         registry: &Registry,
         log_requests: bool,
+        vector: Option<Arc<Vector>>,
         #[cfg(feature = "clickhouse")] clickhouse: Option<Arc<Clickhouse>>,
-        #[cfg(feature = "vector")] vector: Option<Arc<Vector>>,
     ) -> Self {
         const LABELS_HTTP: &[&str] = &[
             "tls",
@@ -120,7 +115,6 @@ impl HttpMetrics {
             log_requests,
             #[cfg(feature = "clickhouse")]
             clickhouse,
-            #[cfg(feature = "vector")]
             vector,
 
             requests: register_int_counter_vec_with_registry!(
@@ -219,7 +213,6 @@ pub async fn middleware(
 
     // Execute the request
     let start = Instant::now();
-    #[cfg(any(feature = "clickhouse", feature = "vector"))]
     let timestamp = time::OffsetDateTime::now_utc();
     let mut response = next.run(request).await;
     let duration = start.elapsed();
@@ -452,7 +445,6 @@ pub async fn middleware(
             v.send(row);
         }
 
-        #[cfg(feature = "vector")]
         if let Some(v) = &state.vector {
             // TODO use proper names when the DB is updated
 

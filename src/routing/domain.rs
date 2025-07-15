@@ -9,7 +9,10 @@ use arc_swap::ArcSwapOption;
 use async_trait::async_trait;
 use candid::Principal;
 use fqdn::{FQDN, Fqdn, fqdn};
-use ic_bn_lib::tasks::Run;
+use ic_bn_lib::{
+    custom_domains::{CustomDomain, ProvidesCustomDomains},
+    tasks::Run,
+};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 
@@ -36,18 +39,6 @@ pub struct DomainLookup {
 // Resolves hostname to a canister id
 pub trait ResolvesDomain: Send + Sync {
     fn resolve(&self, host: &Fqdn) -> Option<DomainLookup>;
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CustomDomain {
-    pub name: FQDN,
-    pub canister_id: Principal,
-}
-
-// Provides a list of custom domains
-#[async_trait]
-pub trait ProvidesCustomDomains: Sync + Send + std::fmt::Debug {
-    async fn get_custom_domains(&self) -> Result<Vec<CustomDomain>, Error>;
 }
 
 // Alias for a canister under all served domains.

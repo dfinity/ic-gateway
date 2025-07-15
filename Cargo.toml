@@ -5,20 +5,18 @@ description = "HTTP-to-IC gateway"
 edition = "2024"
 
 [features]
-default = ["vector", "sev_snp"]
+default = ["sev_snp"]
 sev_snp = ["dep:sev"]
 clickhouse = ["dep:clickhouse"]
 acme = ["ic-bn-lib/acme_dns", "ic-bn-lib/acme_alpn"]
 bench = ["dep:ic-http-certification", "dep:rand_regex", "dep:serde_cbor"]
 tokio_console = ["dep:console-subscriber"]
-vector = ["ic-bn-lib/vector"]
 debug = []
 
 [dependencies]
 ahash = "0.8.11"
 anyhow = "1.0.93"
 arc-swap = "1.7.1"
-async-channel = "2.3.1"
 async-trait = "0.1.83"
 axum = { version = "0.8.1", features = ["macros"] }
 axum-extra = "0.10.0"
@@ -54,8 +52,9 @@ ic-agent = { version = "0.40.0", features = [
     "ring",
     "_internal_dynamic-routing",
 ] }
-ic-bn-lib = { git = "https://github.com/dfinity/ic-bn-lib", rev = "6eedf0c2742295d70cdbbc800299aaee91042f11", features = [
+ic-bn-lib = { git = "https://github.com/dfinity/ic-bn-lib", rev = "48697c9823477e7cff58764369c3faabb35f2d58", features = [
     "vector",
+    "cert_providers",
 ] }
 ic-http-certification = { version = "3.0.3", optional = true }
 ic-transport-types = "0.40.0"
@@ -108,7 +107,6 @@ url = "2.5.3"
 # Read https://github.com/uuid-rs/uuid/releases/tag/1.13.0
 uuid = { version = "=1.12.1", features = ["v7"] }
 x509-parser = "0.17.0"
-zstd = "0.13.2"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
