@@ -10,8 +10,7 @@ use ic_bn_lib::{
         server::ProxyProtocolMode,
         shed::cli::{ShedSharded, ShedSystem},
     },
-    parse_size, parse_size_decimal, parse_size_usize,
-    vector::cli::Vector,
+    parse_size, parse_size_decimal, parse_size_usize, vector,
 };
 use reqwest::Url;
 
@@ -393,7 +392,7 @@ pub struct Log {
     pub clickhouse: Clickhouse,
 
     #[command(flatten, next_help_heading = "Vector")]
-    pub vector: Vector,
+    pub vector: vector::cli::Vector,
 }
 
 #[cfg(feature = "clickhouse")]
