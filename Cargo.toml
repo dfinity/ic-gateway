@@ -5,10 +5,10 @@ description = "HTTP-to-IC gateway"
 edition = "2024"
 
 [features]
-default = ["sev_snp"]
-sev_snp = ["dep:sev"]
+default = ["sev-snp"]
+sev-snp = ["ic-bn-lib/sev-snp"]
 clickhouse = ["dep:clickhouse"]
-acme = ["ic-bn-lib/acme_dns", "ic-bn-lib/acme_alpn"]
+acme = ["ic-bn-lib/acme-dns", "ic-bn-lib/acme-alpn"]
 bench = ["dep:ic-http-certification", "dep:rand_regex", "dep:serde_cbor"]
 tokio_console = ["dep:console-subscriber"]
 debug = []
@@ -52,9 +52,9 @@ ic-agent = { version = "0.40.0", features = [
     "ring",
     "_internal_dynamic-routing",
 ] }
-ic-bn-lib = { git = "https://github.com/dfinity/ic-bn-lib", rev = "48697c9823477e7cff58764369c3faabb35f2d58", features = [
+ic-bn-lib = { git = "https://github.com/dfinity/ic-bn-lib", rev = "df62a6b32773006516cc1f890c1ea6530c9e2d81", features = [
     "vector",
-    "cert_providers",
+    "cert-providers",
 ] }
 ic-http-certification = { version = "3.0.3", optional = true }
 ic-transport-types = "0.40.0"

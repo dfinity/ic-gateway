@@ -2433,7 +2433,7 @@ dependencies = [
 [[package]]
 name = "ic-bn-lib"
 version = "0.1.0"
-source = "git+https://github.com/dfinity/ic-bn-lib?rev=48697c9823477e7cff58764369c3faabb35f2d58#48697c9823477e7cff58764369c3faabb35f2d58"
+source = "git+https://github.com/dfinity/ic-bn-lib?rev=df62a6b32773006516cc1f890c1ea6530c9e2d81#df62a6b32773006516cc1f890c1ea6530c9e2d81"
 dependencies = [
  "ahash",
  "anyhow",
@@ -2483,6 +2483,7 @@ dependencies = [
  "scopeguard",
  "serde",
  "serde_json",
+ "sev",
  "sha1",
  "sha2 0.10.9",
  "strum 0.27.2",
