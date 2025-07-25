@@ -20,7 +20,7 @@ jobs:
       contents: write
 
     runs-on:
-      - namespace-profile-ubuntu-24-04-big
+      - dind-small
 
     steps:
       - uses: actions/checkout@v4
