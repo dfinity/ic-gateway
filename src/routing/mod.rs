@@ -3,8 +3,6 @@ pub mod error_cause;
 pub mod ic;
 pub mod middleware;
 pub mod proxy;
-#[cfg(all(target_os = "linux", feature = "sev_snp"))]
-pub mod sev_snp;
 
 use std::{ops::Deref, str::FromStr, sync::Arc, time::Duration};
 
@@ -530,12 +528,15 @@ pub async fn setup_router(
         )
         .layer(common_layers);
 
-    #[cfg(all(target_os = "linux", feature = "sev_snp"))]
+    #[cfg(all(target_os = "linux", feature = "sev-snp"))]
     if cli.misc.enable_sev_snp {
         let router_sev_snp = Router::new().route(
             "/sev-snp/report",
-            post(sev_snp::handler)
-                .with_state(sev_snp::SevSnpState::new().context("unable to init SEV-SNP")?)
+            post(ic_bn_lib::utils::sev_snp::handler)
+                .with_state(
+                    ic_bn_lib::utils::sev_snp::SevSnpState::new()
+                        .context("unable to init SEV-SNP")?,
+                )
                 .layer(rate_limiter::layer_global(1, 2)?),
         );
 

@@ -12,7 +12,7 @@ use ic_bn_lib::{
     },
 };
 use prometheus::Registry;
-use rustls::server::{ResolvesServerCert as ResolvesServerCertRustls, ServerConfig};
+use rustls::server::ServerConfig;
 
 #[cfg(feature = "acme")]
 use {
@@ -25,6 +25,7 @@ use {
             dns::{AcmeDns, DnsBackend, DnsManager, TokenManagerDns},
         },
     },
+    rustls::server::ResolvesServerCert as ResolvesServerCertRustls,
     std::{fs, time::Duration},
 };
 
