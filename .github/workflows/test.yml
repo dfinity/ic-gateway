@@ -19,8 +19,7 @@ jobs:
     permissions:
       contents: write
 
-    runs-on:
-      - dind-small
+    runs-on: ubuntu-24.04
 
     steps:
       - uses: actions/checkout@v4
