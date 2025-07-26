@@ -459,6 +459,11 @@ pub struct Misc {
     #[cfg(all(target_os = "linux", feature = "sev-snp"))]
     #[clap(env, long)]
     pub enable_sev_snp: bool,
+
+    /// Domain for which to show alternate error page for unknown domain errors.
+    /// If not specified, the default error page will be shown for all domains.
+    #[clap(env, long)]
+    pub alternate_error_domain: Option<FQDN>,
 }
 
 #[derive(Args)]

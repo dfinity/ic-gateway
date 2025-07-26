@@ -3,20 +3,27 @@ use std::error::Error as StdError;
 use crate::routing::RequestType;
 use axum::response::{IntoResponse, Response};
 use candid::Principal;
-use fqdn::{FQDN, fqdn};
+use fqdn::FQDN;
 use hickory_resolver::ResolveError;
 use http::{StatusCode, header::CONTENT_TYPE};
 use ic_agent::AgentError;
 use ic_bn_lib::http::{Error as IcBnError, headers::CONTENT_TYPE_HTML};
 use ic_http_gateway::HttpGatewayError;
 use ic_transport_types::RejectCode;
+use std::sync::Arc;
 use strum::{Display, IntoStaticStr};
 use tokio::task_local;
 
 use super::ic::BNResponseMetadata;
 
+#[derive(Default, Clone)]
+pub struct ErrorContext {
+    pub request_type: RequestType,
+    pub alternate_error_domain: Option<FQDN>,
+}
+
 task_local! {
-    pub static ERROR_CONTEXT: RequestType;
+    pub static ERROR_CONTEXT: Arc<ErrorContext>;
 }
 
 const ERROR_PAGE_TEMPLATE: &str = include_str!("error_pages/template.html");
@@ -507,23 +514,33 @@ impl From<&ErrorCause> for ErrorClientFacing {
 // Creates the response from ErrorClientFacing
 impl IntoResponse for ErrorClientFacing {
     fn into_response(self) -> Response {
-        let request_type = ERROR_CONTEXT.try_with(|x| *x).unwrap_or_default();
+        let context = ERROR_CONTEXT
+            .try_with(|ctx| ctx.clone())
+            .unwrap_or_else(|_| Arc::new(ErrorContext::default()));
 
         let error_data = self.data();
 
         // Return an HTML error page if it was an HTTP request
-        let body = match request_type {
+        let body = match context.request_type {
             RequestType::Http => match self {
-                Self::UnknownDomain(domain) if domain.is_subdomain_of(&fqdn!("caffeine.xyz")) => {
-                    ALTERNATE_ERROR.to_string()
+                Self::UnknownDomain(domain) => {
+                    // Check if we have a configured alternate error domain and if the current domain is a subdomain of it
+                    if context.alternate_error_domain.as_ref().is_some_and(
+                        |alternate_error_domain| domain.is_subdomain_of(alternate_error_domain),
+                    ) {
+                        ALTERNATE_ERROR.to_string()
+                    } else {
+                        error_data.html()
+                    }
                 }
                 _ => error_data.html(),
             },
             _ => format!("error: {}\ndetails:\n{}", self, error_data.description),
         };
 
+        // build the final response
         let mut resp = (error_data.status_code, body).into_response();
-        if request_type == RequestType::Http {
+        if context.request_type == RequestType::Http {
             resp.headers_mut().insert(CONTENT_TYPE, CONTENT_TYPE_HTML);
         }
         resp
