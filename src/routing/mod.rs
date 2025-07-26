@@ -472,6 +472,11 @@ pub async fn setup_router(
         canister_id_from_referer: cli.domain.domain_canister_id_from_referer,
     };
 
+    // Request type state for alternate error domain configuration
+    let request_type_state = request_type::RequestTypeState {
+        alternate_error_domain: cli.misc.alternate_error_domain.clone(),
+    };
+
     // Common layers for all routes
     let common_layers = ServiceBuilder::new()
         .layer(from_fn_with_state(
@@ -479,7 +484,10 @@ pub async fn setup_router(
             request_id::middleware,
         ))
         .layer(from_fn(headers::middleware))
-        .layer(from_fn(request_type::middleware))
+        .layer(from_fn_with_state(
+            request_type_state,
+            request_type::middleware,
+        ))
         .layer(metrics_mw)
         .layer(load_shedder_system_mw)
         .layer(from_fn_with_state(validate_state, validate::middleware))
