@@ -4,6 +4,7 @@ use axum::{
     response::IntoResponse,
 };
 use fqdn::FQDN;
+use std::sync::Arc;
 
 use crate::routing::{
     ErrorCause, RequestType,
@@ -16,17 +17,17 @@ pub struct RequestTypeState {
 }
 
 pub async fn middleware(
-    State(state): State<RequestTypeState>,
+    State(state): State<Arc<RequestTypeState>>,
     mut request: Request,
     next: Next,
 ) -> Result<impl IntoResponse, ErrorCause> {
     let request_type = RequestType::from(request.extensions().get::<MatchedPath>());
     request.extensions_mut().insert(request_type);
 
-    let context = ErrorContext {
+    let context = Arc::new(ErrorContext {
         request_type,
         alternate_error_domain: state.alternate_error_domain.clone(),
-    };
+    });
 
     let response = ERROR_CONTEXT
         .scope(context, async move {

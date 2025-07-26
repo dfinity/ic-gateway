@@ -10,6 +10,7 @@ use ic_agent::AgentError;
 use ic_bn_lib::http::{Error as IcBnError, headers::CONTENT_TYPE_HTML};
 use ic_http_gateway::HttpGatewayError;
 use ic_transport_types::RejectCode;
+use std::sync::Arc;
 use strum::{Display, IntoStaticStr};
 use tokio::task_local;
 
@@ -22,7 +23,7 @@ pub struct ErrorContext {
 }
 
 task_local! {
-    pub static ERROR_CONTEXT: ErrorContext;
+    pub static ERROR_CONTEXT: Arc<ErrorContext>;
 }
 
 const ERROR_PAGE_TEMPLATE: &str = include_str!("error_pages/template.html");
@@ -515,7 +516,7 @@ impl IntoResponse for ErrorClientFacing {
     fn into_response(self) -> Response {
         let context = ERROR_CONTEXT
             .try_with(|ctx| ctx.clone())
-            .unwrap_or_else(|_| ErrorContext::default());
+            .unwrap_or_else(|_| Arc::new(ErrorContext::default()));
 
         let error_data = self.data();
 
@@ -524,12 +525,9 @@ impl IntoResponse for ErrorClientFacing {
             RequestType::Http => match self {
                 Self::UnknownDomain(domain) => {
                     // Check if we have a configured alternate error domain and if the current domain is a subdomain of it
-                    if context
-                        .alternate_error_domain
-                        .is_some_and(|alternate_error_domain| {
-                            domain.is_subdomain_of(&alternate_error_domain)
-                        })
-                    {
+                    if context.alternate_error_domain.as_ref().is_some_and(
+                        |alternate_error_domain| domain.is_subdomain_of(alternate_error_domain),
+                    ) {
                         ALTERNATE_ERROR.to_string()
                     } else {
                         error_data.html()

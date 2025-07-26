@@ -120,7 +120,7 @@ mod tests {
             .layer(rate_limiter_mw);
 
         ERROR_CONTEXT
-            .scope(ErrorContext::default(), async {
+            .scope(Arc::new(ErrorContext::default()), async {
                 // Test cases: (delay_ms, expected_status)
                 let delay_for_token_ms = 230; // when a token should become available ~ 1000ms/rps=200ms (we add some delta=30 ms to avoid flakiness)
                 let test_cases = vec![
@@ -177,7 +177,7 @@ mod tests {
             .layer(rate_limiter_mw);
 
         ERROR_CONTEXT
-            .scope(ErrorContext::default(), async {
+            .scope(Arc::new(ErrorContext::default()), async {
                 // Send request without connection info, i.e. without ip address.
                 let request = Request::post("/").body(Body::from("".to_string())).unwrap();
                 let result = app.call(request).await.unwrap();

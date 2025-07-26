@@ -50,6 +50,7 @@ use domain::{CustomDomainStorage, DomainResolver};
 use middleware::{
     cache,
     cors::{ALLOW_HEADERS, ALLOW_HEADERS_HTTP, ALLOW_METHODS_HTTP},
+    request_type::RequestTypeState,
     validate::ValidateState,
 };
 
@@ -473,9 +474,9 @@ pub async fn setup_router(
     };
 
     // Request type state for alternate error domain configuration
-    let request_type_state = request_type::RequestTypeState {
+    let request_type_state = Arc::new(RequestTypeState {
         alternate_error_domain: cli.misc.alternate_error_domain.clone(),
-    };
+    });
 
     // Common layers for all routes
     let common_layers = ServiceBuilder::new()
