@@ -2433,7 +2433,7 @@ dependencies = [
 [[package]]
 name = "ic-bn-lib"
 version = "0.1.0"
-source = "git+https://github.com/dfinity/ic-bn-lib?rev=df62a6b32773006516cc1f890c1ea6530c9e2d81#df62a6b32773006516cc1f890c1ea6530c9e2d81"
+source = "git+https://github.com/dfinity/ic-bn-lib?rev=17d0baaafb8a6f6dd2c6631630486918ba3fe3a0#17d0baaafb8a6f6dd2c6631630486918ba3fe3a0"
 dependencies = [
  "ahash",
  "anyhow",
@@ -2453,6 +2453,7 @@ dependencies = [
  "fqdn",
  "futures",
  "futures-util",
+ "governor",
  "hex",
  "hickory-proto 0.25.2",
  "hickory-resolver 0.25.2",
@@ -2498,6 +2499,7 @@ dependencies = [
  "tokio-util",
  "tower 0.5.2",
  "tower-service",
+ "tower_governor",
  "tracing",
  "url",
  "uuid",

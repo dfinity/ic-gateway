@@ -19,7 +19,6 @@ use candid::Principal;
 use fqdn::FQDN;
 use http::{StatusCode, method::Method};
 use ic_agent::agent::route_provider::RouteProvider;
-use ic_bn_lib::vector::client::Vector;
 use ic_bn_lib::{
     custom_domains::ProvidesCustomDomains,
     http::{
@@ -34,6 +33,7 @@ use ic_bn_lib::{
     tasks::TaskManager,
     types::RequestType as RequestTypeApi,
 };
+use ic_bn_lib::{http::middleware::rate_limiter, vector::client::Vector};
 use prometheus::Registry;
 use strum::{Display, IntoStaticStr};
 use tower::{ServiceBuilder, ServiceExt, limit::ConcurrencyLimitLayer, util::MapResponseLayer};
@@ -42,8 +42,9 @@ use tracing::warn;
 use crate::{
     cli::Cli,
     metrics::{self},
-    routing::middleware::{
-        canister_match, cors, geoip, headers, rate_limiter, request_id, request_type, validate,
+    routing::{
+        error_cause::RateLimitCause,
+        middleware::{canister_match, cors, geoip, headers, request_id, request_type, validate},
     },
 };
 use domain::{CustomDomainStorage, DomainResolver};
@@ -458,7 +459,7 @@ pub async fn setup_router(
                     ])),
             )
             .route("/registrations", post(proxy::issuer_proxy).layer(cors_post))
-            .layer(rate_limiter::layer_by_ip(1, 2)?)
+            .layer(rate_limiter::layer_by_ip(1, 2, RateLimitCause::Normal)?)
             .with_state(state);
 
         Some(router)
@@ -546,7 +547,7 @@ pub async fn setup_router(
                     ic_bn_lib::utils::sev_snp::SevSnpState::new()
                         .context("unable to init SEV-SNP")?,
                 )
-                .layer(rate_limiter::layer_global(1, 2)?),
+                .layer(rate_limiter::layer_global(1, 2, RateLimitCause::Normal)?),
         );
 
         router = router.merge(router_sev_snp)

@@ -52,7 +52,7 @@ ic-agent = { version = "0.40.0", features = [
     "ring",
     "_internal_dynamic-routing",
 ] }
-ic-bn-lib = { git = "https://github.com/dfinity/ic-bn-lib", rev = "df62a6b32773006516cc1f890c1ea6530c9e2d81", features = [
+ic-bn-lib = { git = "https://github.com/dfinity/ic-bn-lib", rev = "17d0baaafb8a6f6dd2c6631630486918ba3fe3a0", features = [
     "vector",
     "cert-providers",
 ] }
