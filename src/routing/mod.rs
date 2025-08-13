@@ -548,8 +548,11 @@ pub async fn setup_router(
             "/sev-snp/report",
             post(ic_bn_lib::utils::sev_snp::handler)
                 .with_state(
-                    ic_bn_lib::utils::sev_snp::SevSnpState::new()
-                        .context("unable to init SEV-SNP")?,
+                    ic_bn_lib::utils::sev_snp::SevSnpState::new(
+                        cli.misc.sev_snp_cache_ttl,
+                        cli.misc.sev_snp_cache_size,
+                    )
+                    .context("unable to init SEV-SNP")?,
                 )
                 .layer(rate_limiter::layer_global(1, 2, RateLimitCause::Normal)?),
         );
