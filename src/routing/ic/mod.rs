@@ -10,11 +10,12 @@ pub mod route_provider;
 use std::{fs, sync::Arc};
 
 use anyhow::{Context, Error};
+use bytes::Bytes;
 use http::{HeaderMap, StatusCode, header::HeaderName};
-use http_body_util::Either;
+use http_body_util::{Either, Full};
 use ic_agent::agent::route_provider::RouteProvider;
 use ic_bn_lib::http::{
-    Client as HttpClient,
+    ClientHttp,
     headers::{
         X_IC_CACHE_BYPASS_REASON, X_IC_CACHE_STATUS, X_IC_CANISTER_ID_CBOR, X_IC_ERROR_CAUSE,
         X_IC_METHOD_NAME, X_IC_NODE_ID, X_IC_RETRIES, X_IC_SENDER, X_IC_SUBNET_ID,
@@ -101,7 +102,7 @@ impl From<&HttpGatewayResponse> for IcResponseStatus {
 
 pub async fn setup(
     cli: &Cli,
-    http_client: Arc<dyn HttpClient>,
+    http_client: Arc<dyn ClientHttp<Full<Bytes>>>,
     route_provider: Arc<dyn RouteProvider>,
 ) -> Result<HttpGatewayClient, Error> {
     let http_service = Arc::new(http_service::AgentHttpService::new(

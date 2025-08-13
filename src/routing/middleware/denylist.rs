@@ -88,10 +88,10 @@ pub async fn middleware(
     let canister_id = request.extensions().get::<CanisterId>().copied();
 
     // Check denylisting if configured
-    if let Some(v) = canister_id {
-        if state.0.is_blocked(v.0, country_code) {
-            return Err(ErrorCause::Denylisted);
-        }
+    if let Some(v) = canister_id
+        && state.0.is_blocked(v.0, country_code)
+    {
+        return Err(ErrorCause::Denylisted);
     }
 
     Ok(next.run(request).await)

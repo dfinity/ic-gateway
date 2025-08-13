@@ -159,10 +159,8 @@ impl Actor {
                 }
 
                 row = self.rx.recv() => {
-                    if let Some(v) = row {
-                        if let Err(e) = self.inserter.write(&v) {
-                            error!("Clickhouse: unable to insert row: {e:#}");
-                        }
+                    if let Some(v) = row && let Err(e) = self.inserter.write(&v) {
+                        error!("Clickhouse: unable to insert row: {e:#}");
                     }
                 }
             }

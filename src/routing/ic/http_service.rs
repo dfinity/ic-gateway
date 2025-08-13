@@ -1,16 +1,16 @@
 use std::{cell::RefCell, sync::Arc, time::Duration};
 
+use anyhow::anyhow;
 use async_trait::async_trait;
-use http::StatusCode;
+use bytes::Bytes;
+use http::{Request, Response, StatusCode};
+use http_body_util::{BodyExt, Full, Limited};
 use ic_agent::{AgentError, agent::HttpService};
-use ic_bn_lib::http::Client as HttpClient;
-use reqwest::{
-    Request, Response,
-    header::{HeaderMap, HeaderValue},
-};
+use ic_bn_lib::http::ClientHttp;
+use reqwest::header::{HeaderMap, HeaderValue};
 use tokio::task_local;
 
-use crate::routing::proxy::{reqwest_error_needs_retrying, status_code_needs_retrying};
+use crate::routing::proxy::{http_error_needs_retrying, status_code_needs_retrying};
 
 pub struct Context {
     pub hostname: Option<String>,
@@ -37,23 +37,37 @@ task_local! {
 /// Service that executes requests on IC-Agent's behalf
 #[derive(Debug, derive_new::new)]
 pub struct AgentHttpService {
-    client: Arc<dyn HttpClient>,
+    client: Arc<dyn ClientHttp<Full<Bytes>>>,
     retry_interval: Duration,
 }
 
 impl AgentHttpService {
-    async fn execute(&self, mut request: Request) -> Result<Response, reqwest::Error> {
-        let read_state = request.url().path().ends_with("/read_state");
+    async fn execute(
+        &self,
+        mut request: Request<Bytes>,
+        size_limit: Option<usize>,
+    ) -> Result<Response<Bytes>, ic_bn_lib::http::Error> {
+        let read_state = request.uri().path().ends_with("/read_state");
 
         // Add HTTP headers if requested
         let _ = CONTEXT.try_with(|x| {
             let mut ctx = x.borrow_mut();
-            ctx.hostname = Some(request.url().authority().to_string());
+            ctx.hostname = Some(
+                request
+                    .uri()
+                    .authority()
+                    .map(|x| x.to_string())
+                    .unwrap_or_default(),
+            );
 
             for (k, v) in &ctx.headers_out {
                 request.headers_mut().insert(k, v.clone());
             }
         });
+
+        let (parts, body) = request.into_parts();
+        let body = Full::new(body);
+        let request = Request::from_parts(parts, body);
 
         let response = self.client.execute(request).await?;
 
@@ -72,6 +86,15 @@ impl AgentHttpService {
             });
         }
 
+        let (parts, body) = response.into_parts();
+        let body = Limited::new(body, size_limit.unwrap_or(usize::MAX));
+        let body = body
+            .collect()
+            .await
+            .map_err(|e| anyhow!("unable to read response body: {e:#}"))?
+            .to_bytes();
+
+        let response = Response::from_parts(parts, body);
         Ok(response)
     }
 }
@@ -80,9 +103,10 @@ impl AgentHttpService {
 impl HttpService for AgentHttpService {
     async fn call<'a>(
         &'a self,
-        req: &'a (dyn Fn() -> Result<Request, AgentError> + Send + Sync),
+        req: &'a (dyn Fn() -> Result<Request<Bytes>, AgentError> + Send + Sync),
         max_retries: usize,
-    ) -> Result<Response, AgentError> {
+        size_limit: Option<usize>,
+    ) -> Result<Response<Bytes>, AgentError> {
         let mut retries = max_retries;
         let mut interval = self.retry_interval;
 
@@ -90,7 +114,7 @@ impl HttpService for AgentHttpService {
             // TODO should we retry on Agent's request generation failure?
             let request = req()?;
 
-            match self.execute(request).await {
+            match self.execute(request, size_limit).await {
                 Ok(v) => {
                     let should_retry = status_code_needs_retrying(v.status()) && retries > 0;
                     if !should_retry {
@@ -99,9 +123,10 @@ impl HttpService for AgentHttpService {
                 }
 
                 Err(e) => {
-                    let should_retry = reqwest_error_needs_retrying(&e) && retries > 0;
-                    if should_retry {
-                        return Err(AgentError::TransportError(e));
+                    let should_retry = http_error_needs_retrying(&e) && retries > 0;
+                    if !should_retry {
+                        // TransportError requires reqwest::Error which cannot be instantiated outside reqwest
+                        return Err(AgentError::InvalidHttpResponse(e.to_string()));
                     }
                 }
             }

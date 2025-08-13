@@ -99,6 +99,13 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         Some(&registry),
     )?);
 
+    let http_client_hyper = Arc::new(bnhttp::client::clients_hyper::HyperClientLeastLoaded::new(
+        http_client_opts.clone(),
+        dns_resolver.clone(),
+        cli.network.network_http_client_count as usize,
+        Some(&registry),
+    ));
+
     // Bare reqwest client is for now needed for Discovery Library
     // TODO improve
     let reqwest_client =
@@ -169,6 +176,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         custom_domain_providers,
         &mut tasks,
         http_client.clone(),
+        http_client_hyper,
         Arc::clone(&route_provider),
         &registry,
         vector.clone(),

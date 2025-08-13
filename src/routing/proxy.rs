@@ -64,6 +64,13 @@ pub fn reqwest_error_needs_retrying(e: &reqwest::Error) -> bool {
     e.is_connect() || e.is_timeout()
 }
 
+pub fn http_error_needs_retrying(e: &ic_bn_lib::http::Error) -> bool {
+    match e {
+        ic_bn_lib::http::Error::HyperClientError(v) => v.is_connect(),
+        _ => false,
+    }
+}
+
 // Check if we need to retry the request based on the response that we got
 fn request_needs_retrying(result: &Result<Response, IcBnError>) -> bool {
     match result {
@@ -187,12 +194,12 @@ pub async fn issuer_proxy(
     request: Request,
 ) -> Result<impl IntoResponse, ErrorCause> {
     // Validate request ID if it's provided
-    if let Some(v) = id {
-        if !REGEX_REG_ID.is_match(&v.0) {
-            return Err(ErrorCause::MalformedRequest(
-                "Incorrect request ID format".into(),
-            ));
-        }
+    if let Some(v) = id
+        && !REGEX_REG_ID.is_match(&v.0)
+    {
+        return Err(ErrorCause::MalformedRequest(
+            "Incorrect request ID format".into(),
+        ));
     }
 
     // Pick next issuer using round-robin & generate request URL for it

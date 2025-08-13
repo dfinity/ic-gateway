@@ -15,14 +15,16 @@ use axum::{
     routing::{get, post},
 };
 use axum_extra::{either::Either, middleware::option_layer};
+use bytes::Bytes;
 use candid::Principal;
 use fqdn::FQDN;
 use http::{StatusCode, method::Method};
+use http_body_util::Full;
 use ic_agent::agent::route_provider::RouteProvider;
 use ic_bn_lib::{
     custom_domains::ProvidesCustomDomains,
     http::{
-        Client,
+        Client, ClientHttp,
         cache::{CacheBuilder, KeyExtractorUriRange},
         shed::{
             ShedResponse,
@@ -168,6 +170,7 @@ pub async fn setup_router(
     custom_domain_providers: Vec<Arc<dyn ProvidesCustomDomains>>,
     tasks: &mut TaskManager,
     http_client: Arc<dyn Client>,
+    http_client_hyper: Arc<dyn ClientHttp<Full<Bytes>>>,
     route_provider: Arc<dyn RouteProvider>,
     registry: &Registry,
     vector: Option<Arc<Vector>>,
@@ -309,7 +312,7 @@ pub async fn setup_router(
     );
 
     // Prepare the HTTP->IC library
-    let ic_client = ic::setup(cli, http_client.clone(), route_provider.clone())
+    let ic_client = ic::setup(cli, http_client_hyper, route_provider.clone())
         .await
         .context("unable to init IC client")?;
 
@@ -508,10 +511,11 @@ pub async fn setup_router(
                 let canister_id = request.extensions().get::<CanisterId>();
 
                 // If there are issuers defined and the request came to the base domain -> proxy to them
-                if let Some(v) = router_issuer {
-                    if path.starts_with("/registrations") && ctx.is_base_domain() {
-                        return v.oneshot(request).await;
-                    }
+                if let Some(v) = router_issuer
+                    && path.starts_with("/registrations")
+                    && ctx.is_base_domain()
+                {
+                    return v.oneshot(request).await;
                 }
 
                 // Proxy /health only from base domain and not custom ones

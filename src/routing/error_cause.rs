@@ -197,10 +197,10 @@ const LOAD_SHED: &str = "load_shed";
 
 impl From<&BNResponseMetadata> for Option<ErrorCause> {
     fn from(v: &BNResponseMetadata) -> Self {
-        if let Some(x) = v.status {
-            if x.is_success() {
-                return None;
-            }
+        if let Some(x) = v.status
+            && x.is_success()
+        {
+            return None;
         }
 
         if ["", "none"].contains(&v.error_cause.as_str()) {
