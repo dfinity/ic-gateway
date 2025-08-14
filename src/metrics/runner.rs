@@ -6,8 +6,7 @@ use async_trait::async_trait;
 use axum::{extract::State, response::IntoResponse};
 use bytes::{BufMut, Bytes, BytesMut};
 use http::header::CONTENT_TYPE;
-use ic_agent::agent::route_provider::RouteProvider;
-use ic_bn_lib::tasks::Run;
+use ic_bn_lib::{ic_agent::agent::route_provider::RouteProvider, tasks::Run};
 use prometheus::{
     Encoder, IntGauge, IntGaugeVec, Registry, TextEncoder, register_int_gauge_vec_with_registry,
     register_int_gauge_with_registry,

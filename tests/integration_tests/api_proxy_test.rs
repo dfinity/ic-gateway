@@ -1,7 +1,7 @@
 use crate::helpers::{COUNTER_WAT, TestEnv, install_canister};
 use anyhow::{Context, anyhow, bail};
 use candid::Principal;
-use ic_agent::Agent;
+use ic_bn_lib::ic_agent::Agent;
 use reqwest::Client;
 use tracing::info;
 use url::Url;

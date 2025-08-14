@@ -6,8 +6,10 @@ use candid::Principal;
 use fqdn::FQDN;
 use hickory_resolver::ResolveError;
 use http::{StatusCode, header::CONTENT_TYPE};
-use ic_agent::AgentError;
-use ic_bn_lib::http::{Error as IcBnError, headers::CONTENT_TYPE_HTML};
+use ic_bn_lib::{
+    http::{Error as IcBnError, headers::CONTENT_TYPE_HTML},
+    ic_agent::AgentError,
+};
 use ic_http_gateway::HttpGatewayError;
 use ic_transport_types::RejectCode;
 use std::sync::Arc;
@@ -618,8 +620,7 @@ impl ErrorData {
 mod test {
     use super::*;
     use http::HeaderMap;
-    use ic_agent::AgentError;
-    use ic_bn_lib::{http::headers::X_IC_ERROR_CAUSE, hval};
+    use ic_bn_lib::{http::headers::X_IC_ERROR_CAUSE, hval, ic_agent::AgentError};
     use ic_transport_types::RejectResponse;
     use std::sync::Arc;
 

@@ -20,7 +20,6 @@ use candid::Principal;
 use fqdn::FQDN;
 use http::{StatusCode, method::Method};
 use http_body_util::Full;
-use ic_agent::agent::route_provider::RouteProvider;
 use ic_bn_lib::{
     custom_domains::ProvidesCustomDomains,
     http::{
@@ -32,6 +31,7 @@ use ic_bn_lib::{
             system::{SystemInfo, SystemLoadShedderLayer},
         },
     },
+    ic_agent::agent::route_provider::RouteProvider,
     tasks::TaskManager,
     types::RequestType as RequestTypeApi,
 };

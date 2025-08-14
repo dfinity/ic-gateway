@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use candid::Principal;
-use ic_agent::agent::{
+use ic_bn_lib::ic_agent::agent::{
     http_transport::reqwest_transport::reqwest::Client as AgentClient,
     route_provider::{
         RoundRobinRouteProvider, RouteProvider,

@@ -5,8 +5,10 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use http::{Request, Response, StatusCode};
 use http_body_util::{BodyExt, Full, Limited};
-use ic_agent::{AgentError, agent::HttpService};
-use ic_bn_lib::http::ClientHttp;
+use ic_bn_lib::{
+    http::ClientHttp,
+    ic_agent::{AgentError, agent::HttpService},
+};
 use reqwest::header::{HeaderMap, HeaderValue};
 use tokio::task_local;
 

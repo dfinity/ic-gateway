@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use http::{Method, StatusCode};
-use ic_agent::agent::route_provider::dynamic_routing::{
+use ic_bn_lib::ic_agent::agent::route_provider::dynamic_routing::{
     dynamic_route_provider::DynamicRouteProviderError,
     health_check::{HealthCheck, HealthCheckStatus},
     node::Node,
