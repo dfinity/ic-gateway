@@ -77,8 +77,7 @@ pub fn http_error_needs_retrying(e: &ic_bn_lib::http::Error) -> bool {
 fn request_needs_retrying(result: &Result<Response, IcBnError>) -> bool {
     match result {
         Ok(v) => status_code_needs_retrying(v.status()),
-        Err(IcBnError::HyperClientError(e)) => e.is_connect(),
-        _ => false,
+        Err(e) => http_error_needs_retrying(e),
     }
 }
 
@@ -119,6 +118,7 @@ pub async fn api_proxy(
         .map_err(|e| ErrorCause::ClientBodyError(e.to_string()))
         .await?;
 
+    // Sanitize the request headers
     strip_connection_headers(&mut parts.headers);
 
     let mut retry_interval = state.retry_interval;
