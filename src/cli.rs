@@ -460,6 +460,16 @@ pub struct Misc {
     #[clap(env, long)]
     pub enable_sev_snp: bool,
 
+    /// Cache TTL for SEV-SNP reports
+    #[cfg(all(target_os = "linux", feature = "sev-snp"))]
+    #[clap(env, long, default_value = "30s", value_parser = parse_duration)]
+    pub sev_snp_cache_ttl: Duration,
+
+    /// Max cache size for SEV-SNP reports
+    #[cfg(all(target_os = "linux", feature = "sev-snp"))]
+    #[clap(env, long, default_value = "10m", value_parser = parse_size)]
+    pub sev_snp_cache_size: u64,
+
     /// Domain for which to show alternate error page for unknown domain errors.
     /// If not specified, the default error page will be shown for all domains.
     #[clap(env, long)]

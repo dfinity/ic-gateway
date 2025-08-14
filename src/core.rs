@@ -92,12 +92,17 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
 
     http_client_opts.tls_config = Some(tls_config);
 
-    let http_client = Arc::new(bnhttp::ReqwestClientLeastLoaded::new(
+    let http_client = Arc::new(bnhttp::ReqwestClient::new(
         http_client_opts.clone(),
         Some(dns_resolver.clone()),
+    )?);
+
+    let http_client_hyper = Arc::new(bnhttp::HyperClientLeastLoaded::new(
+        http_client_opts.clone(),
+        dns_resolver.clone(),
         cli.network.network_http_client_count as usize,
         Some(&registry),
-    )?);
+    ));
 
     // Bare reqwest client is for now needed for Discovery Library
     // TODO improve
@@ -169,6 +174,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         custom_domain_providers,
         &mut tasks,
         http_client.clone(),
+        http_client_hyper,
         Arc::clone(&route_provider),
         &registry,
         vector.clone(),

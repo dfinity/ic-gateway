@@ -15,15 +15,16 @@ use axum::{
     routing::{get, post},
 };
 use axum_extra::{either::Either, middleware::option_layer};
+use bytes::Bytes;
 use candid::Principal;
 use fqdn::FQDN;
 use http::{StatusCode, method::Method};
+use http_body_util::Full;
 use ic_agent::agent::route_provider::RouteProvider;
-use ic_bn_lib::vector::client::Vector;
 use ic_bn_lib::{
     custom_domains::ProvidesCustomDomains,
     http::{
-        Client,
+        Client, ClientHttp,
         cache::{CacheBuilder, KeyExtractorUriRange},
         shed::{
             ShedResponse,
@@ -34,6 +35,7 @@ use ic_bn_lib::{
     tasks::TaskManager,
     types::RequestType as RequestTypeApi,
 };
+use ic_bn_lib::{http::middleware::rate_limiter, vector::client::Vector};
 use prometheus::Registry;
 use strum::{Display, IntoStaticStr};
 use tower::{ServiceBuilder, ServiceExt, limit::ConcurrencyLimitLayer, util::MapResponseLayer};
@@ -42,8 +44,9 @@ use tracing::warn;
 use crate::{
     cli::Cli,
     metrics::{self},
-    routing::middleware::{
-        canister_match, cors, geoip, headers, rate_limiter, request_id, request_type, validate,
+    routing::{
+        error_cause::RateLimitCause,
+        middleware::{canister_match, cors, geoip, headers, request_id, request_type, validate},
     },
 };
 use domain::{CustomDomainStorage, DomainResolver};
@@ -167,6 +170,7 @@ pub async fn setup_router(
     custom_domain_providers: Vec<Arc<dyn ProvidesCustomDomains>>,
     tasks: &mut TaskManager,
     http_client: Arc<dyn Client>,
+    http_client_hyper: Arc<dyn ClientHttp<Full<Bytes>>>,
     route_provider: Arc<dyn RouteProvider>,
     registry: &Registry,
     vector: Option<Arc<Vector>>,
@@ -308,7 +312,7 @@ pub async fn setup_router(
     );
 
     // Prepare the HTTP->IC library
-    let ic_client = ic::setup(cli, http_client.clone(), route_provider.clone())
+    let ic_client = ic::setup(cli, http_client_hyper.clone(), route_provider.clone())
         .await
         .context("unable to init IC client")?;
 
@@ -320,7 +324,7 @@ pub async fn setup_router(
         cli.ic.ic_request_max_size,
     ));
     let state_api = Arc::new(proxy::ApiProxyState::new(
-        http_client.clone(),
+        http_client_hyper,
         route_provider,
         cli.ic.ic_request_retries,
         cli.ic.ic_request_retry_interval,
@@ -458,7 +462,7 @@ pub async fn setup_router(
                     ])),
             )
             .route("/registrations", post(proxy::issuer_proxy).layer(cors_post))
-            .layer(rate_limiter::layer_by_ip(1, 2)?)
+            .layer(rate_limiter::layer_by_ip(1, 2, RateLimitCause::Normal)?)
             .with_state(state);
 
         Some(router)
@@ -507,10 +511,11 @@ pub async fn setup_router(
                 let canister_id = request.extensions().get::<CanisterId>();
 
                 // If there are issuers defined and the request came to the base domain -> proxy to them
-                if let Some(v) = router_issuer {
-                    if path.starts_with("/registrations") && ctx.is_base_domain() {
-                        return v.oneshot(request).await;
-                    }
+                if let Some(v) = router_issuer
+                    && path.starts_with("/registrations")
+                    && ctx.is_base_domain()
+                {
+                    return v.oneshot(request).await;
                 }
 
                 // Proxy /health only from base domain and not custom ones
@@ -543,10 +548,13 @@ pub async fn setup_router(
             "/sev-snp/report",
             post(ic_bn_lib::utils::sev_snp::handler)
                 .with_state(
-                    ic_bn_lib::utils::sev_snp::SevSnpState::new()
-                        .context("unable to init SEV-SNP")?,
+                    ic_bn_lib::utils::sev_snp::SevSnpState::new(
+                        cli.misc.sev_snp_cache_ttl,
+                        cli.misc.sev_snp_cache_size,
+                    )
+                    .context("unable to init SEV-SNP")?,
                 )
-                .layer(rate_limiter::layer_global(1, 2)?),
+                .layer(rate_limiter::layer_global(50, 100, RateLimitCause::Normal)?),
         );
 
         router = router.merge(router_sev_snp)

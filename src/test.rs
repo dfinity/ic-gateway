@@ -2,14 +2,16 @@ use std::sync::Arc;
 
 use anyhow::Error;
 use async_trait::async_trait;
-use axum::{Router, response::Response};
+use axum::{Router, body::Body as AxumBody, response::Response};
+use bytes::Bytes;
 use candid::Encode;
 use clap::Parser;
 use fqdn::fqdn;
 use http::{
-    StatusCode,
+    Request, StatusCode,
     header::{CONTENT_LENGTH, CONTENT_TYPE},
 };
+use http_body_util::{BodyExt, Full};
 use ic_agent::agent::route_provider::RoundRobinRouteProvider;
 use ic_bn_lib::{
     custom_domains::{CustomDomain, ProvidesCustomDomains},
@@ -34,7 +36,7 @@ impl ProvidesCustomDomains for FakeDomainProvider {
     }
 }
 
-pub fn generate_response(response_size: usize) -> reqwest::Response {
+pub fn generate_response(response_size: usize) -> Response<AxumBody> {
     let response = HttpResponse::builder()
         .with_headers(vec![(CONTENT_TYPE.to_string(), "text/plain".into())])
         .with_body(b"X".repeat(response_size))
@@ -53,17 +55,28 @@ pub fn generate_response(response_size: usize) -> reqwest::Response {
         .status(StatusCode::OK)
         .header(CONTENT_TYPE, "application/cbor")
         .header(CONTENT_LENGTH, content_length)
-        .body(cbor_data)
+        .body(AxumBody::new(
+            Full::new(Bytes::from(cbor_data)).map_err(|_| ic_bn_lib::http::Error::BodyTimedOut),
+        ))
         .expect("Failed to build response")
-        .into()
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct TestClient(pub usize);
 
 #[async_trait]
 impl ic_bn_lib::http::Client for TestClient {
     async fn execute(&self, _req: reqwest::Request) -> Result<reqwest::Response, reqwest::Error> {
+        Ok(Response::builder().body("").unwrap().into())
+    }
+}
+
+#[async_trait]
+impl ic_bn_lib::http::ClientHttp<Full<Bytes>> for TestClient {
+    async fn execute(
+        &self,
+        _req: Request<Full<Bytes>>,
+    ) -> Result<Response<AxumBody>, ic_bn_lib::http::Error> {
         Ok(generate_response(self.0))
     }
 }
@@ -115,6 +128,7 @@ pub async fn setup_test_router(tasks: &mut TaskManager) -> (Router, Vec<String>)
         &cli,
         vec![Arc::new(FakeDomainProvider(custom_domains))],
         tasks,
+        http_client.clone(),
         http_client,
         Arc::new(route_provider),
         &Registry::new(),

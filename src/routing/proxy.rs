@@ -7,23 +7,29 @@ use std::{
 };
 
 use axum::{
-    body::Body,
     extract::{MatchedPath, OriginalUri, Path, Request, State},
     response::{IntoResponse, Response},
 };
+use bytes::Bytes;
 use candid::Principal;
 use derive_new::new;
 use futures::TryFutureExt;
 use http::{
     StatusCode,
     header::{CONTENT_TYPE, X_CONTENT_TYPE_OPTIONS, X_FRAME_OPTIONS},
+    uri::PathAndQuery,
 };
+use http_body_util::Full;
 use ic_agent::agent::route_provider::RouteProvider;
 use ic_bn_lib::http::{
-    Client, Error as IcBnError,
+    Client, ClientHttp, Error as IcBnError,
     body::buffer_body,
-    headers::{CONTENT_TYPE_CBOR, X_CONTENT_TYPE_OPTIONS_NO_SNIFF, X_FRAME_OPTIONS_DENY},
+    headers::{
+        CONTENT_TYPE_CBOR, X_CONTENT_TYPE_OPTIONS_NO_SNIFF, X_FRAME_OPTIONS_DENY,
+        strip_connection_headers,
+    },
     proxy::proxy,
+    url_to_uri,
 };
 use regex::Regex;
 use tokio::time::sleep;
@@ -56,31 +62,35 @@ fn url_join(mut base: Url, mut path: &str) -> Result<Url, url::ParseError> {
     base.join(path)
 }
 
-pub fn status_code_needs_retrying(s: http::StatusCode) -> bool {
+pub fn status_code_needs_retrying(s: StatusCode) -> bool {
     s == StatusCode::TOO_MANY_REQUESTS || s.is_server_error()
 }
 
-pub fn reqwest_error_needs_retrying(e: &reqwest::Error) -> bool {
-    e.is_connect() || e.is_timeout()
+pub fn http_error_needs_retrying(e: &ic_bn_lib::http::Error) -> bool {
+    match e {
+        ic_bn_lib::http::Error::HyperClientError(v) => v.is_connect(),
+        _ => false,
+    }
 }
 
 // Check if we need to retry the request based on the response that we got
 fn request_needs_retrying(result: &Result<Response, IcBnError>) -> bool {
     match result {
         Ok(v) => status_code_needs_retrying(v.status()),
-        Err(IcBnError::RequestFailed(e)) => reqwest_error_needs_retrying(e),
-        _ => false,
+        Err(e) => http_error_needs_retrying(e),
     }
 }
 
 #[derive(new)]
 pub struct ApiProxyState {
-    http_client: Arc<dyn Client>,
+    http_client: Arc<dyn ClientHttp<Full<Bytes>>>,
     route_provider: Arc<dyn RouteProvider>,
     retries: usize,
     retry_interval: Duration,
     request_max_size: usize,
     request_body_timeout: Duration,
+    #[new(value = "PathAndQuery::from_static(\"/\")")]
+    pq_default: PathAndQuery,
 }
 
 /// Proxies /api/v2/... and /api/v3/... endpoints to the IC
@@ -103,10 +113,13 @@ pub async fn api_proxy(
         .map_err(|e| ErrorCause::Other(format!("Unable to obtain URLs: {e:#}")))?;
 
     // Buffer the request body to be able to retry it
-    let (parts, body) = request.into_parts();
+    let (mut parts, body) = request.into_parts();
     let body = buffer_body(body, state.request_max_size, state.request_body_timeout)
         .map_err(|e| ErrorCause::ClientBodyError(e.to_string()))
         .await?;
+
+    // Sanitize the request headers
+    strip_connection_headers(&mut parts.headers);
 
     let mut retry_interval = state.retry_interval;
     let mut retries = state.retries;
@@ -117,14 +130,24 @@ pub async fn api_proxy(
         let url = urls[idx].clone();
         let upstream = url.authority().to_string();
 
-        // Append the query URL to the IC url
-        let url = url_join(url, original_uri.path())
-            .map_err(|e| ErrorCause::MalformedRequest(format!("Incorrect URL: {e:#}")))?;
+        let url = url_join(
+            url,
+            original_uri
+                .path_and_query()
+                .unwrap_or(&state.pq_default)
+                .as_str(),
+        )
+        .map_err(|e| ErrorCause::MalformedRequest(format!("invalid URL: {e:#}")))?;
 
-        let request = Request::from_parts(parts.clone(), Body::from(body.clone()));
+        let uri = url_to_uri(&url)
+            .map_err(|e| ErrorCause::MalformedRequest(format!("invalid URL: {e:#}")))?;
+
+        let mut request = Request::from_parts(parts.clone(), Full::new(body.clone()));
+        *request.uri_mut() = uri;
 
         // Proxy the request
-        let result = proxy(url, request, &state.http_client).await;
+        let result = state.http_client.execute(request).await;
+
         if !request_needs_retrying(&result) {
             break (upstream, result);
         }
@@ -187,12 +210,12 @@ pub async fn issuer_proxy(
     request: Request,
 ) -> Result<impl IntoResponse, ErrorCause> {
     // Validate request ID if it's provided
-    if let Some(v) = id {
-        if !REGEX_REG_ID.is_match(&v.0) {
-            return Err(ErrorCause::MalformedRequest(
-                "Incorrect request ID format".into(),
-            ));
-        }
+    if let Some(v) = id
+        && !REGEX_REG_ID.is_match(&v.0)
+    {
+        return Err(ErrorCause::MalformedRequest(
+            "Incorrect request ID format".into(),
+        ));
     }
 
     // Pick next issuer using round-robin & generate request URL for it
@@ -214,10 +237,11 @@ pub async fn issuer_proxy(
 
 #[cfg(test)]
 mod test {
-    use axum::Router;
-    use http::{Method, Uri};
+    use axum::{Router, body::Body};
+    use http::{Method, Request, Response, Uri};
+    use http_body_util::BodyExt;
     use ic_agent::agent::route_provider::RoundRobinRouteProvider;
-    use ic_bn_lib::http::Client;
+    use ic_bn_lib::http::{HyperClient, client::Options, dns::Resolver};
     use tower::ServiceExt;
 
     use super::*;
@@ -245,27 +269,24 @@ mod test {
     struct TestClient(AtomicUsize);
 
     #[async_trait::async_trait]
-    impl Client for TestClient {
+    impl ClientHttp<Full<Bytes>> for TestClient {
         async fn execute(
             &self,
-            req: reqwest::Request,
-        ) -> Result<reqwest::Response, reqwest::Error> {
+            req: Request<Full<Bytes>>,
+        ) -> Result<Response<Body>, ic_bn_lib::http::Error> {
             // Make sure we get correct request body
-            let req: Request<reqwest::Body> = req.try_into().unwrap();
             let (_, body) = req.into_parts();
-            let body = buffer_body(body, 8192, Duration::from_secs(10))
-                .await
-                .unwrap();
+            let body = body.collect().await.unwrap().to_bytes().to_vec();
             let body = String::from_utf8_lossy(&body).to_string();
             assert_eq!(body, "foo");
 
-            let mut resp = http::Response::new("foo");
+            let mut resp = Response::new(Body::empty());
             *resp.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
             if self.0.fetch_add(1, Ordering::SeqCst) > 3 {
                 *resp.status_mut() = StatusCode::OK;
             }
 
-            Ok(reqwest::Response::from(resp))
+            Ok(resp)
         }
     }
 
@@ -273,13 +294,21 @@ mod test {
     struct TestClientErr(AtomicUsize);
 
     #[async_trait::async_trait]
-    impl Client for TestClientErr {
-        async fn execute(&self, _: reqwest::Request) -> Result<reqwest::Response, reqwest::Error> {
+    impl ClientHttp<Full<Bytes>> for TestClientErr {
+        async fn execute(
+            &self,
+            _: Request<Full<Bytes>>,
+        ) -> Result<Response<Body>, ic_bn_lib::http::Error> {
             if self.0.fetch_add(1, Ordering::SeqCst) > 3 {
-                return Ok(http::Response::new("foo").into());
+                return Ok(Response::new(Body::from("foo")));
             }
 
-            reqwest::get("http://0.0.0.0:1").await
+            let cli: HyperClient<Full<Bytes>> =
+                HyperClient::new(Options::default(), Resolver::default());
+            let mut req = Request::new(Full::new(Bytes::new()));
+            *req.uri_mut() = Uri::from_static("http://0.0.0.0:1");
+
+            cli.execute(req).await
         }
     }
 
@@ -287,11 +316,14 @@ mod test {
     struct TestClientFails5xx;
 
     #[async_trait::async_trait]
-    impl Client for TestClientFails5xx {
-        async fn execute(&self, _: reqwest::Request) -> Result<reqwest::Response, reqwest::Error> {
-            let mut resp = http::Response::new("foo");
+    impl ClientHttp<Full<Bytes>> for TestClientFails5xx {
+        async fn execute(
+            &self,
+            _: Request<Full<Bytes>>,
+        ) -> Result<Response<Body>, ic_bn_lib::http::Error> {
+            let mut resp = Response::new(Body::from(""));
             *resp.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
-            Ok(reqwest::Response::from(resp))
+            Ok(resp)
         }
     }
 
@@ -299,9 +331,16 @@ mod test {
     struct TestClientFailsErr;
 
     #[async_trait::async_trait]
-    impl Client for TestClientFailsErr {
-        async fn execute(&self, _: reqwest::Request) -> Result<reqwest::Response, reqwest::Error> {
-            reqwest::get("http://###33??").await
+    impl ClientHttp<Full<Bytes>> for TestClientFailsErr {
+        async fn execute(
+            &self,
+            _: Request<Full<Bytes>>,
+        ) -> Result<Response<Body>, ic_bn_lib::http::Error> {
+            let cli: HyperClient<Full<Bytes>> =
+                HyperClient::new(Options::default(), Resolver::default());
+            let req = Request::new(Full::new(Bytes::new()));
+
+            cli.execute(req).await
         }
     }
 

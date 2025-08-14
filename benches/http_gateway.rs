@@ -6,10 +6,14 @@ use bytes::Bytes;
 use candid::{CandidType, Encode};
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use fqdn::fqdn;
-use http::header::{
-    ACCEPT, ACCEPT_ENCODING, ACCEPT_LANGUAGE, ACCESS_CONTROL_REQUEST_HEADERS,
-    ACCESS_CONTROL_REQUEST_METHOD, ORIGIN, USER_AGENT,
+use http::{
+    Request, Response,
+    header::{
+        ACCEPT, ACCEPT_ENCODING, ACCEPT_LANGUAGE, ACCESS_CONTROL_REQUEST_HEADERS,
+        ACCESS_CONTROL_REQUEST_METHOD, ORIGIN, USER_AGENT,
+    },
 };
+use http_body_util::BodyExt;
 use ic_agent::{
     AgentError,
     agent::{HttpService, route_provider::RoundRobinRouteProvider},
@@ -20,7 +24,6 @@ use ic_bn_lib::{
 };
 use ic_http_certification::HttpRequest;
 use ic_http_gateway::{CanisterRequest, HttpGatewayClientBuilder};
-use reqwest::{Request, Response};
 use uuid::Uuid;
 
 use ic_gateway::{
@@ -91,10 +94,14 @@ pub struct TestService;
 impl HttpService for TestService {
     async fn call<'a>(
         &'a self,
-        _: &'a (dyn Fn() -> Result<Request, AgentError> + Send + Sync),
+        _: &'a (dyn Fn() -> Result<Request<Bytes>, AgentError> + Send + Sync),
         _: usize,
-    ) -> Result<Response, AgentError> {
-        Ok(generate_response(512))
+        _: Option<usize>,
+    ) -> Result<Response<Bytes>, AgentError> {
+        let resp = generate_response(512);
+        let (parts, body) = resp.into_parts();
+        let body = body.collect().await.unwrap().to_bytes();
+        Ok(Response::from_parts(parts, body))
     }
 }
 
