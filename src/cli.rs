@@ -467,7 +467,7 @@ pub struct Misc {
 
     /// Max cache size for SEV-SNP reports
     #[cfg(all(target_os = "linux", feature = "sev-snp"))]
-    #[clap(env, long, default_value = "10m", value_parser = parse_size_decimal)]
+    #[clap(env, long, default_value = "10m", value_parser = parse_size)]
     pub sev_snp_cache_size: u64,
 
     /// Domain for which to show alternate error page for unknown domain errors.

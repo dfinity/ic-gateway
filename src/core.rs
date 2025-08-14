@@ -92,14 +92,12 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
 
     http_client_opts.tls_config = Some(tls_config);
 
-    let http_client = Arc::new(bnhttp::ReqwestClientLeastLoaded::new(
+    let http_client = Arc::new(bnhttp::ReqwestClient::new(
         http_client_opts.clone(),
         Some(dns_resolver.clone()),
-        cli.network.network_http_client_count as usize,
-        Some(&registry),
     )?);
 
-    let http_client_hyper = Arc::new(bnhttp::client::clients_hyper::HyperClientLeastLoaded::new(
+    let http_client_hyper = Arc::new(bnhttp::HyperClientLeastLoaded::new(
         http_client_opts.clone(),
         dns_resolver.clone(),
         cli.network.network_http_client_count as usize,

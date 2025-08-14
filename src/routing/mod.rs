@@ -554,7 +554,7 @@ pub async fn setup_router(
                     )
                     .context("unable to init SEV-SNP")?,
                 )
-                .layer(rate_limiter::layer_global(1, 2, RateLimitCause::Normal)?),
+                .layer(rate_limiter::layer_global(50, 100, RateLimitCause::Normal)?),
         );
 
         router = router.merge(router_sev_snp)
