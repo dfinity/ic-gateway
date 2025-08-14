@@ -312,7 +312,7 @@ pub async fn setup_router(
     );
 
     // Prepare the HTTP->IC library
-    let ic_client = ic::setup(cli, http_client_hyper, route_provider.clone())
+    let ic_client = ic::setup(cli, http_client_hyper.clone(), route_provider.clone())
         .await
         .context("unable to init IC client")?;
 
@@ -324,7 +324,7 @@ pub async fn setup_router(
         cli.ic.ic_request_max_size,
     ));
     let state_api = Arc::new(proxy::ApiProxyState::new(
-        http_client.clone(),
+        http_client_hyper,
         route_provider,
         cli.ic.ic_request_retries,
         cli.ic.ic_request_retry_interval,
