@@ -49,7 +49,7 @@ http-body = "1.0.1"
 http-body-util = "0.1.2"
 humantime = "2.2.0"
 hyper = "1.6.0"
-ic-bn-lib = { git = "https://github.com/dfinity/ic-bn-lib", rev = "ca34896a70c95b14dd6d96c118bcfcde19803e0a", features = [
+ic-bn-lib = { git = "https://github.com/dfinity/ic-bn-lib", rev = "5e7bc2c2f75a2c648a025603ba143fd03636fb47", features = [
     "vector",
     "cert-providers",
     "clients-hyper",

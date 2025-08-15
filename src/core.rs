@@ -95,13 +95,17 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
 
     http_client_opts.tls_config = Some(tls_config);
 
-    // Bare reqwest client is for now needed for the Route Provider.
+    // Bare reqwest client is for now needed for the Route Provider and 2nd Agent
     // TODO improve
     let reqwest_client =
         bnhttp::client::clients_reqwest::new(http_client_opts.clone(), Some(dns_resolver.clone()))?;
     let route_provider = setup_route_provider(cli, reqwest_client.clone()).await?;
 
-    // Create a separate agent that will be used for resolver.
+    // Create a separate Agent backed by Reqwest client that will be used for the resolver only.
+    // This way we avoid a chicken-and-egg problem:
+    // - Hyper client needs resolver
+    // - Resolver needs Agent
+    // - Agent needs Hyper client
     let agent = create_agent(cli, Arc::new(reqwest_client), route_provider.clone()).await?;
     let api_bn_resolver = ApiBnResolver::new(agent)?;
 
