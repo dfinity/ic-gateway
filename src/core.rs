@@ -1,4 +1,7 @@
-use std::sync::{Arc, OnceLock};
+use std::{
+    sync::{Arc, OnceLock},
+    time::Duration,
+};
 
 use anyhow::{Context, Error, anyhow};
 use axum::Router;
@@ -139,7 +142,11 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
 
     // List of cancellable tasks to execute & track
     let mut tasks = TaskManager::new();
-    tasks.add("api_bn_resolver", Arc::new(api_bn_resolver));
+    tasks.add_interval(
+        "api_bn_resolver",
+        Arc::new(api_bn_resolver),
+        Duration::from_secs(60),
+    );
 
     // Handle SIGTERM/SIGHUP and Ctrl+C
     // Cancelling a token cancels all of its clones too
