@@ -1,10 +1,13 @@
-use std::sync::{Arc, OnceLock};
+use std::{
+    sync::{Arc, OnceLock},
+    time::Duration,
+};
 
 use anyhow::{Context, Error, anyhow};
 use axum::Router;
 use ic_bn_lib::{
     custom_domains::{self, ProvidesCustomDomains},
-    http::{self as bnhttp, redirect_to_https},
+    http::{self as bnhttp, dns::ApiBnResolver, redirect_to_https},
     tasks::TaskManager,
     tls::{prepare_client_config, verify::NoopServerCertVerifier},
     vector::client::Vector,
@@ -17,7 +20,10 @@ use tracing::warn;
 use crate::{
     cli::Cli,
     metrics,
-    routing::{self, ic::route_provider::setup_route_provider},
+    routing::{
+        self,
+        ic::{create_agent, route_provider::setup_route_provider},
+    },
     tls::{self, setup_issuer_providers},
 };
 
@@ -92,22 +98,31 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
 
     http_client_opts.tls_config = Some(tls_config);
 
+    // Bare reqwest client is for now needed for the Route Provider and 2nd Agent
+    // TODO improve
+    let reqwest_client =
+        bnhttp::client::clients_reqwest::new(http_client_opts.clone(), Some(dns_resolver.clone()))?;
+    let route_provider = setup_route_provider(cli, reqwest_client.clone()).await?;
+
+    // Create a separate Agent backed by Reqwest client that will be used for the resolver only.
+    // This way we avoid a chicken-and-egg problem:
+    // - Hyper client needs resolver
+    // - Resolver needs Agent
+    // - Agent needs Hyper client
+    let agent = create_agent(cli, Arc::new(reqwest_client), route_provider.clone()).await?;
+    let api_bn_resolver = ApiBnResolver::new(agent)?;
+
     let http_client = Arc::new(bnhttp::ReqwestClient::new(
         http_client_opts.clone(),
         Some(dns_resolver.clone()),
     )?);
 
     let http_client_hyper = Arc::new(bnhttp::HyperClientLeastLoaded::new(
-        http_client_opts.clone(),
-        dns_resolver.clone(),
+        http_client_opts,
+        api_bn_resolver.clone(),
         cli.network.network_http_client_count as usize,
         Some(&registry),
     ));
-
-    // Bare reqwest client is for now needed for Discovery Library
-    // TODO improve
-    let reqwest_client =
-        bnhttp::client::clients_reqwest::new(http_client_opts, Some(dns_resolver.clone()))?;
 
     // Event sinks
     #[cfg(feature = "clickhouse")]
@@ -127,6 +142,11 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
 
     // List of cancellable tasks to execute & track
     let mut tasks = TaskManager::new();
+    tasks.add_interval(
+        "api_bn_resolver",
+        Arc::new(api_bn_resolver),
+        Duration::from_secs(60),
+    );
 
     // Handle SIGTERM/SIGHUP and Ctrl+C
     // Cancelling a token cancels all of its clones too
@@ -165,8 +185,6 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
                 )) as Arc<dyn ProvidesCustomDomains>
             }),
     );
-
-    let route_provider = setup_route_provider(cli, reqwest_client).await?;
 
     // Create gateway router to serve all endpoints
     let gateway_router = routing::setup_router(

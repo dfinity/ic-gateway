@@ -20,16 +20,18 @@ use http::{
     uri::PathAndQuery,
 };
 use http_body_util::Full;
-use ic_agent::agent::route_provider::RouteProvider;
-use ic_bn_lib::http::{
-    Client, ClientHttp, Error as IcBnError,
-    body::buffer_body,
-    headers::{
-        CONTENT_TYPE_CBOR, X_CONTENT_TYPE_OPTIONS_NO_SNIFF, X_FRAME_OPTIONS_DENY,
-        strip_connection_headers,
+use ic_bn_lib::{
+    http::{
+        Client, ClientHttp, Error as IcBnError,
+        body::buffer_body,
+        headers::{
+            CONTENT_TYPE_CBOR, X_CONTENT_TYPE_OPTIONS_NO_SNIFF, X_FRAME_OPTIONS_DENY,
+            strip_connection_headers,
+        },
+        proxy::proxy,
+        url_to_uri,
     },
-    proxy::proxy,
-    url_to_uri,
+    ic_agent::agent::route_provider::RouteProvider,
 };
 use regex::Regex;
 use tokio::time::sleep;
@@ -240,8 +242,10 @@ mod test {
     use axum::{Router, body::Body};
     use http::{Method, Request, Response, Uri};
     use http_body_util::BodyExt;
-    use ic_agent::agent::route_provider::RoundRobinRouteProvider;
-    use ic_bn_lib::http::{HyperClient, client::Options, dns::Resolver};
+    use ic_bn_lib::{
+        http::{HyperClient, client::Options, dns::Resolver},
+        ic_agent::agent::route_provider::RoundRobinRouteProvider,
+    };
     use tower::ServiceExt;
 
     use super::*;

@@ -49,11 +49,7 @@ http-body = "1.0.1"
 http-body-util = "0.1.2"
 humantime = "2.2.0"
 hyper = "1.6.0"
-ic-agent = { git = "https://github.com/dfinity/agent-rs", rev = "f34acedb5539838ffdbd4cf49a0832303977293f", features = [
-    "ring",
-    "_internal_dynamic-routing",
-] }
-ic-bn-lib = { git = "https://github.com/dfinity/ic-bn-lib", rev = "b19ab54db505f1659bebdd0e448615d5dd50f3a8", features = [
+ic-bn-lib = { git = "https://github.com/dfinity/ic-bn-lib", rev = "5e7bc2c2f75a2c648a025603ba143fd03636fb47", features = [
     "vector",
     "cert-providers",
     "clients-hyper",

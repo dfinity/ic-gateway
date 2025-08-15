@@ -16,8 +16,6 @@ use axum::{
     routing::get,
 };
 use http::header::{CONTENT_TYPE, ORIGIN, REFERER, USER_AGENT};
-use ic_agent::agent::route_provider::RouteProvider;
-use ic_bn_lib::vector::client::Vector;
 use ic_bn_lib::{
     http::{
         body::CountingBody,
@@ -25,7 +23,9 @@ use ic_bn_lib::{
         calc_headers_size, extract_host, http_method, http_version,
         server::{ConnInfo, TlsInfo},
     },
+    ic_agent::agent::route_provider::RouteProvider,
     tasks::TaskManager,
+    vector::client::Vector,
 };
 use prometheus::{
     HistogramVec, IntCounterVec, Registry, register_histogram_vec_with_registry,

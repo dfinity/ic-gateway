@@ -13,13 +13,18 @@ use anyhow::{Context, Error};
 use bytes::Bytes;
 use http::{HeaderMap, StatusCode, header::HeaderName};
 use http_body_util::{Either, Full};
-use ic_agent::agent::route_provider::RouteProvider;
-use ic_bn_lib::http::{
-    ClientHttp,
-    headers::{
-        X_IC_CACHE_BYPASS_REASON, X_IC_CACHE_STATUS, X_IC_CANISTER_ID_CBOR, X_IC_ERROR_CAUSE,
-        X_IC_METHOD_NAME, X_IC_NODE_ID, X_IC_RETRIES, X_IC_SENDER, X_IC_SUBNET_ID,
-        X_IC_SUBNET_TYPE,
+use ic_bn_lib::{
+    http::{
+        ClientHttp,
+        headers::{
+            X_IC_CACHE_BYPASS_REASON, X_IC_CACHE_STATUS, X_IC_CANISTER_ID_CBOR, X_IC_ERROR_CAUSE,
+            X_IC_METHOD_NAME, X_IC_NODE_ID, X_IC_RETRIES, X_IC_SENDER, X_IC_SUBNET_ID,
+            X_IC_SUBNET_TYPE,
+        },
+    },
+    ic_agent::{
+        Agent,
+        agent::{HttpService, route_provider::RouteProvider},
     },
 };
 use ic_http_gateway::{
@@ -100,17 +105,12 @@ impl From<&HttpGatewayResponse> for IcResponseStatus {
     }
 }
 
-pub async fn setup(
+pub async fn create_agent(
     cli: &Cli,
-    http_client: Arc<dyn ClientHttp<Full<Bytes>>>,
+    http_service: Arc<dyn HttpService>,
     route_provider: Arc<dyn RouteProvider>,
-) -> Result<HttpGatewayClient, Error> {
-    let http_service = Arc::new(http_service::AgentHttpService::new(
-        http_client,
-        cli.ic.ic_request_retry_interval,
-    ));
-
-    let agent = ic_agent::Agent::builder()
+) -> Result<Agent, Error> {
+    let agent = Agent::builder()
         .with_arc_http_middleware(http_service)
         // Just some very large number
         .with_max_concurrent_requests(200_000_000)
@@ -131,6 +131,21 @@ pub async fn setup(
             .await
             .context("unable to fetch IC root key")?;
     }
+
+    Ok(agent)
+}
+
+pub async fn setup(
+    cli: &Cli,
+    http_client: Arc<dyn ClientHttp<Full<Bytes>>>,
+    route_provider: Arc<dyn RouteProvider>,
+) -> Result<HttpGatewayClient, Error> {
+    let http_service = Arc::new(http_service::AgentHttpService::new(
+        http_client,
+        cli.ic.ic_request_retry_interval,
+    ));
+
+    let agent = create_agent(cli, http_service, route_provider).await?;
 
     let client = HttpGatewayClientBuilder::new()
         .with_agent(agent)

@@ -14,13 +14,14 @@ use http::{
     },
 };
 use http_body_util::BodyExt;
-use ic_agent::{
-    AgentError,
-    agent::{HttpService, route_provider::RoundRobinRouteProvider},
-};
 use ic_bn_lib::{
     http::{ConnInfo, body::buffer_body},
-    hval, principal,
+    hval,
+    ic_agent::{
+        Agent, AgentError,
+        agent::{HttpService, route_provider::RoundRobinRouteProvider},
+    },
+    principal,
 };
 use ic_http_certification::HttpRequest;
 use ic_http_gateway::{CanisterRequest, HttpGatewayClientBuilder};
@@ -154,7 +155,7 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     let http_service = Arc::new(TestService);
 
-    let agent = ic_agent::Agent::builder()
+    let agent = Agent::builder()
         .with_arc_http_middleware(http_service)
         .with_max_concurrent_requests(200000)
         .with_route_provider(RoundRobinRouteProvider::new(vec!["http://foo.bar"]).unwrap())

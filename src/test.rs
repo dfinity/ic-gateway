@@ -12,9 +12,9 @@ use http::{
     header::{CONTENT_LENGTH, CONTENT_TYPE},
 };
 use http_body_util::{BodyExt, Full};
-use ic_agent::agent::route_provider::RoundRobinRouteProvider;
 use ic_bn_lib::{
     custom_domains::{CustomDomain, ProvidesCustomDomains},
+    ic_agent::agent::route_provider::RoundRobinRouteProvider,
     principal,
     tasks::TaskManager,
 };
