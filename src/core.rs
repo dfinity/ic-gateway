@@ -110,7 +110,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     // - Resolver needs Agent
     // - Agent needs Hyper client
     let agent = create_agent(cli, Arc::new(reqwest_client), route_provider.clone()).await?;
-    let api_bn_resolver = ApiBnResolver::new(agent)?;
+    let api_bn_resolver = ApiBnResolver::new(dns_resolver.clone(), agent);
 
     let http_client = Arc::new(bnhttp::ReqwestClient::new(
         http_client_opts.clone(),

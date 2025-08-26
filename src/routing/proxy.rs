@@ -15,7 +15,7 @@ use candid::Principal;
 use derive_new::new;
 use futures::TryFutureExt;
 use http::{
-    StatusCode,
+    StatusCode, Version,
     header::{CONTENT_TYPE, X_CONTENT_TYPE_OPTIONS, X_FRAME_OPTIONS},
     uri::PathAndQuery,
 };
@@ -114,11 +114,16 @@ pub async fn api_proxy(
         .n_ordered_routes(state.retries)
         .map_err(|e| ErrorCause::Other(format!("Unable to obtain URLs: {e:#}")))?;
 
-    // Buffer the request body to be able to retry it
     let (mut parts, body) = request.into_parts();
-    let body = buffer_body(body, state.request_max_size, state.request_body_timeout)
-        .map_err(|e| ErrorCause::ClientBodyError(e.to_string()))
-        .await?;
+    // HTTP/2 requests cannot be sent over HTTP/1.1 connections, the other way around is fine.
+    parts.version = Version::HTTP_11;
+
+    // Buffer the request body to be able to retry it
+    let body = Full::new(
+        buffer_body(body, state.request_max_size, state.request_body_timeout)
+            .map_err(|e| ErrorCause::ClientBodyError(e.to_string()))
+            .await?,
+    );
 
     // Sanitize the request headers
     strip_connection_headers(&mut parts.headers);
@@ -144,12 +149,11 @@ pub async fn api_proxy(
         let uri = url_to_uri(&url)
             .map_err(|e| ErrorCause::MalformedRequest(format!("invalid URL: {e:#}")))?;
 
-        let mut request = Request::from_parts(parts.clone(), Full::new(body.clone()));
+        let mut request = Request::from_parts(parts.clone(), body.clone());
         *request.uri_mut() = uri;
 
         // Proxy the request
         let result = state.http_client.execute(request).await;
-
         if !request_needs_retrying(&result) {
             break (upstream, result);
         }

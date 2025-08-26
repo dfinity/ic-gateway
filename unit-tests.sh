@@ -1,3 +1,3 @@
 #!/bin/bash
 
-cargo test --all-features -- --skip all_intergration_tests
+cargo test -- --skip all_intergration_tests

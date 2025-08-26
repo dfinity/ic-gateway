@@ -5,7 +5,8 @@ description = "HTTP-to-IC gateway"
 edition = "2024"
 
 [features]
-default = ["sev-snp"]
+default = []
+
 sev-snp = ["ic-bn-lib/sev-snp"]
 clickhouse = ["dep:clickhouse"]
 acme = ["ic-bn-lib/acme-dns", "ic-bn-lib/acme-alpn"]
@@ -36,7 +37,6 @@ ctrlc = { version = "3.4.5", features = ["termination"] }
 derive-new = "0.7.0"
 fqdn = { version = "0.4.1", features = ["serde"] }
 futures = "0.3.31"
-governor = "0.8.0" # must match tower-governor deps
 hickory-resolver = { version = "0.25.1", features = [
     "tls-ring",
     "https-ring",
@@ -48,8 +48,7 @@ http = "1.3.1"
 http-body = "1.0.1"
 http-body-util = "0.1.2"
 humantime = "2.2.0"
-hyper = "1.6.0"
-ic-bn-lib = { git = "https://github.com/dfinity/ic-bn-lib", rev = "5e7bc2c2f75a2c648a025603ba143fd03636fb47", features = [
+ic-bn-lib = { git = "https://github.com/dfinity/ic-bn-lib", rev = "fe75829b47a9eb5a7f2690fc9e7a90ff703515f2", features = [
     "vector",
     "cert-providers",
     "clients-hyper",
@@ -80,7 +79,6 @@ rustls = { version = "0.23.18", default-features = false, features = [
 serde = "1.0.214"
 serde_cbor = { version = "0.11.2", optional = true }
 serde_json = "1.0.132"
-sev = { version = "6.1.0", optional = true }
 sha2 = "0.10.8"
 strum = { version = "0.27.1", features = ["derive"] }
 thiserror = "2.0.3"
@@ -90,7 +88,6 @@ time = { version = "0.3.36", features = ["macros", "serde"] }
 tokio = { version = "1.45.0", features = ["full", "tracing"] }
 tokio-util = { version = "0.7.12", features = ["full"] }
 tower = { version = "0.5.1", features = ["limit"] }
-tower_governor = { version = "0.7" }
 tower-http = { version = "0.6.1", features = ["cors", "compression-full"] }
 tracing = "0.1.40"
 tracing-core = "0.1.32"
@@ -119,6 +116,10 @@ rand_regex = "0.17.0"
 serde_cbor = "0.11.2"
 tempfile = "3.18.0"
 wat = "1.228.0"
+
+[patch.crates-io]
+# v0.3.3 breaks backwards compatibility, do not remove unless you want to deal with it.
+ic-management-canister-types = { git = "https://github.com/dfinity/cdk-rs", rev = "19fdcd4c928b71d010aa124e2bb7f874290edac9" }
 
 [profile.release]
 strip = "symbols"

@@ -33,7 +33,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get -y install protobuf-compiler podman
 
       - name: Build
-        run: repro-env build -- cargo build --release --target x86_64-unknown-linux-musl
+        run: repro-env build -- cargo build --features sev-snp --release --target x86_64-unknown-linux-musl
 
       - name: Generate SHA checksum
         run: shasum target/x86_64-unknown-linux-musl/release/ic-gateway > ic-gateway.shasum
@@ -42,7 +42,7 @@ jobs:
         run: rm -rf target
 
       - name: Build again
-        run: repro-env build -- cargo build --release --target x86_64-unknown-linux-musl
+        run: repro-env build -- cargo build --features sev-snp --release --target x86_64-unknown-linux-musl
 
       - name: Check SHA checksum
         run: shasum -c ic-gateway.shasum
