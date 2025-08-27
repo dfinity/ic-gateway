@@ -18,3 +18,5 @@ target/
 /cert
 profile.json*
 *.deb
+
+build-linux.sh
