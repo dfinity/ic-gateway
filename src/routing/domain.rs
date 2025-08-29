@@ -1,7 +1,7 @@
 use std::{
     collections::BTreeMap,
     str::FromStr,
-    sync::{Arc, Mutex},
+    sync::{Arc, RwLock},
 };
 
 use anyhow::{Context, Error, anyhow};
@@ -12,6 +12,7 @@ use fqdn::{FQDN, Fqdn, fqdn};
 use ic_bn_lib::{
     custom_domains::{CustomDomain, ProvidesCustomDomains},
     tasks::Run,
+    types::Healthy,
 };
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
@@ -77,7 +78,14 @@ struct CustomDomainStorageInner(BTreeMap<FQDN, DomainLookup>);
 pub struct CustomDomainStorage {
     providers: Vec<Arc<dyn ProvidesCustomDomains>>,
     inner: ArcSwapOption<CustomDomainStorageInner>,
-    snapshot: Mutex<Vec<Option<Vec<CustomDomain>>>>,
+    snapshot: RwLock<Vec<Option<Vec<CustomDomain>>>>,
+}
+
+impl Healthy for CustomDomainStorage {
+    fn healthy(&self) -> bool {
+        // We're healthy if all of providers delivered some custom domains at least once
+        self.snapshot.read().unwrap().iter().all(|x| x.is_some())
+    }
 }
 
 impl std::fmt::Debug for CustomDomainStorage {
@@ -90,12 +98,12 @@ impl CustomDomainStorage {
     pub fn new(providers: Vec<Arc<dyn ProvidesCustomDomains>>) -> Self {
         Self {
             inner: ArcSwapOption::empty(),
-            snapshot: Mutex::new(vec![None; providers.len()]),
+            snapshot: RwLock::new(vec![None; providers.len()]),
             providers,
         }
     }
 
-    // Fetches the new set of domains from each provider on top of the provided snapshot
+    /// Fetches the new set of domains from each provider on top of the provided snapshot
     async fn fetch(
         &self,
         mut snapshot: Vec<Option<Vec<CustomDomain>>>,
@@ -117,7 +125,7 @@ impl CustomDomainStorage {
     }
 
     pub async fn refresh(&self) {
-        let snapshot_old = self.snapshot.lock().unwrap().clone();
+        let snapshot_old = self.snapshot.read().unwrap().clone();
         let snapshot = self.fetch(snapshot_old.clone()).await;
 
         // Check if the new set is different
@@ -127,7 +135,7 @@ impl CustomDomainStorage {
         }
 
         // Store the new snapshot
-        *self.snapshot.lock().unwrap() = snapshot.clone();
+        *self.snapshot.write().unwrap() = snapshot.clone();
 
         // Convert the snapshot into new lookup structure
         let domains = snapshot

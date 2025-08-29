@@ -9,7 +9,7 @@ use std::{ops::Deref, str::FromStr, sync::Arc, time::Duration};
 use anyhow::{Context, Error};
 use axum::{
     Extension, Router,
-    extract::{MatchedPath, Request},
+    extract::{MatchedPath, Request, State},
     middleware::{FromFnLayer, from_fn, from_fn_with_state},
     response::{IntoResponse, Redirect},
     routing::{get, post},
@@ -33,7 +33,8 @@ use ic_bn_lib::{
     },
     ic_agent::agent::route_provider::RouteProvider,
     tasks::TaskManager,
-    types::RequestType as RequestTypeApi,
+    types::{Healthy, RequestType as RequestTypeApi},
+    utils::health_manager::HealthManager,
 };
 use ic_bn_lib::{http::middleware::rate_limiter, vector::client::Vector};
 use prometheus::Registry;
@@ -163,12 +164,22 @@ impl TypeExtractor for RequestTypeExtractor {
     }
 }
 
+/// Handles health requests
+pub async fn health_handler(State(state): State<Arc<HealthManager>>) -> impl IntoResponse {
+    if state.healthy() {
+        StatusCode::NO_CONTENT
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::cognitive_complexity)]
 pub async fn setup_router(
     cli: &Cli,
     custom_domain_providers: Vec<Arc<dyn ProvidesCustomDomains>>,
     tasks: &mut TaskManager,
+    health_manager: Arc<HealthManager>,
     http_client: Arc<dyn Client>,
     http_client_hyper: Arc<dyn ClientHttp<Full<Bytes>>>,
     route_provider: Arc<dyn RouteProvider>,
@@ -182,6 +193,11 @@ pub async fn setup_router(
         custom_domain_storage.clone(),
         cli.domain.domain_custom_provider_poll_interval,
     );
+
+    // Check custom domains health if requested
+    if cli.misc.custom_domain_provider_critical {
+        health_manager.add(custom_domain_storage.clone());
+    }
 
     // Prepare domain resolver to resolve domains & infer canister_id from requests
     let mut domains_base = cli.domain.domain.clone();
@@ -366,11 +382,13 @@ pub async fn setup_router(
             post(proxy::api_proxy).layer(cors_post.clone()),
         )
         .fallback(|| async { (StatusCode::NOT_FOUND, "") })
-        .with_state(state_api.clone());
+        .with_state(state_api);
 
     let router_health = Router::new().route(
         "/health",
-        get(proxy::api_proxy).layer(cors_get).with_state(state_api),
+        get(health_handler)
+            .layer(cors_get)
+            .with_state(health_manager),
     );
 
     // Caching middleware

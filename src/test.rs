@@ -17,6 +17,7 @@ use ic_bn_lib::{
     ic_agent::agent::route_provider::RoundRobinRouteProvider,
     principal,
     tasks::TaskManager,
+    utils::health_manager::HealthManager,
 };
 use ic_http_certification::HttpResponse;
 use ic_transport_types::{QueryResponse, ReplyResponse};
@@ -124,10 +125,13 @@ pub async fn setup_test_router(tasks: &mut TaskManager) -> (Router, Vec<String>)
     let http_client = Arc::new(TestClient(512));
     let route_provider = RoundRobinRouteProvider::new(vec!["http://foo"]).unwrap();
 
+    let health_manager = Arc::new(HealthManager::default());
+
     let router = setup_router(
         &cli,
         vec![Arc::new(FakeDomainProvider(custom_domains))],
         tasks,
+        health_manager,
         http_client.clone(),
         http_client,
         Arc::new(route_provider),

@@ -474,6 +474,11 @@ pub struct Misc {
     /// If not specified, the default error page will be shown for all domains.
     #[clap(env, long)]
     pub alternate_error_domain: Option<FQDN>,
+
+    /// Whether to consider Custom Domain Providers as critical for health self-assessment.
+    /// If enabled - requires all providers to report healthy status for `ic-gateway` to be healthy.
+    #[clap(env, long)]
+    pub custom_domain_provider_critical: bool,
 }
 
 #[derive(Args)]

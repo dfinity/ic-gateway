@@ -9,7 +9,8 @@ use ic_bn_lib::{
     custom_domains::{self, ProvidesCustomDomains},
     http::{self as bnhttp, dns::ApiBnResolver, redirect_to_https},
     tasks::TaskManager,
-    tls::{prepare_client_config, verify::NoopServerCertVerifier},
+    tls::{prepare_client_config, providers::ProvidesCertificates, verify::NoopServerCertVerifier},
+    utils::health_manager::HealthManager,
     vector::client::Vector,
 };
 use itertools::Itertools;
@@ -22,9 +23,12 @@ use crate::{
     metrics,
     routing::{
         self,
-        ic::{create_agent, route_provider::setup_route_provider},
+        ic::{
+            create_agent,
+            route_provider::{RouteProviderWrapper, setup_route_provider},
+        },
     },
-    tls::{self, setup_issuer_providers},
+    tls::{self, setup_issuers},
 };
 
 pub const SERVICE_NAME: &str = "ic_gateway";
@@ -74,6 +78,11 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
 
     // Prepare some general stuff
     let token = CancellationToken::new();
+
+    let health_manager = Arc::new(HealthManager::default());
+    let mut custom_domain_providers: Vec<Arc<dyn ProvidesCustomDomains>> = vec![];
+    let mut certificate_providers: Vec<Arc<dyn ProvidesCertificates>> = vec![];
+
     let registry = Registry::new_custom(Some(SERVICE_NAME.into()), None)
         .context("unable to create Prometheus registry")?;
 
@@ -102,7 +111,10 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     // TODO improve
     let reqwest_client =
         bnhttp::client::clients_reqwest::new(http_client_opts.clone(), Some(dns_resolver.clone()))?;
+
+    // Create route provider
     let route_provider = setup_route_provider(cli, reqwest_client.clone()).await?;
+    health_manager.add(Arc::new(RouteProviderWrapper::new(route_provider.clone())));
 
     // Create a separate Agent backed by Reqwest client that will be used for the resolver only.
     // This way we avoid a chicken-and-egg problem:
@@ -156,9 +168,22 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
     // HTTP server metrics
     let http_metrics = bnhttp::server::Metrics::new(&registry);
 
-    // Custom domains from issuers
-    let (issuer_certificate_providers, mut custom_domain_providers) =
-        setup_issuer_providers(cli, &mut tasks, http_client.clone(), &registry);
+    // Setup Certificate Issuers
+    let issuers = setup_issuers(cli, &mut tasks, http_client.clone(), &registry);
+
+    custom_domain_providers.extend(
+        issuers
+            .clone()
+            .into_iter()
+            .map(|x| x as Arc<dyn ProvidesCustomDomains>),
+    );
+
+    certificate_providers.extend(
+        issuers
+            .clone()
+            .into_iter()
+            .map(|x| x as Arc<dyn ProvidesCertificates>),
+    );
 
     // Load generic custom domain providers
     custom_domain_providers.extend(cli.domain.domain_custom_provider.iter().map(|x| {
@@ -191,9 +216,10 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         cli,
         custom_domain_providers,
         &mut tasks,
+        health_manager.clone(),
         http_client.clone(),
         http_client_hyper,
-        Arc::clone(&route_provider),
+        route_provider.clone(),
         &registry,
         vector.clone(),
         #[cfg(feature = "clickhouse")]
@@ -226,11 +252,12 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         let rustls_cfg = tls::setup(
             cli,
             &mut tasks,
+            health_manager,
             #[cfg(feature = "acme")]
             domains.clone(),
             #[cfg(feature = "acme")]
             Arc::new(dns_resolver),
-            issuer_certificate_providers,
+            certificate_providers,
             &registry,
         )
         .await
