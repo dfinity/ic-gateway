@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use anyhow::{Error, bail};
 use ic_bn_lib::{
-    custom_domains::ProvidesCustomDomains,
     http::Client,
     tasks::TaskManager,
     tls::{
@@ -10,6 +9,7 @@ use ic_bn_lib::{
         providers::{self, Aggregator, Issuer, ProvidesCertificates, issuer, storage},
         resolver,
     },
+    utils::health_manager::HealthManager,
 };
 use prometheus::Registry;
 use rustls::server::ServerConfig;
@@ -31,17 +31,13 @@ use {
 
 use crate::cli::Cli;
 
-pub fn setup_issuer_providers(
+pub fn setup_issuers(
     cli: &Cli,
     tasks: &mut TaskManager,
     http_client: Arc<dyn Client>,
     registry: &Registry,
-) -> (
-    Vec<Arc<dyn ProvidesCertificates>>,
-    Vec<Arc<dyn ProvidesCustomDomains>>,
-) {
-    let mut cert_providers: Vec<Arc<dyn ProvidesCertificates>> = vec![];
-    let mut custom_domain_providers: Vec<Arc<dyn ProvidesCustomDomains>> = vec![];
+) -> Vec<Arc<Issuer>> {
+    let mut issuers: Vec<Arc<Issuer>> = vec![];
 
     let issuer_metrics = issuer::Metrics::new(registry);
     for v in &cli.cert.cert_provider_issuer_url {
@@ -51,8 +47,7 @@ pub fn setup_issuer_providers(
             issuer_metrics.clone(),
         ));
 
-        cert_providers.push(issuer.clone());
-        custom_domain_providers.push(issuer.clone());
+        issuers.push(issuer.clone());
         tasks.add_interval(
             &format!("{issuer:?}"),
             issuer,
@@ -60,7 +55,7 @@ pub fn setup_issuer_providers(
         );
     }
 
-    (cert_providers, custom_domain_providers)
+    issuers
 }
 
 #[cfg(feature = "acme")]
@@ -138,9 +133,10 @@ async fn setup_acme(
 pub async fn setup(
     cli: &Cli,
     tasks: &mut TaskManager,
+    health_manager: Arc<HealthManager>,
     #[cfg(feature = "acme")] domains: Vec<FQDN>,
     #[cfg(feature = "acme")] dns_resolver: Arc<dyn Resolves>,
-    custom_domain_providers: Vec<Arc<dyn ProvidesCertificates>>,
+    certificate_providers: Vec<Arc<dyn ProvidesCertificates>>,
     registry: &Registry,
 ) -> Result<ServerConfig, Error> {
     // Prepare certificate storage
@@ -149,20 +145,20 @@ pub async fn setup(
         storage::Metrics::new(registry),
     ));
 
-    let mut cert_providers: Vec<Arc<dyn ProvidesCertificates>> = vec![];
+    let mut providers: Vec<Arc<dyn ProvidesCertificates>> = vec![];
 
     // Create File providers
     for v in &cli.cert.cert_provider_file {
-        cert_providers.push(Arc::new(providers::File::new(v.clone())));
+        providers.push(Arc::new(providers::File::new(v.clone())));
     }
 
     // Create Dir providers
     for v in &cli.cert.cert_provider_dir {
-        cert_providers.push(Arc::new(providers::Dir::new(v.clone())));
+        providers.push(Arc::new(providers::Dir::new(v.clone())));
     }
 
     // Add custom domain certificate providers
-    cert_providers.extend(custom_domain_providers);
+    providers.extend(certificate_providers);
 
     // Prepare ACME if configured
     #[cfg(feature = "acme")]
@@ -174,19 +170,21 @@ pub async fn setup(
 
     #[cfg(feature = "acme")]
     {
-        if acme_resolver.is_none() && cert_providers.is_empty() {
+        if acme_resolver.is_none() && providers.is_empty() {
             bail!("No ACME or certificate providers specified - HTTPS cannot be used");
         }
     }
     #[cfg(not(feature = "acme"))]
     {
-        if cert_providers.is_empty() {
+        if providers.is_empty() {
             bail!("No certificate providers specified - HTTPS cannot be used");
         }
     }
 
     // Create certificate aggregator that combines all providers
-    let cert_aggregator = Arc::new(Aggregator::new(cert_providers, cert_storage.clone()));
+    let cert_aggregator = Arc::new(Aggregator::new(providers, cert_storage.clone()));
+    health_manager.add(cert_aggregator.clone());
+
     tasks.add_interval(
         "cert_aggregator",
         cert_aggregator,
