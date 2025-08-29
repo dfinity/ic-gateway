@@ -83,7 +83,7 @@ pub struct CustomDomainStorage {
 
 impl Healthy for CustomDomainStorage {
     fn healthy(&self) -> bool {
-        // We're healthy if all of providers delivered some custom domains at least once
+        // We're healthy if all providers delivered custom domains successfully at least once
         self.snapshot.read().unwrap().iter().all(|x| x.is_some())
     }
 }
