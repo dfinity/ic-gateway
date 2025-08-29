@@ -561,14 +561,14 @@ pub async fn setup_router(
         .layer(common_layers);
 
     #[cfg(all(target_os = "linux", feature = "sev-snp"))]
-    if cli.misc.enable_sev_snp {
+    if cli.sev_snp.sev_snp_enable {
         let router_sev_snp = Router::new().route(
             "/sev-snp/report",
             post(ic_bn_lib::utils::sev_snp::handler)
                 .with_state(
                     ic_bn_lib::utils::sev_snp::SevSnpState::new(
-                        cli.misc.sev_snp_cache_ttl,
-                        cli.misc.sev_snp_cache_size,
+                        cli.sev_snp.sev_snp_cache_ttl,
+                        cli.sev_snp.sev_snp_cache_size,
                     )
                     .context("unable to init SEV-SNP")?,
                 )

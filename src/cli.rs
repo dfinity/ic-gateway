@@ -84,6 +84,10 @@ pub struct Cli {
 
     #[command(flatten, next_help_heading = "Shedding Latency")]
     pub shed_latency: ShedSharded<RequestType>,
+
+    #[cfg(all(target_os = "linux", feature = "sev-snp"))]
+    #[command(flatten, next_help_heading = "SEV-SNP")]
+    pub sev_snp: ic_bn_lib::utils::sev_snp::SevSnp,
 }
 
 #[derive(Args)]
@@ -454,21 +458,6 @@ pub struct Misc {
     /// Defaults to the number of CPUs
     #[clap(env, long)]
     pub threads: Option<usize>,
-
-    /// Enable SEV-SNP measurement reporting
-    #[cfg(all(target_os = "linux", feature = "sev-snp"))]
-    #[clap(env, long)]
-    pub enable_sev_snp: bool,
-
-    /// Cache TTL for SEV-SNP reports
-    #[cfg(all(target_os = "linux", feature = "sev-snp"))]
-    #[clap(env, long, default_value = "30s", value_parser = parse_duration)]
-    pub sev_snp_cache_ttl: Duration,
-
-    /// Max cache size for SEV-SNP reports
-    #[cfg(all(target_os = "linux", feature = "sev-snp"))]
-    #[clap(env, long, default_value = "10m", value_parser = parse_size)]
-    pub sev_snp_cache_size: u64,
 
     /// Domain for which to show alternate error page for unknown domain errors.
     /// If not specified, the default error page will be shown for all domains.
