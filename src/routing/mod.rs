@@ -637,9 +637,7 @@ mod test {
 
     #[tokio::test]
     async fn test_setup_router() {
-        rustls::crypto::ring::default_provider()
-            .install_default()
-            .unwrap();
+        let _ = rustls::crypto::ring::default_provider().install_default();
 
         let mut rng = thread_rng();
 
