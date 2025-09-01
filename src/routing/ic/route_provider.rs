@@ -2,15 +2,18 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use candid::Principal;
-use ic_bn_lib::ic_agent::agent::{
-    http_transport::reqwest_transport::reqwest::Client as AgentClient,
-    route_provider::{
-        RoundRobinRouteProvider, RouteProvider,
-        dynamic_routing::{
-            dynamic_route_provider::DynamicRouteProviderBuilder, node::Node,
-            snapshot::latency_based_routing::LatencyRoutingSnapshot,
+use ic_bn_lib::{
+    ic_agent::agent::{
+        http_transport::reqwest_transport::reqwest::Client as AgentClient,
+        route_provider::{
+            RoundRobinRouteProvider, RouteProvider,
+            dynamic_routing::{
+                dynamic_route_provider::DynamicRouteProviderBuilder, node::Node,
+                snapshot::latency_based_routing::LatencyRoutingSnapshot,
+            },
         },
     },
+    types::Healthy,
 };
 use tracing::info;
 use url::Url;
@@ -22,6 +25,17 @@ use crate::{
         nodes_fetcher::{MAINNET_ROOT_SUBNET_ID, NodesFetcher},
     },
 };
+
+/// Provides Healthy trait for the RouteProvider
+#[derive(derive_new::new, Debug)]
+pub struct RouteProviderWrapper(Arc<dyn RouteProvider>);
+
+impl Healthy for RouteProviderWrapper {
+    fn healthy(&self) -> bool {
+        // We're healthy if there's at least one healthy Boundary Node
+        self.0.routes_stats().healthy.unwrap_or_default() > 0
+    }
+}
 
 pub async fn setup_route_provider(
     cli: &Cli,

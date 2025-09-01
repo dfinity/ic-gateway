@@ -101,6 +101,7 @@ impl CorsStateHttp {
                 .chain(ALLOW_HEADERS_HTTP)
                 .join(", "),
         )?;
+
         // Concatenate provided headers with a separator
         let allow_origin = HeaderValue::from_bytes(
             allow_origin
@@ -111,6 +112,7 @@ impl CorsStateHttp {
                 .collect::<Vec<_>>()
                 .as_slice(),
         )?;
+
         let max_age = HeaderValue::from_str(&max_age.as_secs().to_string())?;
         let expose_headers = HeaderValue::from_str(&EXPOSE_HEADERS.into_iter().join(", "))?;
         let vary = HeaderValue::from_str(&preflight_request_headers().join(", "))?;
@@ -221,7 +223,7 @@ pub async fn middleware(
         }
     };
 
-    // If the reponse is known to be invalid - respond with ours
+    // If the response is known to be invalid - respond with ours
     if method == Method::OPTIONS && state.invalid_canisters.contains_key(&canister_id) {
         return state.default_preflight_response();
     }
@@ -229,8 +231,8 @@ pub async fn middleware(
     // Pass the request further
     let mut response = next.run(request).await;
 
-    // If the request was OPTIONS but we didn't get a valid response - return our own response
-    // with default headers set.
+    // If the request was OPTIONS but we didn't get a valid response,
+    // return our own response with default headers set.
     if method == Method::OPTIONS && !is_valid_preflight_response(&response) {
         state.invalid_canisters.insert(canister_id, ());
         return state.default_preflight_response();
