@@ -14,7 +14,7 @@ use axum::{
     response::{IntoResponse, Redirect},
     routing::{get, post},
 };
-use axum_extra::{either::Either, middleware::option_layer};
+use axum_extra::{either::Either, extract::Host, middleware::option_layer};
 use bytes::Bytes;
 use candid::Principal;
 use fqdn::FQDN;
@@ -25,6 +25,8 @@ use ic_bn_lib::{
     http::{
         Client, ClientHttp,
         cache::{CacheBuilder, KeyExtractorUriRange},
+        extract_host,
+        middleware::waf::WafLayer,
         shed::{
             ShedResponse,
             sharded::{ShardedLittleLoadShedderLayer, ShardedOptions, TypeExtractor},
@@ -173,11 +175,13 @@ pub async fn health_handler(State(state): State<Arc<HealthManager>>) -> impl Int
     }
 }
 
+// TODO: make it less horrible by using maybe builder pattern or just a struct
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::cognitive_complexity)]
 pub async fn setup_router(
     cli: &Cli,
     custom_domain_providers: Vec<Arc<dyn ProvidesCustomDomains>>,
+    router_api: Option<Router>,
     tasks: &mut TaskManager,
     health_manager: Arc<HealthManager>,
     http_client: Arc<dyn Client>,
@@ -185,6 +189,7 @@ pub async fn setup_router(
     route_provider: Arc<dyn RouteProvider>,
     registry: &Registry,
     vector: Option<Arc<Vector>>,
+    waf_layer: Option<WafLayer>,
     #[cfg(feature = "clickhouse")] clickhouse: Option<Arc<Clickhouse>>,
 ) -> Result<Router, Error> {
     let custom_domain_storage = Arc::new(CustomDomainStorage::new(custom_domain_providers));
@@ -512,11 +517,14 @@ pub async fn setup_router(
             request_type::middleware,
         ))
         .layer(metrics_mw)
+        .layer(option_layer(waf_layer))
         .layer(load_shedder_system_mw)
         .layer(from_fn_with_state(validate_state, validate::middleware))
         .layer(concurrency_limit_mw)
         .layer(geoip_mw)
         .layer(load_shedder_latency_mw);
+
+    let api_hostname = cli.api.api_hostname.clone().map(|x| x.to_string());
 
     // Top-level router
     #[allow(unused_mut)]
@@ -524,7 +532,15 @@ pub async fn setup_router(
         .nest("/api/v2", router_api_v2)
         .nest("/api/v3", router_api_v3)
         .fallback(
-            |Extension(ctx): Extension<Arc<RequestCtx>>, request: Request| async move {
+            |Host(host): Host, Extension(ctx): Extension<Arc<RequestCtx>>, request: Request| async move {
+                // See if we have API enabled
+                if let Some(v) = router_api {
+                    // Check if the request's host matches API hostname
+                    if api_hostname.zip(extract_host(&host)).map(|(a, b)| a == b) == Some(true) {
+                        return v.oneshot(request).await;
+                    }
+                }
+
                 let path = request.uri().path();
                 let canister_id = request.extensions().get::<CanisterId>();
 

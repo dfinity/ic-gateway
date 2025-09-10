@@ -11,6 +11,7 @@ use tracing_subscriber::{
     fmt::layer,
     layer::{Context as TracingContext, Layer, SubscriberExt},
     registry::{LookupSpan, Registry},
+    reload::{self, Handle},
 };
 
 use crate::cli::Log;
@@ -110,14 +111,15 @@ where
 }
 
 // Sets up logging
-pub fn setup_logging(cli: &Log) -> Result<(), Error> {
+pub fn setup_logging(cli: &Log) -> Result<Handle<LevelFilter, Registry>, Error> {
     let level_filter = LevelFilter::from_level(cli.log_level);
+    let (level_filter, reload_handle) = reload::Layer::new(level_filter);
 
     let journald_layer = if cli.log_journald {
         Some(
             JournaldLayer::new()
-                .context("unable to setup JournalD")?
-                .with_filter(level_filter),
+                .context("unable to setup Journalc")?
+                .boxed(),
         )
     } else {
         None
@@ -130,27 +132,41 @@ pub fn setup_logging(cli: &Log) -> Result<(), Error> {
         None
     };
 
-    let subscriber = Registry::default()
-        // Journald
-        .with(journald_layer)
-        // Stdout
-        // Ugly due to different types, TODO improve?
-        .with((cli.log_stdout && !cli.log_stdout_json).then(|| layer().with_filter(level_filter)))
-        .with(
-            (cli.log_stdout && cli.log_stdout_json)
-                .then(|| layer().json().flatten_event(true).with_filter(level_filter)),
-        )
-        // Null
-        .with(cli.log_null.then(|| {
+    let null_layer = if cli.log_null {
+        Some(
             layer()
                 .with_writer(std::io::sink)
                 .json()
                 .flatten_event(true)
-                .with_filter(level_filter)
-        }));
+                .boxed(),
+        )
+    } else {
+        None
+    };
+
+    let stdout_layer = if cli.log_stdout {
+        if cli.log_stdout_json {
+            Some(layer().json().flatten_event(true).boxed())
+        } else {
+            Some(layer().boxed())
+        }
+    } else {
+        None
+    };
+
+    let subscriber = Registry::default();
 
     #[cfg(tokio_unstable)]
     let subscriber = subscriber.with(tokio_console_layer);
 
-    tracing::subscriber::set_global_default(subscriber).context("unable to set global subscriber")
+    let subscriber = subscriber
+        .with(level_filter)
+        .with(journald_layer)
+        .with(stdout_layer)
+        .with(null_layer);
+
+    tracing::subscriber::set_global_default(subscriber)
+        .context("unable to set global subscriber")?;
+
+    Ok(reload_handle)
 }

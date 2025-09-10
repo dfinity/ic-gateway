@@ -5,6 +5,7 @@
 // Needed for certain macros
 #![recursion_limit = "256"]
 
+mod api;
 mod cli;
 mod core;
 pub mod metrics;

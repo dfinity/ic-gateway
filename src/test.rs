@@ -130,6 +130,7 @@ pub async fn setup_test_router(tasks: &mut TaskManager) -> (Router, Vec<String>)
     let router = setup_router(
         &cli,
         vec![Arc::new(FakeDomainProvider(custom_domains))],
+        None,
         tasks,
         health_manager,
         http_client.clone(),
@@ -137,6 +138,7 @@ pub async fn setup_test_router(tasks: &mut TaskManager) -> (Router, Vec<String>)
         Arc::new(route_provider),
         &Registry::new(),
         #[cfg(feature = "clickhouse")]
+        None,
         None,
         None,
     )

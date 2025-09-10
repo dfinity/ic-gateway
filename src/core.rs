@@ -7,7 +7,7 @@ use anyhow::{Context, Error, anyhow};
 use axum::Router;
 use ic_bn_lib::{
     custom_domains::{self, ProvidesCustomDomains},
-    http::{self as bnhttp, dns::ApiBnResolver, redirect_to_https},
+    http::{self as bnhttp, dns::ApiBnResolver, middleware::waf::WafLayer, redirect_to_https},
     tasks::TaskManager,
     tls::{prepare_client_config, providers::ProvidesCertificates, verify::NoopServerCertVerifier},
     utils::health_manager::HealthManager,
@@ -17,8 +17,11 @@ use itertools::Itertools;
 use prometheus::Registry;
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
+use tracing_core::LevelFilter;
+use tracing_subscriber::reload::Handle;
 
 use crate::{
+    api::setup_api_router,
     cli::Cli,
     metrics,
     routing::{
@@ -39,7 +42,10 @@ pub static ENV: OnceLock<String> = OnceLock::new();
 pub static HOSTNAME: OnceLock<String> = OnceLock::new();
 
 #[allow(clippy::cognitive_complexity)]
-pub async fn main(cli: &Cli) -> Result<(), Error> {
+pub async fn main(
+    cli: &Cli,
+    log_handle: Handle<LevelFilter, tracing_subscriber::Registry>,
+) -> Result<(), Error> {
     ENV.set(cli.misc.env.clone()).unwrap();
     HOSTNAME.set(cli.misc.hostname.clone()).unwrap();
 
@@ -211,10 +217,33 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
             }),
     );
 
+    // Setup WAF
+    let waf_layer = if cli.waf.waf_enable {
+        let v = WafLayer::new_from_cli(&cli.waf, Some(http_client.clone()))
+            .context("unable to create WAF layer")?;
+
+        // Run background poller
+        tasks.add("waf", Arc::new(v.clone()));
+        Some(v)
+    } else {
+        None
+    };
+
+    // Setup API router if configured
+    let router_api = if cli.api.api_hostname.is_some() {
+        Some(
+            setup_api_router(cli, log_handle, waf_layer.clone())
+                .context("unable to setup API Router")?,
+        )
+    } else {
+        None
+    };
+
     // Create gateway router to serve all endpoints
     let gateway_router = routing::setup_router(
         cli,
         custom_domain_providers,
+        router_api,
         &mut tasks,
         health_manager.clone(),
         http_client.clone(),
@@ -222,6 +251,7 @@ pub async fn main(cli: &Cli) -> Result<(), Error> {
         route_provider.clone(),
         &registry,
         vector.clone(),
+        waf_layer,
         #[cfg(feature = "clickhouse")]
         clickhouse.clone(),
     )

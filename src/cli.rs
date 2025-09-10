@@ -7,6 +7,7 @@ use humantime::parse_duration;
 use ic_bn_lib::{
     http::{
         self, dns,
+        middleware::waf::WafCli,
         server::ProxyProtocolMode,
         shed::cli::{ShedSharded, ShedSystem},
     },
@@ -59,6 +60,12 @@ pub struct Cli {
 
     #[command(flatten, next_help_heading = "Load")]
     pub load: Load,
+
+    #[command(flatten, next_help_heading = "API")]
+    pub api: Api,
+
+    #[command(flatten, next_help_heading = "WAF")]
+    pub waf: WafCli,
 
     #[cfg(feature = "acme")]
     #[command(flatten, next_help_heading = "ACME")]
@@ -437,6 +444,19 @@ pub struct Load {
     /// If more are coming in - they will be throttled.
     #[clap(env, long)]
     pub load_max_concurrency: Option<usize>,
+}
+
+#[derive(Args)]
+pub struct Api {
+    /// Specify a hostname on which to respond to API requests.
+    /// Requires `api_token` to be set.
+    /// If not specified - API isn't enabled.
+    #[clap(env, long, requires = "api_token")]
+    pub api_hostname: Option<FQDN>,
+
+    /// Set an API authentication token.
+    #[clap(env, long)]
+    pub api_token: Option<String>,
 }
 
 #[derive(Args)]
