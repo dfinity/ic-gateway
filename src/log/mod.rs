@@ -118,7 +118,7 @@ pub fn setup_logging(cli: &Log) -> Result<Handle<LevelFilter, Registry>, Error> 
     let journald_layer = if cli.log_journald {
         Some(
             JournaldLayer::new()
-                .context("unable to setup Journalc")?
+                .context("unable to setup Journald")?
                 .boxed(),
         )
     } else {
