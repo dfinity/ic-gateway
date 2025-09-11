@@ -128,11 +128,15 @@ impl From<Option<&MatchedPath>> for RequestType {
         };
 
         match path.as_str() {
-            "/api/v2/canister/{principal}/query" => Self::Api(RequestTypeApi::Query),
-            "/api/v2/canister/{principal}/call" => Self::Api(RequestTypeApi::Call),
-            "/api/v3/canister/{principal}/call" => Self::Api(RequestTypeApi::SyncCall),
-            "/api/v2/canister/{principal}/read_state" => Self::Api(RequestTypeApi::ReadState),
-            "/api/v2/subnet/{principal}/read_state" => Self::Api(RequestTypeApi::ReadStateSubnet),
+            "/api/v2/canister/{principal}/query" => Self::Api(RequestTypeApi::QueryV2),
+            "/api/v3/canister/{principal}/query" => Self::Api(RequestTypeApi::QueryV3),
+            "/api/v2/canister/{principal}/call" => Self::Api(RequestTypeApi::CallV2),
+            "/api/v3/canister/{principal}/call" => Self::Api(RequestTypeApi::CallV3),
+            "/api/v4/canister/{principal}/call" => Self::Api(RequestTypeApi::CallV4),
+            "/api/v2/canister/{principal}/read_state" => Self::Api(RequestTypeApi::ReadStateV2),
+            "/api/v3/canister/{principal}/read_state" => Self::Api(RequestTypeApi::ReadStateV3),
+            "/api/v2/subnet/{principal}/read_state" => Self::Api(RequestTypeApi::ReadStateSubnetV2),
+            "/api/v3/subnet/{principal}/read_state" => Self::Api(RequestTypeApi::ReadStateSubnetV3),
             "/api/v2/status" => Self::Api(RequestTypeApi::Status),
             "/health" => Self::Health,
             "/registrations" | "/registrations/{id}" => Self::Registrations,
@@ -357,34 +361,35 @@ pub async fn setup_router(
     let cors_post = cors_base.clone().allow_methods([Method::POST]);
     let cors_get = cors_base.clone().allow_methods([Method::HEAD, Method::GET]);
 
+    let api_proxy_handler = post(proxy::api_proxy).layer(cors_post.clone());
+
     // IC API proxy routers
     let router_api_v2 = Router::new()
-        .route(
-            "/canister/{principal}/query",
-            post(proxy::api_proxy).layer(cors_post.clone()),
-        )
-        .route(
-            "/canister/{principal}/call",
-            post(proxy::api_proxy).layer(cors_post.clone()),
-        )
+        .route("/canister/{principal}/query", api_proxy_handler.clone())
+        .route("/canister/{principal}/call", api_proxy_handler.clone())
         .route(
             "/canister/{principal}/read_state",
-            post(proxy::api_proxy).layer(cors_post.clone()),
+            api_proxy_handler.clone(),
         )
-        .route(
-            "/subnet/{principal}/read_state",
-            post(proxy::api_proxy).layer(cors_post.clone()),
-        )
+        .route("/subnet/{principal}/read_state", api_proxy_handler.clone())
         .route("/status", get(proxy::api_proxy).layer(cors_get))
-        .fallback(|| async { (StatusCode::NOT_FOUND, "") })
+        .fallback(|| async { StatusCode::NOT_FOUND })
         .with_state(state_api.clone());
 
     let router_api_v3 = Router::new()
+        .route("/canister/{principal}/query", api_proxy_handler.clone())
+        .route("/canister/{principal}/call", api_proxy_handler.clone())
         .route(
-            "/canister/{principal}/call",
-            post(proxy::api_proxy).layer(cors_post.clone()),
+            "/canister/{principal}/read_state",
+            api_proxy_handler.clone(),
         )
-        .fallback(|| async { (StatusCode::NOT_FOUND, "") })
+        .route("/subnet/{principal}/read_state", api_proxy_handler.clone())
+        .fallback(|| async { StatusCode::NOT_FOUND })
+        .with_state(state_api.clone());
+
+    let router_api_v4 = Router::new()
+        .route("/canister/{principal}/call", api_proxy_handler)
+        .fallback(|| async { StatusCode::NOT_FOUND })
         .with_state(state_api);
 
     // Caching middleware
@@ -522,6 +527,7 @@ pub async fn setup_router(
     let mut router = Router::new()
         .nest("/api/v2", router_api_v2)
         .nest("/api/v3", router_api_v3)
+        .nest("/api/v4", router_api_v4)
         .fallback(
             |Host(host): Host, Extension(ctx): Extension<Arc<RequestCtx>>, request: Request| async move {
                 // Check if the request's host matches API hostname
@@ -614,28 +620,28 @@ mod test {
         );
 
         assert_eq!(
-            RequestType::Api(RequestTypeApi::Query),
-            RequestType::from_str("query").unwrap()
+            RequestType::Api(RequestTypeApi::QueryV2),
+            RequestType::from_str("query_v2").unwrap()
         );
         assert_eq!(
-            RequestType::Api(RequestTypeApi::Call),
-            RequestType::from_str("call").unwrap()
+            RequestType::Api(RequestTypeApi::CallV2),
+            RequestType::from_str("call_v2").unwrap()
         );
         assert_eq!(
-            RequestType::Api(RequestTypeApi::SyncCall),
-            RequestType::from_str("sync_call").unwrap()
+            RequestType::Api(RequestTypeApi::CallV3),
+            RequestType::from_str("call_v3").unwrap()
         );
         assert_eq!(
             RequestType::Api(RequestTypeApi::Status),
             RequestType::from_str("status").unwrap()
         );
         assert_eq!(
-            RequestType::Api(RequestTypeApi::ReadState),
-            RequestType::from_str("read_state").unwrap()
+            RequestType::Api(RequestTypeApi::ReadStateV2),
+            RequestType::from_str("read_state_v2").unwrap()
         );
         assert_eq!(
-            RequestType::Api(RequestTypeApi::ReadStateSubnet),
-            RequestType::from_str("read_state_subnet").unwrap()
+            RequestType::Api(RequestTypeApi::ReadStateSubnetV2),
+            RequestType::from_str("read_state_subnet_v2").unwrap()
         );
     }
 
