@@ -9,12 +9,12 @@ use std::{ops::Deref, str::FromStr, sync::Arc, time::Duration};
 use anyhow::{Context, Error};
 use axum::{
     Extension, Router,
-    extract::{MatchedPath, Request, State},
+    extract::{MatchedPath, Request},
     middleware::{FromFnLayer, from_fn, from_fn_with_state},
     response::{IntoResponse, Redirect},
     routing::{get, post},
 };
-use axum_extra::{either::Either, middleware::option_layer};
+use axum_extra::{either::Either, extract::Host, middleware::option_layer};
 use bytes::Bytes;
 use candid::Principal;
 use fqdn::FQDN;
@@ -25,6 +25,8 @@ use ic_bn_lib::{
     http::{
         Client, ClientHttp,
         cache::{CacheBuilder, KeyExtractorUriRange},
+        extract_host,
+        middleware::waf::WafLayer,
         shed::{
             ShedResponse,
             sharded::{ShardedLittleLoadShedderLayer, ShardedOptions, TypeExtractor},
@@ -33,7 +35,7 @@ use ic_bn_lib::{
     },
     ic_agent::agent::route_provider::RouteProvider,
     tasks::TaskManager,
-    types::{Healthy, RequestType as RequestTypeApi},
+    types::RequestType as RequestTypeApi,
     utils::health_manager::HealthManager,
 };
 use ic_bn_lib::{http::middleware::rate_limiter, vector::client::Vector};
@@ -41,8 +43,11 @@ use prometheus::Registry;
 use strum::{Display, IntoStaticStr};
 use tower::{ServiceBuilder, ServiceExt, limit::ConcurrencyLimitLayer, util::MapResponseLayer};
 use tracing::warn;
+use tracing_core::LevelFilter;
+use tracing_subscriber::reload::Handle;
 
 use crate::{
+    api::setup_api_router,
     cli::Cli,
     metrics::{self},
     routing::{
@@ -164,20 +169,13 @@ impl TypeExtractor for RequestTypeExtractor {
     }
 }
 
-/// Handles health requests
-pub async fn health_handler(State(state): State<Arc<HealthManager>>) -> impl IntoResponse {
-    if state.healthy() {
-        StatusCode::NO_CONTENT
-    } else {
-        StatusCode::SERVICE_UNAVAILABLE
-    }
-}
-
+// TODO: make it less horrible by using maybe builder pattern or just a struct
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::cognitive_complexity)]
 pub async fn setup_router(
     cli: &Cli,
     custom_domain_providers: Vec<Arc<dyn ProvidesCustomDomains>>,
+    log_handle: Handle<LevelFilter, tracing_subscriber::registry::Registry>,
     tasks: &mut TaskManager,
     health_manager: Arc<HealthManager>,
     http_client: Arc<dyn Client>,
@@ -185,8 +183,13 @@ pub async fn setup_router(
     route_provider: Arc<dyn RouteProvider>,
     registry: &Registry,
     vector: Option<Arc<Vector>>,
+    waf_layer: Option<WafLayer>,
     #[cfg(feature = "clickhouse")] clickhouse: Option<Arc<Clickhouse>>,
 ) -> Result<Router, Error> {
+    // Setup API router
+    let router_api = setup_api_router(cli, log_handle, health_manager.clone(), waf_layer.clone())
+        .context("unable to setup API Router")?;
+
     let custom_domain_storage = Arc::new(CustomDomainStorage::new(custom_domain_providers));
     tasks.add_interval(
         "custom_domain_storage",
@@ -372,7 +375,7 @@ pub async fn setup_router(
             "/subnet/{principal}/read_state",
             post(proxy::api_proxy).layer(cors_post.clone()),
         )
-        .route("/status", get(proxy::api_proxy).layer(cors_get.clone()))
+        .route("/status", get(proxy::api_proxy).layer(cors_get))
         .fallback(|| async { (StatusCode::NOT_FOUND, "") })
         .with_state(state_api.clone());
 
@@ -383,13 +386,6 @@ pub async fn setup_router(
         )
         .fallback(|| async { (StatusCode::NOT_FOUND, "") })
         .with_state(state_api);
-
-    let router_health = Router::new().route(
-        "/health",
-        get(health_handler)
-            .layer(cors_get)
-            .with_state(health_manager),
-    );
 
     // Caching middleware
     let cache_middleware = option_layer(
@@ -512,11 +508,14 @@ pub async fn setup_router(
             request_type::middleware,
         ))
         .layer(metrics_mw)
+        .layer(option_layer(waf_layer))
         .layer(load_shedder_system_mw)
         .layer(from_fn_with_state(validate_state, validate::middleware))
         .layer(concurrency_limit_mw)
         .layer(geoip_mw)
         .layer(load_shedder_latency_mw);
+
+    let api_hostname = cli.api.api_hostname.clone().map(|x| x.to_string());
 
     // Top-level router
     #[allow(unused_mut)]
@@ -524,7 +523,12 @@ pub async fn setup_router(
         .nest("/api/v2", router_api_v2)
         .nest("/api/v3", router_api_v3)
         .fallback(
-            |Extension(ctx): Extension<Arc<RequestCtx>>, request: Request| async move {
+            |Host(host): Host, Extension(ctx): Extension<Arc<RequestCtx>>, request: Request| async move {
+                // Check if the request's host matches API hostname
+                if api_hostname.zip(extract_host(&host)).map(|(a, b)| a == b) == Some(true) {
+                    return router_api.oneshot(request).await;
+                }
+
                 let path = request.uri().path();
                 let canister_id = request.extensions().get::<CanisterId>();
 
@@ -536,9 +540,9 @@ pub async fn setup_router(
                     return v.oneshot(request).await;
                 }
 
-                // Proxy /health only from base domain and not custom ones
+                // TODO remove when CF healthchecks are switched to API domains
                 if path.starts_with("/health") && ctx.is_base_domain() {
-                    return router_health.oneshot(request).await;
+                    return router_api.oneshot(request).await;
                 }
 
                 // Redirect to the dashboard if the request is to the root of the base domain

@@ -13,6 +13,7 @@ use tracing::warn;
 
 use crate::cli::Cli;
 
+mod api;
 mod cli;
 mod core;
 mod log;
@@ -28,7 +29,7 @@ static GLOBAL: Jemalloc = Jemalloc;
 
 fn main() -> Result<(), Error> {
     let cli = Cli::parse();
-    log::setup_logging(&cli.log).context("unable to setup logging")?;
+    let reload_handle = log::setup_logging(&cli.log).context("unable to setup logging")?;
     warn!("Env: {}, Hostname: {}", cli.misc.env, cli.misc.hostname);
 
     let threads = if let Some(v) = cli.misc.threads {
@@ -43,5 +44,5 @@ fn main() -> Result<(), Error> {
         .enable_all()
         .worker_threads(threads)
         .build()?
-        .block_on(core::main(&cli))
+        .block_on(core::main(&cli, reload_handle))
 }
