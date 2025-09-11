@@ -1,6 +1,6 @@
 use std::{str::FromStr, sync::Arc};
 
-use anyhow::{Error, anyhow};
+use anyhow::Error;
 use axum::{
     Router,
     extract::{Path, Request, State},
@@ -9,17 +9,20 @@ use axum::{
     routing::get,
 };
 use derive_new::new;
-use http::{StatusCode, header::AUTHORIZATION};
-use ic_bn_lib::http::middleware::waf::{self, WafLayer};
+use http::{Method, StatusCode, header::AUTHORIZATION};
+use ic_bn_lib::{
+    http::middleware::waf::{self, WafLayer},
+    types::Healthy,
+};
 use tracing::Level;
 use tracing_core::LevelFilter;
 use tracing_subscriber::{Registry, reload::Handle};
 
-use crate::cli::Cli;
+use crate::{cli::Cli, routing::middleware::cors};
 
 #[derive(Debug, new)]
 pub struct ApiState {
-    token: String,
+    token: Option<String>,
     log_handle: Arc<Handle<LevelFilter, Registry>>,
 }
 
@@ -28,17 +31,25 @@ pub async fn auth_middleware(
     request: Request,
     next: Next,
 ) -> Response {
+    let Some(token) = &state.token else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            "Authorization token is not set, this part of API is not available\n",
+        )
+            .into_response();
+    };
+
     let Some(auth) = request.headers().get(AUTHORIZATION) else {
-        return (StatusCode::UNAUTHORIZED, "Authorization header not found").into_response();
+        return (StatusCode::UNAUTHORIZED, "Authorization header not found\n").into_response();
     };
 
     let auth = auth.as_bytes();
     if !auth.starts_with(b"Bearer ") || auth.len() < 8 {
-        return (StatusCode::UNAUTHORIZED, "Incorrect header format").into_response();
+        return (StatusCode::UNAUTHORIZED, "Incorrect header format\n").into_response();
     }
 
-    if &auth[7..] != state.token.as_bytes() {
-        return (StatusCode::UNAUTHORIZED, "Incorrect bearer token").into_response();
+    if &auth[7..] != token.as_bytes() {
+        return (StatusCode::UNAUTHORIZED, "Incorrect bearer token\n").into_response();
     }
 
     next.run(request).await
@@ -61,27 +72,41 @@ pub async fn log_handler(
     "Ok\n".into_response()
 }
 
+/// Handles health requests
+pub async fn health_handler(State(state): State<Arc<dyn Healthy>>) -> impl IntoResponse {
+    if state.healthy() {
+        StatusCode::NO_CONTENT
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    }
+}
+
 pub fn setup_api_router(
     cli: &Cli,
     log_handle: Handle<LevelFilter, Registry>,
+    healthy: Arc<dyn Healthy>,
     waf_layer: Option<WafLayer>,
 ) -> Result<Router, Error> {
+    let cors_layer = cors::layer(cli.cors.cors_max_age, cli.cors.cors_allow_origin.clone())
+        .allow_methods([Method::HEAD, Method::GET]);
+
     let state = Arc::new(ApiState::new(
-        cli.api
-            .api_token
-            .clone()
-            .ok_or_else(|| anyhow!("API token not specified"))?,
+        cli.api.api_token.clone(),
         Arc::new(log_handle),
     ));
 
     let auth = from_fn_with_state(state.clone(), auth_middleware);
 
-    let mut router = Router::new().route("/log/{log_level}", get(log_handler).layer(auth.clone()));
+    let mut router = Router::new()
+        .route("/log/{log_level}", get(log_handler).layer(auth.clone()))
+        .route("/health", get(health_handler).with_state(healthy));
+
+    // Enable WAF if requested
     if let Some(v) = waf_layer {
         router = router.nest("/waf", waf::create_router(v).layer(auth))
     }
 
-    Ok(router.with_state(state))
+    Ok(router.layer(cors_layer).with_state(state))
 }
 
 #[cfg(test)]
@@ -89,7 +114,7 @@ mod test {
     use axum::body::Body;
     use clap::Parser;
     use http::{HeaderValue, Request, Uri};
-    use ic_bn_lib::hval;
+    use ic_bn_lib::{hval, utils::health_manager::HealthManager};
     use tower::ServiceExt;
     use tracing_subscriber::reload;
 
@@ -101,7 +126,8 @@ mod test {
         let cli = Cli::parse_from(args);
 
         let (_, reload_handle) = reload::Layer::new(LevelFilter::WARN);
-        let router = setup_api_router(&cli, reload_handle, None).unwrap();
+        let healthy = Arc::new(HealthManager::default());
+        let router = setup_api_router(&cli, reload_handle, healthy, None).unwrap();
 
         // Bad header
         let mut req = Request::builder()

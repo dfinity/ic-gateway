@@ -21,7 +21,6 @@ use tracing_core::LevelFilter;
 use tracing_subscriber::reload::Handle;
 
 use crate::{
-    api::setup_api_router,
     cli::Cli,
     metrics,
     routing::{
@@ -229,21 +228,11 @@ pub async fn main(
         None
     };
 
-    // Setup API router if configured
-    let router_api = if cli.api.api_hostname.is_some() {
-        Some(
-            setup_api_router(cli, log_handle, waf_layer.clone())
-                .context("unable to setup API Router")?,
-        )
-    } else {
-        None
-    };
-
     // Create gateway router to serve all endpoints
     let gateway_router = routing::setup_router(
         cli,
         custom_domain_providers,
-        router_api,
+        log_handle,
         &mut tasks,
         health_manager.clone(),
         http_client.clone(),

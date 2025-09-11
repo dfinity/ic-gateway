@@ -449,12 +449,12 @@ pub struct Load {
 #[derive(Args)]
 pub struct Api {
     /// Specify a hostname on which to respond to API requests.
-    /// Requires `api_token` to be set.
     /// If not specified - API isn't enabled.
-    #[clap(env, long, requires = "api_token")]
+    #[clap(env, long)]
     pub api_hostname: Option<FQDN>,
 
     /// Set an API authentication token.
+    /// Required for certain API endpoints.
     #[clap(env, long)]
     pub api_token: Option<String>,
 }
