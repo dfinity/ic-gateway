@@ -87,7 +87,7 @@ log "Asset canister WASM downloaded"
 export ASSET_CANISTER_DIR="${CANISTER_DIR}"
 
 log "Running unit tests using all feature combinations"
-cargo test-all-features --all-features --profile dev --workspace -- --nocapture --skip all_intergration_tests || { log "Unit tests failed"; exit 1; }
+cargo all-features test --all-features --profile dev --workspace -- --nocapture --skip all_intergration_tests || { log "Unit tests failed"; exit 1; }
 log "Unit tests completed successfully"
 
 log "Running integration tests with all features enabled"
