@@ -16,7 +16,7 @@ readonly CARGO_TARGET_DIR="${WORKDIR}/target/debug"
 log() { echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*" >&2; }
 
 log "Downloading PocketIC v${POCKETIC_VERSION}"
-curl -fsSL --retry 3 --retry-delay 5 "${POCKETIC_URL}" -o pocket-ic.gz || {
+curl -fsSL --retry 3 --retry-delay 5 --retry-all-errors "${POCKETIC_URL}" -o pocket-ic.gz || {
   log "Failed to download PocketIC"
   exit 1
 }
@@ -40,7 +40,7 @@ for COMMIT in ${IC_COMMITS}
 do
   log "Trying commit ${COMMIT}"
   URL="https://download.dfinity.systems/ic/${COMMIT}/binaries/x86_64-linux/ic-boundary.gz"
-  if curl -fsSL --retry 3 --retry-delay 5 -o ic-boundary.gz ${URL}; then
+  if curl -fsSL --retry 3 --retry-delay 5 --retry-all-errors -o ic-boundary.gz ${URL}; then
     OK=1
     break
   fi
@@ -62,7 +62,7 @@ log "ic-gateway build completed"
 
 log "Downloading asset canister WASM"
 mkdir -p "${CANISTER_DIR}" || { log "Failed to create canister directory"; exit 1; }
-curl -fsSL --retry 3 --retry-delay 5 "${ASSET_WASM_URL}" -o "${CANISTER_DIR}/assetstorage.wasm.gz" || {
+curl -fsSL --retry 3 --retry-delay 5 --retry-all-errors "${ASSET_WASM_URL}" -o "${CANISTER_DIR}/assetstorage.wasm.gz" || {
   log "Failed to download asset canister WASM"
   exit 1
 }
@@ -74,7 +74,7 @@ log "Asset canister WASM downloaded"
 
 log "Downloading large assets canister WASM"
 mkdir -p "${CANISTER_DIR}" || { log "Failed to create canister directory"; exit 1; }
-curl -fsSL --retry 3 --retry-delay 5 "${LARGE_ASSETS_WASM_URL}" -o "${CANISTER_DIR}/largeassets.wasm.gz" || {
+curl -fsSL --retry 3 --retry-delay 5 --retry-all-errors "${LARGE_ASSETS_WASM_URL}" -o "${CANISTER_DIR}/largeassets.wasm.gz" || {
   log "Failed to download large assets canister WASM"
   exit 1
 }
