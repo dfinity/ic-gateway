@@ -235,19 +235,19 @@ signature = "iQTHBAABCgCxFiEE5VD//9SF4mShcX4wkBwcMg6w1F0FAmUt0ElfFIAAAAAALgAoaXN
 
 [[package]]
 name = "rust"
-version = "1:1.90.0-2"
+version = "1:1.90.0-1"
 system = "archlinux"
-url = "https://archive.archlinux.org/packages/r/rust/rust-1:1.90.0-2-x86_64.pkg.tar.zst"
-sha256 = "1d29a7e18c845e0f6345a32be7473ff57dde368259815c4082461f438684284d"
-signature = "iHUEABYKAB0WIQSDvIiJNRtd67toQW64rAhgDxCM3wUCaM2YUQAKCRC4rAhgDxCM35Q7AQCDVTiMvlQ+NQn1sZWWjcDR0u+KFwII6RQVZv4l8dK39QEA5kPATVBNT5mxDRd34sDgr47WEo0gjttSyaZjCUtjIgA="
+url = "https://archive.archlinux.org/packages/r/rust/rust-1:1.90.0-1-x86_64.pkg.tar.zst"
+sha256 = "d25e79a7cf1edfec386b379f09df2c05c2f08d8438ff01a063b6607c404b5da4"
+signature = "iHUEABYKAB0WIQSDvIiJNRtd67toQW64rAhgDxCM3wUCaMyItQAKCRC4rAhgDxCM350DAQD6YlD50eTH9qdVf7D2opSnk09EQ0yrH9y8Tcwuru/lOQEA/+tIgPKonpSqI2tzhnMWOrRI1qZBjeE4ZoHyywf/wA8="
 
 [[package]]
 name = "rust-musl"
-version = "1:1.90.0-2"
+version = "1:1.90.0-1"
 system = "archlinux"
-url = "https://archive.archlinux.org/packages/r/rust-musl/rust-musl-1:1.90.0-2-x86_64.pkg.tar.zst"
-sha256 = "a5960b44374f9670a69c1e191fb0b53ea197444b39d883f45b628a7c19906d51"
-signature = "iHUEABYKAB0WIQSDvIiJNRtd67toQW64rAhgDxCM3wUCaM2YVAAKCRC4rAhgDxCM38AGAQCWLX+v6XvjcXNddD7lQlcGR0t0MgDUxKbWdrPq3q5wmQEAj6q4MfKDd35rtAYnGMLddIvzJ4SefJ2//2FzQ7XoNwA="
+url = "https://archive.archlinux.org/packages/r/rust-musl/rust-musl-1:1.90.0-1-x86_64.pkg.tar.zst"
+sha256 = "f8dff0d5ffafd5466949cd6915b851202c0ddfd9e0d102fc28fafa7fbf6a39fb"
+signature = "iHUEABYKAB0WIQSDvIiJNRtd67toQW64rAhgDxCM3wUCaMyItwAKCRC4rAhgDxCM32lSAP9SBEavCvh4hGsW4A8NYPUBfljiFRPR9BjQ9DcvYa8juQD9GpGH+2CTpRIYIqJja+gwOfN+cQy8odl07gU0mLUzAAk="
 
 [[package]]
 name = "sqlite"
