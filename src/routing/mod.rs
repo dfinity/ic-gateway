@@ -41,6 +41,7 @@ use ic_bn_lib::{
 use ic_bn_lib::{http::middleware::rate_limiter, vector::client::Vector};
 use prometheus::Registry;
 use strum::{Display, IntoStaticStr};
+use tokio_util::sync::CancellationToken;
 use tower::{ServiceBuilder, ServiceExt, limit::ConcurrencyLimitLayer, util::MapResponseLayer};
 use tracing::warn;
 use tracing_core::LevelFilter;
@@ -186,13 +187,20 @@ pub async fn setup_router(
     http_client_hyper: Arc<dyn ClientHttp<Full<Bytes>>>,
     route_provider: Arc<dyn RouteProvider>,
     registry: &Registry,
+    shutdown_token: CancellationToken,
     vector: Option<Arc<Vector>>,
     waf_layer: Option<WafLayer>,
     #[cfg(feature = "clickhouse")] clickhouse: Option<Arc<Clickhouse>>,
 ) -> Result<Router, Error> {
     // Setup API router
-    let router_api = setup_api_router(cli, log_handle, health_manager.clone(), waf_layer.clone())
-        .context("unable to setup API Router")?;
+    let router_api = setup_api_router(
+        cli,
+        log_handle,
+        health_manager.clone(),
+        shutdown_token,
+        waf_layer.clone(),
+    )
+    .context("unable to setup API Router")?;
 
     let custom_domain_storage = Arc::new(CustomDomainStorage::new(custom_domain_providers));
     tasks.add_interval(

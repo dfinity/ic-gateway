@@ -14,6 +14,7 @@ use ic_bn_lib::{
     http::middleware::waf::{self, WafLayer},
     types::Healthy,
 };
+use tokio_util::sync::CancellationToken;
 use tracing::Level;
 use tracing_core::LevelFilter;
 use tracing_subscriber::{Registry, reload::Handle};
@@ -24,6 +25,7 @@ use crate::{cli::Cli, routing::middleware::cors};
 pub struct ApiState {
     token: Option<String>,
     log_handle: Arc<Handle<LevelFilter, Registry>>,
+    shutdown_token: CancellationToken,
 }
 
 pub async fn auth_middleware(
@@ -72,6 +74,11 @@ pub async fn log_handler(
     "Ok\n".into_response()
 }
 
+pub async fn shutdown_handler(State(state): State<Arc<ApiState>>) -> Response {
+    state.shutdown_token.cancel();
+    "Shutting down gracefully\n".into_response()
+}
+
 /// Handles health requests
 pub async fn health_handler(State(state): State<Arc<dyn Healthy>>) -> impl IntoResponse {
     if state.healthy() {
@@ -85,6 +92,7 @@ pub fn setup_api_router(
     cli: &Cli,
     log_handle: Handle<LevelFilter, Registry>,
     healthy: Arc<dyn Healthy>,
+    shutdown_token: CancellationToken,
     waf_layer: Option<WafLayer>,
 ) -> Result<Router, Error> {
     let cors_layer = cors::layer(cli.cors.cors_max_age, cli.cors.cors_allow_origin.clone())
@@ -93,12 +101,14 @@ pub fn setup_api_router(
     let state = Arc::new(ApiState::new(
         cli.api.api_token.clone(),
         Arc::new(log_handle),
+        shutdown_token,
     ));
 
     let auth = from_fn_with_state(state.clone(), auth_middleware);
 
     let mut router = Router::new()
         .route("/log/{log_level}", get(log_handler).layer(auth.clone()))
+        .route("/shutdown", get(shutdown_handler).layer(auth.clone()))
         .route("/health", get(health_handler).with_state(healthy));
 
     // Enable WAF if requested
@@ -127,7 +137,8 @@ mod test {
 
         let (_, reload_handle) = reload::Layer::new(LevelFilter::WARN);
         let healthy = Arc::new(HealthManager::default());
-        let router = setup_api_router(&cli, reload_handle, healthy, None).unwrap();
+        let router =
+            setup_api_router(&cli, reload_handle, healthy, CancellationToken::new(), None).unwrap();
 
         // Bad header
         let mut req = Request::builder()

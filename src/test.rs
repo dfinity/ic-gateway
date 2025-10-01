@@ -24,6 +24,7 @@ use ic_transport_types::{QueryResponse, ReplyResponse};
 use prometheus::Registry;
 use rand::{Rng, SeedableRng};
 use serde_cbor::to_vec;
+use tokio_util::sync::CancellationToken;
 use tracing_core::LevelFilter;
 use tracing_subscriber::reload;
 
@@ -140,6 +141,7 @@ pub async fn setup_test_router(tasks: &mut TaskManager) -> (Router, Vec<String>)
         http_client,
         Arc::new(route_provider),
         &Registry::new(),
+        CancellationToken::new(),
         #[cfg(feature = "clickhouse")]
         None,
         None,

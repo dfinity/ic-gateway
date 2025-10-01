@@ -82,7 +82,7 @@ pub async fn main(
         .map_err(|_| anyhow!("unable to install Rustls crypto provider"))?;
 
     // Prepare some general stuff
-    let token = CancellationToken::new();
+    let shutdown_token = CancellationToken::new();
 
     let health_manager = Arc::new(HealthManager::default());
     let mut custom_domain_providers: Vec<Arc<dyn ProvidesCustomDomains>> = vec![];
@@ -167,7 +167,7 @@ pub async fn main(
 
     // Handle SIGTERM/SIGHUP and Ctrl+C
     // Cancelling a token cancels all of its clones too
-    let handler_token = token.clone();
+    let handler_token = shutdown_token.clone();
     ctrlc::set_handler(move || handler_token.cancel())?;
 
     // HTTP server metrics
@@ -239,6 +239,7 @@ pub async fn main(
         http_client_hyper,
         route_provider.clone(),
         &registry,
+        shutdown_token.clone(),
         vector.clone(),
         waf_layer,
         #[cfg(feature = "clickhouse")]
@@ -317,7 +318,7 @@ pub async fn main(
     tasks.start();
 
     warn!("Service is running, waiting for the shutdown signal");
-    token.cancelled().await;
+    shutdown_token.cancelled().await;
 
     warn!("Shutdown signal received, cleaning up");
     tasks.stop().await;
