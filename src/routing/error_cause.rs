@@ -1,4 +1,4 @@
-use std::error::Error as StdError;
+use std::{cell::RefCell, error::Error as StdError};
 
 use crate::routing::RequestType;
 use axum::response::{IntoResponse, Response};
@@ -12,7 +12,6 @@ use ic_bn_lib::{
 };
 use ic_http_gateway::HttpGatewayError;
 use ic_transport_types::RejectCode;
-use std::sync::Arc;
 use strum::{Display, IntoStaticStr};
 use tokio::task_local;
 
@@ -21,11 +20,12 @@ use super::ic::BNResponseMetadata;
 #[derive(Default, Clone)]
 pub struct ErrorContext {
     pub request_type: RequestType,
+    pub authority: Option<FQDN>,
     pub alternate_error_domain: Option<FQDN>,
 }
 
 task_local! {
-    pub static ERROR_CONTEXT: Arc<ErrorContext>;
+    pub static ERROR_CONTEXT: RefCell<ErrorContext>;
 }
 
 const ERROR_PAGE_TEMPLATE: &str = include_str!("error_pages/template.html");
@@ -36,6 +36,8 @@ const RETRY_LOGIC: &str = include_str!("error_pages/components/retry_logic.js");
 const APPEAL_SECTION: &str = include_str!("error_pages/components/appeal_section.html");
 
 const ALTERNATE_ERROR: &str = include_str!("error_pages/caffeine_error.html");
+const ALTERNATE_ERROR_UNKNOWN_DOMAIN: &str =
+    include_str!("error_pages/caffeine_error_unknown_domain.html");
 
 const CANISTER_ERROR_SVG: &str = include_str!("error_pages/assets/canister-error.svg");
 const CANISTER_WARNING_SVG: &str = include_str!("error_pages/assets/canister-warning.svg");
@@ -518,29 +520,37 @@ impl IntoResponse for ErrorClientFacing {
     fn into_response(self) -> Response {
         let context = ERROR_CONTEXT
             .try_with(|ctx| ctx.clone())
-            .unwrap_or_else(|_| Arc::new(ErrorContext::default()));
+            .unwrap_or_default();
+        let context = context.borrow();
 
         let error_data = self.data();
 
         // Return an HTML error page if it was an HTTP request
         let body = match context.request_type {
-            RequestType::Http => match self {
-                Self::UnknownDomain(domain) => {
-                    // Check if we have a configured alternate error domain and if the current domain is a subdomain of it
-                    if context.alternate_error_domain.as_ref().is_some_and(
-                        |alternate_error_domain| domain.is_subdomain_of(alternate_error_domain),
-                    ) {
-                        ALTERNATE_ERROR.to_string()
-                    } else {
-                        error_data.html()
+            RequestType::Http => {
+                // Check if this is an alternate error domain
+                // and produce alternate errors then
+                if context
+                    .alternate_error_domain
+                    .as_ref()
+                    .zip(context.authority.as_ref())
+                    .map(|(alternate, authority)| authority.is_subdomain_of(alternate))
+                    == Some(true)
+                {
+                    match self {
+                        Self::UnknownDomain(_) => ALTERNATE_ERROR_UNKNOWN_DOMAIN,
+                        _ => ALTERNATE_ERROR,
                     }
+                    .to_string()
+                } else {
+                    error_data.html()
                 }
-                _ => error_data.html(),
-            },
+            }
+
             _ => format!("error: {}\ndetails:\n{}", self, error_data.description),
         };
 
-        // build the final response
+        // Build the final response
         let mut resp = (error_data.status_code, body).into_response();
         if context.request_type == RequestType::Http {
             resp.headers_mut().insert(CONTENT_TYPE, CONTENT_TYPE_HTML);
@@ -619,13 +629,15 @@ impl ErrorData {
 #[cfg(test)]
 mod test {
     use super::*;
+    use fqdn::fqdn;
     use http::HeaderMap;
+    use http_body_util::BodyExt;
     use ic_bn_lib::{http::headers::X_IC_ERROR_CAUSE, hval, ic_agent::AgentError};
     use ic_transport_types::RejectResponse;
     use std::sync::Arc;
 
-    #[test]
-    fn test_error_cause() {
+    #[tokio::test]
+    async fn test_error_cause() {
         // Mapping of Rustls errors
         let err = anyhow::Error::new(rustls::Error::NoCertificatesPresented);
         assert!(matches!(
@@ -743,6 +755,52 @@ mod test {
         assert!(matches!(
             ErrorCause::from(http_gw_error),
             ErrorCause::BackendError(_)
-        ))
+        ));
+
+        // Test alternate errors
+        let context = RefCell::new(ErrorContext {
+            alternate_error_domain: Some(fqdn!("caffeine.ai")),
+            request_type: RequestType::Http,
+            authority: Some(fqdn!("foobar.caffeine.ai")),
+        });
+
+        let error = ErrorCause::UnknownDomain(fqdn!("foo"));
+        let error: ErrorClientFacing = (&error).into();
+
+        ERROR_CONTEXT
+            .scope(context.clone(), async move {
+                let resp = error.into_response();
+                let body = resp.into_body().collect().await.unwrap().to_bytes();
+                assert_eq!(body, ALTERNATE_ERROR_UNKNOWN_DOMAIN.as_bytes());
+            })
+            .await;
+
+        let error = ErrorCause::CanisterError;
+        let error: ErrorClientFacing = (&error).into();
+
+        ERROR_CONTEXT
+            .scope(context, async move {
+                let resp = error.into_response();
+                let body = resp.into_body().collect().await.unwrap().to_bytes();
+                assert_eq!(body, ALTERNATE_ERROR.as_bytes());
+            })
+            .await;
+
+        let context = RefCell::new(ErrorContext {
+            alternate_error_domain: Some(fqdn!("caffeine.ai")),
+            request_type: RequestType::Http,
+            authority: Some(fqdn!("foobar.cocaine.ai")),
+        });
+
+        let error = ErrorCause::UnknownDomain(fqdn!("foo"));
+        let error: ErrorClientFacing = (&error).into();
+
+        ERROR_CONTEXT
+            .scope(context.clone(), async move {
+                let resp = error.into_response();
+                let body = resp.into_body().collect().await.unwrap().to_bytes();
+                assert_ne!(body, ALTERNATE_ERROR_UNKNOWN_DOMAIN.as_bytes());
+            })
+            .await;
     }
 }
