@@ -83,6 +83,9 @@ pub struct Cli {
     #[command(flatten, next_help_heading = "CORS")]
     pub cors: Cors,
 
+    #[command(flatten, next_help_heading = "Rate limiting")]
+    pub rate_limit: RateLimit,
+
     #[command(flatten, next_help_heading = "Cache")]
     pub cache: CacheConfig,
 
@@ -555,6 +558,13 @@ pub struct Cors {
     /// Timeout for expiring invalid canisters from the cache
     #[clap(env, long, default_value = "1d", value_parser = parse_duration)]
     pub cors_invalid_canisters_ttl: Duration,
+}
+
+#[derive(Args)]
+pub struct RateLimit {
+    /// Bypass token for rate-limiter that should be sent in `x-ratelimit-bypass-token` header
+    #[clap(env, long)]
+    pub rate_limit_bypass_token: Option<String>,
 }
 
 #[cfg(test)]

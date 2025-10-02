@@ -489,7 +489,12 @@ pub async fn setup_router(
                     ])),
             )
             .route("/registrations", post(proxy::issuer_proxy).layer(cors_post))
-            .layer(rate_limiter::layer_by_ip(1, 2, RateLimitCause::Normal)?)
+            .layer(rate_limiter::layer_by_ip(
+                1,
+                2,
+                RateLimitCause::Normal,
+                cli.rate_limit.rate_limit_bypass_token.clone(),
+            )?)
             .with_state(state);
 
         Some(router)
@@ -590,7 +595,12 @@ pub async fn setup_router(
                     )
                     .context("unable to init SEV-SNP")?,
                 )
-                .layer(rate_limiter::layer_global(50, 100, RateLimitCause::Normal)?),
+                .layer(rate_limiter::layer_global(
+                    50,
+                    100,
+                    RateLimitCause::Normal,
+                    cli.rate_limit.rate_limit_bypass_token.clone(),
+                )?),
         );
 
         router = router.merge(router_sev_snp)
