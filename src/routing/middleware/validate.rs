@@ -12,7 +12,10 @@ use http::header::REFERER;
 use ic_bn_lib::http::extract_authority;
 use url::{Url, form_urlencoded};
 
-use crate::routing::{CanisterId, ErrorCause, RequestCtx, RequestType, domain::ResolvesDomain};
+use crate::routing::{
+    CanisterId, ErrorCause, RequestCtx, RequestType, domain::ResolvesDomain,
+    error_cause::ERROR_CONTEXT,
+};
 
 #[derive(Clone)]
 pub struct ValidateState {
@@ -30,6 +33,12 @@ pub async fn middleware(
     let Some(authority) = extract_authority(&request).and_then(|x| FQDN::from_str(x).ok()) else {
         return Err(ErrorCause::NoAuthority);
     };
+
+    // Inject authority into error context
+    let _ = ERROR_CONTEXT.try_with(|x| {
+        let mut v = x.borrow_mut();
+        v.authority = Some(authority.clone());
+    });
 
     // Resolve the domain
     let mut lookup = state
