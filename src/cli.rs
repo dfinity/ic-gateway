@@ -262,6 +262,11 @@ pub struct Domain {
     #[clap(env, long, value_delimiter = ',')]
     pub domain_custom_provider_timestamped: Vec<Url>,
 
+    /// List of generic differential custom domain provider URLs.
+    /// It first downloads the full seed and then only applies incremental updates to it using a timestamp.
+    #[clap(env, long, value_delimiter = ',')]
+    pub domain_custom_provider_diff: Vec<Url>,
+
     /// How frequently to poll custom domain providers for updates
     #[clap(env, long, default_value = "30s", value_parser = parse_duration)]
     pub domain_custom_provider_poll_interval: Duration,
