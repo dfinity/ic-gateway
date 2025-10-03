@@ -216,6 +216,16 @@ pub async fn main(
             }),
     );
 
+    custom_domain_providers.extend(cli.domain.domain_custom_provider_diff.iter().map(|x| {
+        warn!("Adding diff custom domain provider: {x}");
+
+        Arc::new(custom_domains::GenericProviderDiff::new(
+            http_client.clone(),
+            x.clone(),
+            cli.domain.domain_custom_provider_timeout,
+        )) as Arc<dyn ProvidesCustomDomains>
+    }));
+
     // Setup WAF
     let waf_layer = if cli.waf.waf_enable {
         let v = WafLayer::new_from_cli(&cli.waf, Some(http_client.clone()))
