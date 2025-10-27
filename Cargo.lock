@@ -531,6 +531,52 @@ dependencies = [
 ]
 
 [[package]]
+name = "axum-server"
+version = "0.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "495c05f60d6df0093e8fb6e74aa5846a0ad06abaf96d76166283720bf740f8ab"
+dependencies = [
+ "bytes",
+ "fs-err",
+ "http 1.3.1",
+ "http-body",
+ "hyper",
+ "hyper-util",
+ "tokio",
+ "tower-service",
+]
+
+[[package]]
+name = "backend"
+version = "0.1.0"
+source = "git+ssh://git@github.com/dfinity/custom-domains.git?rev=6470caa979c493d80d32422e3b870478eb90a069#6470caa979c493d80d32422e3b870478eb90a069"
+dependencies = [
+ "anyhow",
+ "axum 0.8.6",
+ "axum-extra",
+ "axum-server",
+ "base",
+ "base64 0.22.1",
+ "candid",
+ "canister-client",
+ "chacha20poly1305",
+ "clap",
+ "derive-new",
+ "fqdn",
+ "ic-bn-lib",
+ "prometheus",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "strum 0.27.2",
+ "thiserror 2.0.17",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "backoff"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -554,6 +600,37 @@ dependencies = [
  "object",
  "rustc-demangle",
  "windows-link 0.2.0",
+]
+
+[[package]]
+name = "base"
+version = "0.1.0"
+source = "git+ssh://git@github.com/dfinity/custom-domains.git?rev=6470caa979c493d80d32422e3b870478eb90a069#6470caa979c493d80d32422e3b870478eb90a069"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum 0.8.6",
+ "candid",
+ "canister-api",
+ "chacha20poly1305",
+ "chrono",
+ "clap",
+ "derive-new",
+ "fqdn",
+ "hickory-resolver",
+ "humantime",
+ "ic-bn-lib",
+ "mockall",
+ "pem 3.0.5",
+ "prometheus",
+ "reqwest",
+ "serde",
+ "strum 0.27.2",
+ "thiserror 2.0.17",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "x509-parser 0.17.0",
 ]
 
 [[package]]
@@ -875,6 +952,35 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.106",
+]
+
+[[package]]
+name = "canister-api"
+version = "0.1.0"
+source = "git+ssh://git@github.com/dfinity/custom-domains.git?rev=6470caa979c493d80d32422e3b870478eb90a069#6470caa979c493d80d32422e3b870478eb90a069"
+dependencies = [
+ "candid",
+ "derive-new",
+ "serde",
+ "strum 0.27.2",
+ "thiserror 2.0.17",
+]
+
+[[package]]
+name = "canister-client"
+version = "0.1.0"
+source = "git+ssh://git@github.com/dfinity/custom-domains.git?rev=6470caa979c493d80d32422e3b870478eb90a069#6470caa979c493d80d32422e3b870478eb90a069"
+dependencies = [
+ "anyhow",
+ "arc-swap",
+ "async-trait",
+ "base",
+ "candid",
+ "canister-api",
+ "derive-new",
+ "fqdn",
+ "ic-bn-lib",
+ "tracing",
 ]
 
 [[package]]
@@ -1753,6 +1859,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "encoding_rs"
+version = "0.8.35"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75030f3c4f45dafd7586dd6780965a8c7e8e285a5ecb86713e63a79c5b2766f3"
+dependencies = [
+ "cfg-if",
+]
+
+[[package]]
 name = "enum-as-inner"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1946,6 +2061,7 @@ version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c0f5d7f7b3eed2f771fc7f6fcb651f9560d7b0c483d75876082acb4649d266b3"
 dependencies = [
+ "punycode",
  "serde",
 ]
 
@@ -1964,6 +2080,16 @@ name = "fragile"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28dd6caf6059519a65843af8fe2a3ae298b14b80179855aeb4adc2c1934ee619"
+
+[[package]]
+name = "fs-err"
+version = "3.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ad492b2cf1d89d568a43508ab24f98501fe03f2f31c01e1d0fe7366a71745d2"
+dependencies = [
+ "autocfg",
+ "tokio",
+]
 
 [[package]]
 name = "fuchsia-cprng"
@@ -2501,6 +2627,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hyper-tls"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "70206fc6890eaca9fde8a0bf71caa2ddfc9fe045ac9e5c70df101a7dbde866e0"
+dependencies = [
+ "bytes",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "native-tls",
+ "tokio",
+ "tokio-native-tls",
+ "tower-service",
+]
+
+[[package]]
 name = "hyper-util"
 version = "0.1.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2603,7 +2745,7 @@ dependencies = [
 [[package]]
 name = "ic-bn-lib"
 version = "0.1.0"
-source = "git+https://github.com/dfinity/ic-bn-lib?rev=e23f4a8cf3bd7c06b8ef329d3c1e6117ea71b832#e23f4a8cf3bd7c06b8ef329d3c1e6117ea71b832"
+source = "git+https://github.com/dfinity/ic-bn-lib?rev=62038a2763a356ec4b47604f795724ca6970cac9#62038a2763a356ec4b47604f795724ca6970cac9"
 dependencies = [
  "ahash",
  "anyhow",
@@ -2853,6 +2995,8 @@ dependencies = [
  "async-trait",
  "axum 0.8.6",
  "axum-extra",
+ "backend",
+ "base",
  "bytes",
  "candid",
  "clap",
@@ -3779,6 +3923,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "native-tls"
+version = "0.2.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "87de3442987e9dbec73158d5c715e7ad9072fda936bb03d19d7fa10e00520f0e"
+dependencies = [
+ "libc",
+ "log",
+ "openssl",
+ "openssl-probe",
+ "openssl-sys",
+ "schannel",
+ "security-framework 2.11.1",
+ "security-framework-sys",
+ "tempfile",
+]
+
+[[package]]
 name = "new_debug_unreachable"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4536,6 +4697,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "punycode"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e9e1dcb320d6839f6edb64f7a4a59d39b30480d4d1765b56873f7c858538a5fe"
+
+[[package]]
 name = "quanta"
 version = "0.12.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4907,6 +5074,7 @@ checksum = "d429f34c8092b2d42c7c93cec323bb4adeb7c67698f70839adec842ec10c7ceb"
 dependencies = [
  "base64 0.22.1",
  "bytes",
+ "encoding_rs",
  "futures-channel",
  "futures-core",
  "futures-util",
@@ -4917,10 +5085,13 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-rustls",
+ "hyper-tls",
  "hyper-util",
  "js-sys",
  "log",
+ "mime",
  "mime_guess",
+ "native-tls",
  "once_cell",
  "percent-encoding",
  "pin-project-lite",
@@ -4933,6 +5104,7 @@ dependencies = [
  "serde_urlencoded",
  "sync_wrapper",
  "tokio",
+ "tokio-native-tls",
  "tokio-rustls",
  "tokio-util",
  "tower 0.5.2",
@@ -5071,7 +5243,7 @@ dependencies = [
  "openssl-probe",
  "rustls-pki-types",
  "schannel",
- "security-framework",
+ "security-framework 3.5.1",
 ]
 
 [[package]]
@@ -5108,7 +5280,7 @@ dependencies = [
  "rustls-native-certs",
  "rustls-platform-verifier-android",
  "rustls-webpki",
- "security-framework",
+ "security-framework 3.5.1",
  "security-framework-sys",
  "webpki-root-certs",
  "windows-sys 0.59.0",
@@ -5238,6 +5410,19 @@ dependencies = [
  "pkcs8",
  "subtle",
  "zeroize",
+]
+
+[[package]]
+name = "security-framework"
+version = "2.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "897b2245f0b511c87893af39b033e5ca9cce68824c4d7e7630b5a1d339658d02"
+dependencies = [
+ "bitflags",
+ "core-foundation 0.9.4",
+ "core-foundation-sys",
+ "libc",
+ "security-framework-sys",
 ]
 
 [[package]]
@@ -6086,6 +6271,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.106",
+]
+
+[[package]]
+name = "tokio-native-tls"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbae76ab933c85776efabc971569dd6119c580d8f5d448769dec1764bf796ef2"
+dependencies = [
+ "native-tls",
+ "tokio",
 ]
 
 [[package]]

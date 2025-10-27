@@ -122,6 +122,7 @@ pub async fn setup_test_router(tasks: &mut TaskManager) -> (Router, Vec<String>)
         .map(|x| CustomDomain {
             name: fqdn!(&x),
             canister_id: principal!("aaaaa-aa"),
+            timestamp: 0,
         })
         .collect::<Vec<_>>();
 
@@ -143,6 +144,7 @@ pub async fn setup_test_router(tasks: &mut TaskManager) -> (Router, Vec<String>)
         &Registry::new(),
         CancellationToken::new(),
         #[cfg(feature = "clickhouse")]
+        None,
         None,
         None,
         None,

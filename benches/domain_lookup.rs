@@ -34,6 +34,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         .map(|x| CustomDomain {
             name: x,
             canister_id: principal!("aaaaa-aa"),
+            timestamp: 0,
         })
         .collect::<Vec<_>>();
 
