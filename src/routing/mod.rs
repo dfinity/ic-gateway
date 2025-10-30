@@ -558,7 +558,7 @@ pub async fn setup_router(
                 // If the custom domains are enabled and the request came to the base domain
                 if let Some(v) = custom_domains_router 
                     && ctx.is_base_domain()
-                    && path.starts_with("/custom-domains/")
+                    && path.starts_with("/custom-domains")
                 {
                     return v.oneshot(request).await;
                 }

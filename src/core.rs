@@ -182,18 +182,19 @@ pub async fn main(
 
     // Setup custom domains
     let custom_domains_router = if let Some(v) = &cli.custom_domains {
-        Some(
-            setup_custom_domains(
-                v,
-                dns_options,
-                &registry,
-                &mut tasks,
-                &mut certificate_providers,
-                &mut custom_domain_providers,
-            )
-            .await
-            .context("unable to setup Custom Domains")?,
+        let router = setup_custom_domains(
+            v,
+            dns_options,
+            &registry,
+            &mut tasks,
+            &mut certificate_providers,
+            &mut custom_domain_providers,
         )
+        .await
+        .context("unable to setup Custom Domains")?;
+
+        warn!("Custom Domains: initialized");
+        Some(router)
     } else {
         None
     };
@@ -390,7 +391,9 @@ async fn setup_custom_domains(
     )
     .await?;
 
-    tasks.add("custom_domains", Arc::new(worker));
+    tasks.add("custom_domains_worker", Arc::new(worker));
+    tasks.add("custom_domains_canister_client", client.clone());
+
     certificate_providers.push(client.clone());
     custom_domain_providers.push(client);
 

@@ -32,12 +32,13 @@ clickhouse = { version = "0.13.1", features = [
     "rustls-tls-ring",
     "rustls-tls-webpki-roots",
 ], optional = true }
+cloudflare = { version = "0.14.0", default-features = false, features = [
+    "rustls-tls",
+] }
 console-subscriber = { version = "0.4.1", optional = true }
 ctrlc = { version = "3.4.5", features = ["termination"] }
-#custom-domains-backend = { package = "backend", path = "../custom-domains/backend" }
-#custom-domains-base = { package = "base", path = "../custom-domains/base" }
-custom-domains-backend = { package = "backend", git = "ssh://git@github.com/dfinity/custom-domains.git", rev = "6470caa979c493d80d32422e3b870478eb90a069" }
-custom-domains-base = { package = "base", git = "ssh://git@github.com/dfinity/custom-domains.git", rev = "6470caa979c493d80d32422e3b870478eb90a069" }
+custom-domains-backend = { package = "backend", git = "https://github.com/dfinity/custom-domains", rev = "4b428aeda279887c5285139fa19df3a5cc667cd9" }
+custom-domains-base = { package = "base", git = "https://github.com/dfinity/custom-domains", rev = "4b428aeda279887c5285139fa19df3a5cc667cd9" }
 derive-new = "0.7.0"
 fqdn = { version = "0.4.1", features = ["serde"] }
 futures = "0.3.31"
@@ -52,7 +53,8 @@ http = "1.3.1"
 http-body = "1.0.1"
 http-body-util = "0.1.2"
 humantime = "2.2.0"
-ic-bn-lib = { git = "https://github.com/dfinity/ic-bn-lib", rev = "62038a2763a356ec4b47604f795724ca6970cac9", features = [
+ic-bn-lib = { git = "https://github.com/dfinity/ic-bn-lib", rev = "a635d5c3c0525faccd9831a5280c9a08ef89d0e9", features = [
+    "acme",
     "vector",
     "cert-providers",
     "clients-hyper",
@@ -153,3 +155,11 @@ harness = false
 [[bench]]
 name = "http_gateway"
 harness = false
+
+[[bin]]
+name = "create-acme-account"
+path = "tools/create_acme_account.rs"
+
+[[bin]]
+name = "cloudflare-check"
+path = "tools/cloudflare_check.rs"
