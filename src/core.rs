@@ -382,7 +382,7 @@ async fn setup_custom_domains(
     custom_domain_providers: &mut Vec<Arc<dyn ProvidesCustomDomains>>,
 ) -> Result<Router, Error> {
     let token = tasks.token();
-    let (worker, router, client) = setup(
+    let (workers, router, client) = setup(
         cli,
         dns_options,
         token,
@@ -391,7 +391,9 @@ async fn setup_custom_domains(
     )
     .await?;
 
-    tasks.add("custom_domains_worker", Arc::new(worker));
+    for (i, worker) in workers.into_iter().enumerate() {
+        tasks.add(&format!("custom_domains_worker_{i}"), Arc::new(worker));
+    }
     tasks.add("custom_domains_canister_client", client.clone());
 
     certificate_providers.push(client.clone());
