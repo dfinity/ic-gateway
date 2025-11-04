@@ -190,6 +190,7 @@ pub async fn setup_router(
     shutdown_token: CancellationToken,
     vector: Option<Arc<Vector>>,
     waf_layer: Option<WafLayer>,
+    custom_domains_router: Option<Router>,
     #[cfg(feature = "clickhouse")] clickhouse: Option<Arc<Clickhouse>>,
 ) -> Result<Router, Error> {
     // Setup API router
@@ -535,6 +536,9 @@ pub async fn setup_router(
 
     let api_hostname = cli.api.api_hostname.clone().map(|x| x.to_string());
 
+    let custom_domains_router =
+        custom_domains_router.map(|x| Router::new().nest("/custom-domains", x));
+
     // Top-level router
     #[allow(unused_mut)]
     let mut router = Router::new()
@@ -551,10 +555,18 @@ pub async fn setup_router(
                 let path = request.uri().path();
                 let canister_id = request.extensions().get::<CanisterId>();
 
+                // If the custom domains are enabled and the request came to the base domain
+                if let Some(v) = custom_domains_router 
+                    && ctx.is_base_domain()
+                    && path.starts_with("/custom-domains")
+                {
+                    return v.oneshot(request).await;
+                }
+
                 // If there are issuers defined and the request came to the base domain -> proxy to them
                 if let Some(v) = router_issuer
-                    && path.starts_with("/registrations")
                     && ctx.is_base_domain()
+                    && path.starts_with("/registrations")
                 {
                     return v.oneshot(request).await;
                 }

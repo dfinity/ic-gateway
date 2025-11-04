@@ -102,7 +102,7 @@ async fn setup_acme(
                 }
             };
 
-            let token_manager = Arc::new(TokenManagerDns::new(dns_resolver, dns_backend));
+            let token_manager = Arc::new(TokenManagerDns::new(dns_resolver, dns_backend, None));
 
             let opts = acme::dns::Opts {
                 acme_url: cli.acme.acme_url.clone(),

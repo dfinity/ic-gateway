@@ -34,6 +34,7 @@ pub struct Domain {
 pub struct DomainLookup {
     pub domain: Domain,
     pub canister_id: Option<Principal>,
+    pub timestamp: u64,
     pub verify: bool,
 }
 
@@ -137,32 +138,43 @@ impl CustomDomainStorage {
         // Store the new snapshot
         *self.snapshot.write().unwrap() = snapshot.clone();
 
-        // Convert the snapshot into new lookup structure
-        let domains = snapshot
-            .into_iter()
-            .flatten()
-            .flatten()
-            .map(|x| {
-                (
-                    x.name.clone(),
-                    DomainLookup {
-                        domain: Domain {
-                            name: x.name,
-                            custom: true,
-                            http: true,
-                            api: true,
-                        },
-                        canister_id: Some(x.canister_id),
-                        verify: true,
-                    },
-                )
-            })
-            .collect::<BTreeMap<_, _>>();
+        let mut tree: BTreeMap<FQDN, DomainLookup> = BTreeMap::new();
 
-        warn!("{self:?}: got new set of domains: {}", domains.len());
+        // Convert the snapshot into new lookup structure
+        let domains = snapshot.into_iter().flatten().flatten();
+        let mut dupes = 0;
+
+        for d in domains {
+            // Do not add new domain if the same one exists with newer timestamp
+            if let Some(v) = tree.get(&d.name)
+                && v.timestamp > d.timestamp
+            {
+                dupes += 1;
+                continue;
+            }
+
+            let dl = DomainLookup {
+                domain: Domain {
+                    name: d.name.clone(),
+                    custom: true,
+                    http: true,
+                    api: true,
+                },
+                timestamp: d.timestamp,
+                canister_id: Some(d.canister_id),
+                verify: true,
+            };
+
+            tree.insert(d.name, dl);
+        }
+
+        warn!(
+            "{self:?}: got new set of domains: {} ({dupes} duplicates)",
+            tree.len()
+        );
 
         // Store it
-        let inner = CustomDomainStorageInner(domains);
+        let inner = CustomDomainStorageInner(tree);
         self.inner.store(Some(Arc::new(inner)));
     }
 }
@@ -225,6 +237,7 @@ impl DomainResolver {
                     DomainLookup {
                         domain: domain.clone(),
                         canister_id: Some(alias.1),
+                        timestamp: 0,
                         verify: true,
                     },
                 )
@@ -242,6 +255,7 @@ impl DomainResolver {
                     DomainLookup {
                         domain: x,
                         canister_id: None,
+                        timestamp: 0,
                         verify: true,
                     },
                 )
@@ -298,6 +312,7 @@ impl DomainResolver {
         Some(DomainLookup {
             domain: domain.clone(),
             canister_id,
+            timestamp: 0,
             verify: !raw,
         })
     }
@@ -319,6 +334,8 @@ mod test {
     use super::*;
 
     const TEST_CANISTER_ID: &str = "s6hwe-laaaa-aaaab-qaeba-cai";
+    const TEST_CANISTER_ID_2: &str = "aaaaa-aa";
+    const TEST_CANISTER_ID_3: &str = "oa7fk-maaaa-aaaam-abgka-cai";
 
     #[test]
     fn test_canister_alias() -> Result<(), Error> {
@@ -352,12 +369,12 @@ mod test {
     }
 
     #[derive(Debug)]
-    struct TestCustomDomainProvider(CustomDomain);
+    struct TestCustomDomainProvider(Vec<CustomDomain>);
 
     #[async_trait]
     impl ProvidesCustomDomains for TestCustomDomainProvider {
         async fn get_custom_domains(&self) -> Result<Vec<CustomDomain>, Error> {
-            Ok(vec![self.0.clone()])
+            Ok(self.0.clone())
         }
     }
 
@@ -384,10 +401,28 @@ mod test {
 
         let domains_base = vec![fqdn!("ic0.app"), fqdn!("icp0.io")];
         let domains_api = vec![fqdn!("icp-api.io")];
-        let custom_domain_provider = TestCustomDomainProvider(CustomDomain {
-            name: fqdn!("foo.baz"),
-            canister_id: principal!(TEST_CANISTER_ID),
-        });
+        let custom_domain_provider = TestCustomDomainProvider(vec![
+            CustomDomain {
+                name: fqdn!("foo.bar"),
+                timestamp: 30,
+                canister_id: principal!(TEST_CANISTER_ID),
+            },
+            CustomDomain {
+                name: fqdn!("foo.bar"),
+                timestamp: 20,
+                canister_id: principal!(TEST_CANISTER_ID_2),
+            },
+            CustomDomain {
+                name: fqdn!("foo.baz"),
+                timestamp: 10,
+                canister_id: principal!(TEST_CANISTER_ID),
+            },
+            CustomDomain {
+                name: fqdn!("foo.baz"),
+                timestamp: 20,
+                canister_id: principal!(TEST_CANISTER_ID_3),
+            },
+        ]);
 
         // Add one working and one broken provider to make sure that broken one doesn't affect the outcome
         let custom_domain_storage = CustomDomainStorage::new(vec![
@@ -416,6 +451,7 @@ mod test {
                             http: true,
                             api: true,
                         },
+                        timestamp: 0,
                         canister_id: Some(a.1),
                         verify: true,
                     })
@@ -443,12 +479,6 @@ mod test {
             api: true,
             custom: false,
         };
-        let domain_foo_baz = Domain {
-            name: fqdn!("foo.baz"),
-            http: true,
-            api: true,
-            custom: true,
-        };
 
         // Base domain, no canister ID
         assert_eq!(
@@ -456,6 +486,7 @@ mod test {
             Some(DomainLookup {
                 domain: domain_ic0_app.clone(),
                 canister_id: None,
+                timestamp: 0,
                 verify: true,
             })
         );
@@ -466,6 +497,7 @@ mod test {
             Some(DomainLookup {
                 domain: domain_icp_api_io,
                 canister_id: None,
+                timestamp: 0,
                 verify: true,
             })
         );
@@ -479,6 +511,7 @@ mod test {
             Some(DomainLookup {
                 domain: domain_ic0_app.clone(),
                 canister_id: None,
+                timestamp: 0,
                 verify: true,
             })
         );
@@ -489,6 +522,7 @@ mod test {
             Some(DomainLookup {
                 domain: domain_ic0_app.clone(),
                 canister_id: Some(canister_id),
+                timestamp: 0,
                 verify: true,
             })
         );
@@ -499,6 +533,7 @@ mod test {
             Some(DomainLookup {
                 domain: domain_icp0_io.clone(),
                 canister_id: Some(canister_id),
+                timestamp: 0,
                 verify: true,
             })
         );
@@ -509,6 +544,7 @@ mod test {
             Some(DomainLookup {
                 domain: domain_ic0_app.clone(),
                 canister_id: Some(canister_id),
+                timestamp: 0,
                 verify: false,
             })
         );
@@ -517,6 +553,7 @@ mod test {
             Some(DomainLookup {
                 domain: domain_icp0_io.clone(),
                 canister_id: Some(canister_id),
+                timestamp: 0,
                 verify: false,
             })
         );
@@ -527,6 +564,7 @@ mod test {
             Some(DomainLookup {
                 domain: domain_icp0_io,
                 canister_id: None,
+                timestamp: 0,
                 verify: true,
             })
         );
@@ -537,6 +575,7 @@ mod test {
             Some(DomainLookup {
                 domain: domain_ic0_app.clone(),
                 canister_id: Some(canister_id),
+                timestamp: 0,
                 verify: true,
             })
         );
@@ -545,6 +584,7 @@ mod test {
             Some(DomainLookup {
                 domain: domain_ic0_app,
                 canister_id: Some(canister_id),
+                timestamp: 0,
                 verify: true,
             })
         );
@@ -553,12 +593,33 @@ mod test {
         assert_eq!(resolver.resolve(&fqdn!("aaaaa-aa.foo.ic0.app")), None);
         assert_eq!(resolver.resolve(&fqdn!("aaaaa-aa.foo.icp0.io")), None,);
 
-        // Resolve custom domain
+        // Resolve custom domains
+        // Make sure that newer custom domains are used (with higher timestamp)
+        assert_eq!(
+            resolver.resolve(&fqdn!("foo.bar")),
+            Some(DomainLookup {
+                domain: Domain {
+                    name: fqdn!("foo.bar"),
+                    http: true,
+                    api: true,
+                    custom: true,
+                },
+                canister_id: Some(principal!(TEST_CANISTER_ID)),
+                timestamp: 30,
+                verify: true,
+            })
+        );
         assert_eq!(
             resolver.resolve(&fqdn!("foo.baz")),
             Some(DomainLookup {
-                domain: domain_foo_baz,
-                canister_id: Some(principal!(TEST_CANISTER_ID)),
+                domain: Domain {
+                    name: fqdn!("foo.baz"),
+                    http: true,
+                    api: true,
+                    custom: true,
+                },
+                canister_id: Some(principal!(TEST_CANISTER_ID_3)),
+                timestamp: 20,
                 verify: true,
             })
         );

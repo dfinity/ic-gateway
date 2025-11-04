@@ -5,9 +5,15 @@ use std::{
 
 use anyhow::{Context, Error, anyhow};
 use axum::Router;
+use custom_domains_backend::setup;
 use ic_bn_lib::{
     custom_domains::{self, ProvidesCustomDomains},
-    http::{self as bnhttp, dns::ApiBnResolver, middleware::waf::WafLayer, redirect_to_https},
+    http::{
+        self as bnhttp,
+        dns::{ApiBnResolver, Options as DnsOptions},
+        middleware::waf::WafLayer,
+        redirect_to_https,
+    },
     tasks::TaskManager,
     tls::{prepare_client_config, providers::ProvidesCertificates, verify::NoopServerCertVerifier},
     utils::health_manager::HealthManager,
@@ -92,7 +98,8 @@ pub async fn main(
         .context("unable to create Prometheus registry")?;
 
     // DNS resolver
-    let dns_resolver = bnhttp::dns::Resolver::new((&cli.dns).into());
+    let dns_options: DnsOptions = (&cli.dns).into();
+    let dns_resolver = bnhttp::dns::Resolver::new(dns_options.clone());
 
     // HTTP client
     let mut http_client_opts: bnhttp::client::Options = (&cli.http_client).into();
@@ -173,6 +180,25 @@ pub async fn main(
     // HTTP server metrics
     let http_metrics = bnhttp::server::Metrics::new(&registry);
 
+    // Setup custom domains
+    let custom_domains_router = if let Some(v) = &cli.custom_domains {
+        let router = setup_custom_domains(
+            v,
+            dns_options,
+            &registry,
+            &mut tasks,
+            &mut certificate_providers,
+            &mut custom_domain_providers,
+        )
+        .await
+        .context("unable to setup Custom Domains")?;
+
+        warn!("Custom Domains: initialized");
+        Some(router)
+    } else {
+        None
+    };
+
     // Setup Certificate Issuers
     let issuers = setup_issuers(cli, &mut tasks, http_client.clone(), &registry);
 
@@ -252,6 +278,7 @@ pub async fn main(
         shutdown_token.clone(),
         vector.clone(),
         waf_layer,
+        custom_domains_router,
         #[cfg(feature = "clickhouse")]
         clickhouse.clone(),
     )
@@ -344,4 +371,33 @@ pub async fn main(
     }
 
     Ok(())
+}
+
+async fn setup_custom_domains(
+    cli: &custom_domains_base::cli::CustomDomainsCli,
+    dns_options: DnsOptions,
+    metrics_registry: &Registry,
+    tasks: &mut TaskManager,
+    certificate_providers: &mut Vec<Arc<dyn ProvidesCertificates>>,
+    custom_domain_providers: &mut Vec<Arc<dyn ProvidesCustomDomains>>,
+) -> Result<Router, Error> {
+    let token = tasks.token();
+    let (workers, router, client) = setup(
+        cli,
+        dns_options,
+        token,
+        HOSTNAME.get().unwrap(),
+        metrics_registry.clone(),
+    )
+    .await?;
+
+    for (i, worker) in workers.into_iter().enumerate() {
+        tasks.add(&format!("custom_domains_worker_{i}"), Arc::new(worker));
+    }
+    tasks.add("custom_domains_canister_client", client.clone());
+
+    certificate_providers.push(client.clone());
+    custom_domain_providers.push(client);
+
+    Ok(router)
 }
