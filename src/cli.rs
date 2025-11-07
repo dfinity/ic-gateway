@@ -4,12 +4,10 @@ use ::http::HeaderValue;
 use clap::{Args, Parser};
 use fqdn::FQDN;
 use humantime::parse_duration;
-#[cfg(feature = "clickhouse")]
-use ic_bn_lib_common::parse_size_decimal;
 #[cfg(feature = "acme")]
 use ic_bn_lib_common::types::acme::{AcmeUrl, Challenge, DnsBackend};
 use ic_bn_lib_common::{
-    parse_size, parse_size_usize,
+    parse_size, parse_size_decimal, parse_size_usize,
     types::{
         dns::DnsCli,
         http::{HttpClientCli, HttpServerCli, ProxyProtocolMode, WafCli},
