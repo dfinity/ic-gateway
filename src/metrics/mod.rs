@@ -18,15 +18,14 @@ use axum::{
 use http::header::{CONTENT_TYPE, ORIGIN, REFERER, USER_AGENT};
 use ic_bn_lib::{
     http::{
-        body::CountingBody,
-        cache::CacheStatus,
-        calc_headers_size, extract_host, http_method, http_version,
-        server::{ConnInfo, TlsInfo},
+        body::CountingBody, cache::CacheStatus, calc_headers_size, extract_host, http_method,
+        http_version,
     },
     ic_agent::agent::route_provider::RouteProvider,
     tasks::TaskManager,
     vector::client::Vector,
 };
+use ic_bn_lib_common::types::http::{ConnInfo, TlsInfo};
 use prometheus::{
     HistogramVec, IntCounterVec, Registry, register_histogram_vec_with_registry,
     register_int_counter_vec_with_registry,

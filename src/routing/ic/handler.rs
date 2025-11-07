@@ -7,7 +7,8 @@ use axum::{
 };
 use bytes::Bytes;
 use http::{HeaderValue, StatusCode, header::HOST};
-use ic_bn_lib::http::{ConnInfo, Error as IcBnError, body::buffer_body, headers::X_REQUEST_ID};
+use ic_bn_lib::http::{body::buffer_body, headers::X_REQUEST_ID};
+use ic_bn_lib_common::types::http::{ConnInfo, Error as HttpError};
 use ic_http_gateway::{CanisterRequest, HttpGatewayClient, HttpGatewayRequestArgs};
 
 use crate::routing::{
@@ -50,7 +51,7 @@ pub async fn handler(
         Ok(v) => v,
         Err(e) => {
             // Close the connection if there was a timeout
-            if matches!(e, IcBnError::BodyTimedOut) {
+            if matches!(e, HttpError::BodyTimedOut) {
                 conn_info.close();
             }
 

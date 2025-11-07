@@ -22,7 +22,6 @@ use http::{
 use http_body_util::Full;
 use ic_bn_lib::{
     http::{
-        Client, ClientHttp, Error as IcBnError,
         body::buffer_body,
         headers::{
             CONTENT_TYPE_CBOR, X_CONTENT_TYPE_OPTIONS_NO_SNIFF, X_FRAME_OPTIONS_DENY,
@@ -32,6 +31,10 @@ use ic_bn_lib::{
         url_to_uri,
     },
     ic_agent::agent::route_provider::RouteProvider,
+};
+use ic_bn_lib_common::{
+    traits::http::{Client, ClientHttp},
+    types::http::Error as HttpError,
 };
 use regex::Regex;
 use tokio::time::sleep;
@@ -68,15 +71,15 @@ pub fn status_code_needs_retrying(s: StatusCode) -> bool {
     s == StatusCode::TOO_MANY_REQUESTS || s.is_server_error()
 }
 
-pub fn http_error_needs_retrying(e: &ic_bn_lib::http::Error) -> bool {
+pub fn http_error_needs_retrying(e: &HttpError) -> bool {
     match e {
-        ic_bn_lib::http::Error::HyperClientError(v) => v.is_connect(),
+        HttpError::HyperClientError(v) => v.is_connect(),
         _ => false,
     }
 }
 
 // Check if we need to retry the request based on the response that we got
-fn request_needs_retrying(result: &Result<Response, IcBnError>) -> bool {
+fn request_needs_retrying(result: &Result<Response, HttpError>) -> bool {
     match result {
         Ok(v) => status_code_needs_retrying(v.status()),
         Err(e) => http_error_needs_retrying(e),
@@ -247,9 +250,10 @@ mod test {
     use http::{Method, Request, Response, Uri};
     use http_body_util::BodyExt;
     use ic_bn_lib::{
-        http::{HyperClient, client::Options, dns::Resolver},
+        http::{HyperClient, dns::Resolver},
         ic_agent::agent::route_provider::RoundRobinRouteProvider,
     };
+    use ic_bn_lib_common::types::http::ClientOptions;
     use tower::ServiceExt;
 
     use super::*;
@@ -278,10 +282,7 @@ mod test {
 
     #[async_trait::async_trait]
     impl ClientHttp<Full<Bytes>> for TestClient {
-        async fn execute(
-            &self,
-            req: Request<Full<Bytes>>,
-        ) -> Result<Response<Body>, ic_bn_lib::http::Error> {
+        async fn execute(&self, req: Request<Full<Bytes>>) -> Result<Response<Body>, HttpError> {
             // Make sure we get correct request body
             let (_, body) = req.into_parts();
             let body = body.collect().await.unwrap().to_bytes().to_vec();
@@ -303,16 +304,13 @@ mod test {
 
     #[async_trait::async_trait]
     impl ClientHttp<Full<Bytes>> for TestClientErr {
-        async fn execute(
-            &self,
-            _: Request<Full<Bytes>>,
-        ) -> Result<Response<Body>, ic_bn_lib::http::Error> {
+        async fn execute(&self, _: Request<Full<Bytes>>) -> Result<Response<Body>, HttpError> {
             if self.0.fetch_add(1, Ordering::SeqCst) > 3 {
                 return Ok(Response::new(Body::from("foo")));
             }
 
             let cli: HyperClient<Full<Bytes>> =
-                HyperClient::new(Options::default(), Resolver::default());
+                HyperClient::new(ClientOptions::default(), Resolver::default());
             let mut req = Request::new(Full::new(Bytes::new()));
             *req.uri_mut() = Uri::from_static("http://0.0.0.0:1");
 
@@ -325,10 +323,7 @@ mod test {
 
     #[async_trait::async_trait]
     impl ClientHttp<Full<Bytes>> for TestClientFails5xx {
-        async fn execute(
-            &self,
-            _: Request<Full<Bytes>>,
-        ) -> Result<Response<Body>, ic_bn_lib::http::Error> {
+        async fn execute(&self, _: Request<Full<Bytes>>) -> Result<Response<Body>, HttpError> {
             let mut resp = Response::new(Body::from(""));
             *resp.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
             Ok(resp)
@@ -340,12 +335,9 @@ mod test {
 
     #[async_trait::async_trait]
     impl ClientHttp<Full<Bytes>> for TestClientFailsErr {
-        async fn execute(
-            &self,
-            _: Request<Full<Bytes>>,
-        ) -> Result<Response<Body>, ic_bn_lib::http::Error> {
+        async fn execute(&self, _: Request<Full<Bytes>>) -> Result<Response<Body>, HttpError> {
             let cli: HyperClient<Full<Bytes>> =
-                HyperClient::new(Options::default(), Resolver::default());
+                HyperClient::new(ClientOptions::default(), Resolver::default());
             let req = Request::new(Full::new(Bytes::new()));
 
             cli.execute(req).await

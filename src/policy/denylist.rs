@@ -4,7 +4,7 @@ use ahash::{AHashMap, AHashSet};
 use anyhow::{Context, Error, anyhow};
 use arc_swap::ArcSwapOption;
 use candid::Principal;
-use ic_bn_lib::http::Client;
+use ic_bn_lib_common::traits::http::Client;
 use serde::Deserialize;
 use serde_json as json;
 use tracing::warn;

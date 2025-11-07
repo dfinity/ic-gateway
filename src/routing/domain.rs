@@ -9,10 +9,9 @@ use arc_swap::ArcSwapOption;
 use async_trait::async_trait;
 use candid::Principal;
 use fqdn::{FQDN, Fqdn, fqdn};
-use ic_bn_lib::{
-    custom_domains::{CustomDomain, ProvidesCustomDomains},
-    tasks::Run,
-    types::Healthy,
+use ic_bn_lib_common::{
+    traits::{Healthy, Run, custom_domains::ProvidesCustomDomains},
+    types::CustomDomain,
 };
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
@@ -329,7 +328,7 @@ impl ResolvesDomain for DomainResolver {
 #[cfg(test)]
 mod test {
     use fqdn::fqdn;
-    use ic_bn_lib::principal;
+    use ic_bn_lib_common::principal;
 
     use super::*;
 

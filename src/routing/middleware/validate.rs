@@ -129,7 +129,7 @@ fn canister_id_from_referer_query_params(url: &Url) -> Option<Principal> {
 #[cfg(test)]
 mod test {
     use axum::body::Body;
-    use ic_bn_lib::principal;
+    use ic_bn_lib_common::principal;
 
     use super::*;
 

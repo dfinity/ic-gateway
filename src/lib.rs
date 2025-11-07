@@ -16,7 +16,7 @@ pub mod test;
 mod tls;
 
 pub use crate::cli::Cli;
-pub use ic_bn_lib::custom_domains::ProvidesCustomDomains;
+pub use ic_bn_lib_common::traits::custom_domains::ProvidesCustomDomains;
 #[cfg(feature = "clickhouse")]
 pub use metrics::Clickhouse;
 

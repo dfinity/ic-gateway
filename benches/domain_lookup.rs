@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use fqdn::fqdn;
-use ic_bn_lib::{custom_domains::CustomDomain, principal};
+use ic_bn_lib_common::{principal, types::CustomDomain};
 use rand::{Rng, seq::SliceRandom, thread_rng};
 
 use ic_gateway::{

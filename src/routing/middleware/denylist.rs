@@ -7,7 +7,7 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use ic_bn_lib::{http::Client, tasks::Run};
+use ic_bn_lib_common::traits::{Run, http::Client};
 use prometheus::{IntCounterVec, Registry, register_int_counter_vec_with_registry};
 use reqwest::Url;
 use tokio_util::sync::CancellationToken;

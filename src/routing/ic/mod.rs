@@ -14,19 +14,17 @@ use bytes::Bytes;
 use http::{HeaderMap, StatusCode, header::HeaderName};
 use http_body_util::{Either, Full};
 use ic_bn_lib::{
-    http::{
-        ClientHttp,
-        headers::{
-            X_IC_CACHE_BYPASS_REASON, X_IC_CACHE_STATUS, X_IC_CANISTER_ID_CBOR, X_IC_ERROR_CAUSE,
-            X_IC_METHOD_NAME, X_IC_NODE_ID, X_IC_RETRIES, X_IC_SENDER, X_IC_SUBNET_ID,
-            X_IC_SUBNET_TYPE,
-        },
+    http::headers::{
+        X_IC_CACHE_BYPASS_REASON, X_IC_CACHE_STATUS, X_IC_CANISTER_ID_CBOR, X_IC_ERROR_CAUSE,
+        X_IC_METHOD_NAME, X_IC_NODE_ID, X_IC_RETRIES, X_IC_SENDER, X_IC_SUBNET_ID,
+        X_IC_SUBNET_TYPE,
     },
     ic_agent::{
         Agent,
         agent::{HttpService, route_provider::RouteProvider},
     },
 };
+use ic_bn_lib_common::traits::http::ClientHttp;
 use ic_http_gateway::{
     HttpGatewayClient, HttpGatewayClientBuilder, HttpGatewayResponse, HttpGatewayResponseMetadata,
 };

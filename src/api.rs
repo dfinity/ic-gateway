@@ -10,10 +10,8 @@ use axum::{
 };
 use derive_new::new;
 use http::{Method, StatusCode, header::AUTHORIZATION};
-use ic_bn_lib::{
-    http::middleware::waf::{self, WafLayer},
-    types::Healthy,
-};
+use ic_bn_lib::http::middleware::waf::{self, WafLayer};
+use ic_bn_lib_common::traits::Healthy;
 use tokio_util::sync::CancellationToken;
 use tracing::Level;
 use tracing_core::LevelFilter;

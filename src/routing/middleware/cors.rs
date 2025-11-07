@@ -263,7 +263,8 @@ mod test {
     use axum::{Router, body::Body, middleware::from_fn_with_state};
     use bytes::Bytes;
     use http::StatusCode;
-    use ic_bn_lib::{hval, principal};
+    use ic_bn_lib::hval;
+    use ic_bn_lib_common::principal;
     use tower::ServiceExt;
 
     #[tokio::test]

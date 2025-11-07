@@ -5,10 +5,8 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use http::{Request, Response, StatusCode};
 use http_body_util::{BodyExt, Full, Limited};
-use ic_bn_lib::{
-    http::ClientHttp,
-    ic_agent::{AgentError, agent::HttpService},
-};
+use ic_bn_lib::ic_agent::{AgentError, agent::HttpService};
+use ic_bn_lib_common::{traits::http::ClientHttp, types::http::Error as HttpError};
 use reqwest::header::{HeaderMap, HeaderValue};
 use tokio::task_local;
 
@@ -48,7 +46,7 @@ impl AgentHttpService {
         &self,
         mut request: Request<Bytes>,
         size_limit: Option<usize>,
-    ) -> Result<Response<Bytes>, ic_bn_lib::http::Error> {
+    ) -> Result<Response<Bytes>, HttpError> {
         let read_state = request.uri().path().ends_with("/read_state");
 
         // Add HTTP headers if requested

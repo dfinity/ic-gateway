@@ -7,17 +7,19 @@ use anyhow::{Context, Error, anyhow};
 use axum::Router;
 use custom_domains_backend::setup;
 use ic_bn_lib::{
-    custom_domains::{self, ProvidesCustomDomains},
-    http::{
-        self as bnhttp,
-        dns::{ApiBnResolver, Options as DnsOptions},
-        middleware::waf::WafLayer,
-        redirect_to_https,
-    },
+    custom_domains::{self},
+    http::{self as bnhttp, dns::ApiBnResolver, middleware::waf::WafLayer, redirect_to_https},
     tasks::TaskManager,
-    tls::{prepare_client_config, providers::ProvidesCertificates, verify::NoopServerCertVerifier},
+    tls::{prepare_client_config, verify::NoopServerCertVerifier},
     utils::health_manager::HealthManager,
     vector::client::Vector,
+};
+use ic_bn_lib_common::{
+    traits::{custom_domains::ProvidesCustomDomains, tls::ProvidesCertificates},
+    types::{
+        dns::Options as DnsOptions,
+        http::{ClientOptions, Metrics, ServerOptions},
+    },
 };
 use itertools::Itertools;
 use prometheus::Registry;
@@ -102,7 +104,7 @@ pub async fn main(
     let dns_resolver = bnhttp::dns::Resolver::new(dns_options.clone());
 
     // HTTP client
-    let mut http_client_opts: bnhttp::client::Options = (&cli.http_client).into();
+    let mut http_client_opts: ClientOptions = (&cli.http_client).into();
 
     // Prepare TLS client config
     let mut tls_config = prepare_client_config(&[&rustls::version::TLS13, &rustls::version::TLS12]);
@@ -178,7 +180,7 @@ pub async fn main(
     ctrlc::set_handler(move || handler_token.cancel())?;
 
     // HTTP server metrics
-    let http_metrics = bnhttp::server::Metrics::new(&registry);
+    let http_metrics = Metrics::new(&registry);
 
     // Setup custom domains
     let custom_domains_router = if let Some(v) = &cli.custom_domains {
@@ -336,7 +338,7 @@ pub async fn main(
     // Setup metrics
     if let Some(addr) = cli.metrics.metrics_listen {
         let router = metrics::setup(&registry, &mut tasks, route_provider);
-        let mut opts = bnhttp::server::Options::from(&cli.http_server);
+        let mut opts = ServerOptions::from(&cli.http_server);
         opts.proxy_protocol_mode = cli.metrics.metrics_proxy_protocol_mode;
 
         let srv = Arc::new(

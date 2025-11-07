@@ -1,7 +1,8 @@
 use anyhow::{Context, anyhow};
 use candid::{Encode, Principal};
 use http::{Method, StatusCode};
-use ic_bn_lib::{ic_agent::Agent, principal};
+use ic_bn_lib::ic_agent::Agent;
+use ic_bn_lib_common::principal;
 use reqwest::{Client, Request};
 use tracing::info;
 use url::Url;
