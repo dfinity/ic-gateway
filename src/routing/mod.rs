@@ -21,24 +21,21 @@ use fqdn::FQDN;
 use http::{StatusCode, method::Method};
 use http_body_util::Full;
 use ic_bn_lib::{
-    custom_domains::ProvidesCustomDomains,
     http::{
-        Client, ClientHttp,
         cache::{CacheBuilder, KeyExtractorUriRange},
         extract_host,
-        middleware::waf::WafLayer,
+        middleware::{waf::WafLayer, rate_limiter},
         shed::{
-            ShedResponse,
-            sharded::{ShardedLittleLoadShedderLayer, ShardedOptions, TypeExtractor},
+            sharded::{ShardedLittleLoadShedderLayer},
             system::{SystemInfo, SystemLoadShedderLayer},
         },
     },
     ic_agent::agent::route_provider::RouteProvider,
     tasks::TaskManager,
-    types::RequestType as RequestTypeApi,
     utils::health_manager::HealthManager,
+    vector::client::Vector,
 };
-use ic_bn_lib::{http::middleware::rate_limiter, vector::client::Vector};
+use ic_bn_lib_common::{traits::{custom_domains::ProvidesCustomDomains, http::{Client, ClientHttp}, shed::TypeExtractor}, types::{RequestType as RequestTypeApi, shed::{ShardedOptions, ShedResponse}}};
 use prometheus::Registry;
 use strum::{Display, IntoStaticStr};
 use tokio_util::sync::CancellationToken;
@@ -108,7 +105,7 @@ pub enum RequestType {
 
 // Strum can't handle FromStr for nested types (Api) the way we want
 impl FromStr for RequestType {
-    type Err = ic_bn_lib::Error;
+    type Err = ic_bn_lib_common::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(match s {
@@ -628,7 +625,7 @@ mod test {
     use super::*;
     use axum::body::{Body, to_bytes};
     use http::Uri;
-    use ic_bn_lib::http::ConnInfo;
+    use ic_bn_lib_common::types::http::ConnInfo;
     use rand::{seq::SliceRandom, thread_rng};
     use std::str::FromStr;
     use tower::Service;

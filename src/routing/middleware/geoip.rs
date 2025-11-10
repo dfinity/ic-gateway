@@ -2,11 +2,11 @@ use std::{net::IpAddr, path::PathBuf, sync::Arc, time::Instant};
 
 use anyhow::Error;
 use axum::{
-    extract::{Extension, Request, State},
+    extract::{Request, State},
     middleware::Next,
     response::Response,
 };
-use ic_bn_lib::http::ConnInfo;
+use ic_bn_lib::http::middleware::extract_ip_from_request;
 use maxminddb::geoip2;
 use tracing::warn;
 
@@ -41,12 +41,13 @@ impl GeoIp {
 
 pub async fn middleware(
     State(geoip): State<Arc<GeoIp>>,
-    Extension(conn_info): Extension<Arc<ConnInfo>>,
     mut request: Request,
     next: Next,
 ) -> Response {
+    let ip = extract_ip_from_request(&request);
+
     // Lookup code
-    let country_code = geoip.lookup(conn_info.remote_addr.ip());
+    let country_code = ip.map(|x| geoip.lookup(x));
 
     if let Some(v) = &country_code {
         request.extensions_mut().insert(v.clone());

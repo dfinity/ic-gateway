@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use anyhow::{Context, anyhow};
 use candid::Principal;
 use http::{Method, StatusCode};
-use ic_bn_lib::principal;
+use ic_bn_lib_common::principal;
 use reqwest::{Client, Request};
 use tracing::info;
 use url::Url;

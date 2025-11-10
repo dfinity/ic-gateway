@@ -2,19 +2,17 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use candid::Principal;
-use ic_bn_lib::{
-    ic_agent::agent::{
-        http_transport::reqwest_transport::reqwest::Client as AgentClient,
-        route_provider::{
-            RoundRobinRouteProvider, RouteProvider,
-            dynamic_routing::{
-                dynamic_route_provider::DynamicRouteProviderBuilder, node::Node,
-                snapshot::latency_based_routing::LatencyRoutingSnapshot,
-            },
+use ic_bn_lib::ic_agent::agent::{
+    http_transport::reqwest_transport::reqwest::Client as AgentClient,
+    route_provider::{
+        RoundRobinRouteProvider, RouteProvider,
+        dynamic_routing::{
+            dynamic_route_provider::DynamicRouteProviderBuilder, node::Node,
+            snapshot::latency_based_routing::LatencyRoutingSnapshot,
         },
     },
-    types::Healthy,
 };
+use ic_bn_lib_common::traits::Healthy;
 use tracing::info;
 use url::Url;
 

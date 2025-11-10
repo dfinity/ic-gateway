@@ -2,14 +2,19 @@ use std::sync::Arc;
 
 use anyhow::{Error, bail};
 use ic_bn_lib::{
-    http::Client,
     tasks::TaskManager,
     tls::{
-        self, prepare_server_config,
-        providers::{self, Aggregator, Issuer, ProvidesCertificates, issuer, storage},
+        prepare_server_config,
+        providers::{self, Aggregator, Issuer, issuer, storage},
         resolver,
     },
     utils::health_manager::HealthManager,
+};
+#[cfg(feature = "acme")]
+use ic_bn_lib_common::{traits::dns::Resolves, types::acme::Challenge};
+use ic_bn_lib_common::{
+    traits::{http::Client, tls::ProvidesCertificates},
+    types::tls::TlsOptions,
 };
 use prometheus::Registry;
 use rustls::server::ServerConfig;
@@ -18,12 +23,9 @@ use rustls::server::ServerConfig;
 use {
     anyhow::{Context, anyhow},
     fqdn::FQDN,
-    ic_bn_lib::{
-        http::{ALPN_ACME, dns::Resolves},
-        tls::acme::{
-            self, Challenge,
-            dns::{AcmeDns, DnsBackend, DnsManager, TokenManagerDns},
-        },
+    ic_bn_lib::tls::acme::{
+        self,
+        dns::{AcmeDns, TokenManagerDns},
     },
     rustls::server::ResolvesServerCert as ResolvesServerCertRustls,
     std::{fs, time::Duration},
@@ -63,13 +65,13 @@ async fn setup_acme(
     cli: &Cli,
     tasks: &mut TaskManager,
     domains: Vec<FQDN>,
-    challenge: &acme::Challenge,
+    challenge: &Challenge,
     dns_resolver: Arc<dyn Resolves>,
 ) -> Result<Arc<dyn ResolvesServerCertRustls>, Error> {
     let cache_path = cli.acme.acme_cache_path.clone().unwrap();
 
     let resolver: Arc<dyn ResolvesServerCertRustls> = match challenge {
-        acme::Challenge::Alpn => {
+        Challenge::Alpn => {
             let opts = acme::alpn::Opts {
                 acme_url: cli.acme.acme_url.clone(),
                 domains: domains.iter().map(|x| x.to_string()).collect::<Vec<_>>(),
@@ -83,9 +85,13 @@ async fn setup_acme(
             acme_alpn
         }
 
-        acme::Challenge::Dns => {
+        Challenge::Dns => {
+            use ic_bn_lib_common::types::acme::DnsBackend;
+
             let dns_backend = match cli.acme.acme_dns_backend {
                 DnsBackend::Cloudflare => {
+                    use ic_bn_lib_common::traits::acme::DnsManager;
+
                     let path = cli
                         .acme
                         .acme_dns_cloudflare_token
@@ -201,12 +207,14 @@ pub async fn setup(
         resolver::Metrics::new(registry),
     ));
 
-    let mut tls_opts: tls::Options = (&cli.http_server).into();
+    let mut tls_opts: TlsOptions = (&cli.http_server).into();
     tls_opts.tls_versions = vec![&rustls::version::TLS13, &rustls::version::TLS12];
 
     #[cfg(feature = "acme")]
     {
         tls_opts.additional_alpn = if cli.acme.acme_challenge == Some(Challenge::Alpn) {
+            use ic_bn_lib_common::types::http::ALPN_ACME;
+
             vec![ALPN_ACME.to_vec()]
         } else {
             vec![vec![]]

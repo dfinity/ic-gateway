@@ -4,19 +4,18 @@ use ::http::HeaderValue;
 use clap::{Args, Parser};
 use fqdn::FQDN;
 use humantime::parse_duration;
-use ic_bn_lib::{
-    http::{
-        self, dns,
-        middleware::waf::WafCli,
-        server::ProxyProtocolMode,
-        shed::cli::{ShedSharded, ShedSystem},
+#[cfg(feature = "acme")]
+use ic_bn_lib_common::types::acme::{AcmeUrl, Challenge, DnsBackend};
+use ic_bn_lib_common::{
+    parse_size, parse_size_decimal, parse_size_usize,
+    types::{
+        dns::DnsCli,
+        http::{HttpClientCli, HttpServerCli, ProxyProtocolMode, WafCli},
+        shed::{ShedShardedCli, ShedSystemCli},
+        vector::VectorCli,
     },
-    parse_size, parse_size_decimal, parse_size_usize, vector,
 };
 use reqwest::Url;
-
-#[cfg(feature = "acme")]
-use ic_bn_lib::tls::acme::{self, AcmeUrl};
 
 use crate::{
     core::{AUTHOR_NAME, SERVICE_NAME},
@@ -32,7 +31,7 @@ use crate::{
 #[clap(author = AUTHOR_NAME)]
 pub struct Cli {
     #[command(flatten, next_help_heading = "DNS Resolver")]
-    pub dns: dns::cli::Dns,
+    pub dns: DnsCli,
 
     #[command(flatten, next_help_heading = "Listening")]
     pub listen: Listen,
@@ -41,10 +40,10 @@ pub struct Cli {
     pub network: Network,
 
     #[command(flatten, next_help_heading = "HTTP Client")]
-    pub http_client: http::client::cli::HttpClient,
+    pub http_client: HttpClientCli,
 
     #[command(flatten, next_help_heading = "HTTP Server")]
-    pub http_server: http::server::cli::HttpServer,
+    pub http_server: HttpServerCli,
 
     #[command(flatten, next_help_heading = "IC")]
     pub ic: Ic,
@@ -93,14 +92,14 @@ pub struct Cli {
     pub cache: CacheConfig,
 
     #[command(flatten, next_help_heading = "Shedding System")]
-    pub shed_system: ShedSystem,
+    pub shed_system: ShedSystemCli,
 
     #[command(flatten, next_help_heading = "Shedding Latency")]
-    pub shed_latency: ShedSharded<RequestType>,
+    pub shed_latency: ShedShardedCli<RequestType>,
 
     #[cfg(all(target_os = "linux", feature = "sev-snp"))]
     #[command(flatten, next_help_heading = "SEV-SNP")]
-    pub sev_snp: ic_bn_lib::utils::sev_snp::SevSnp,
+    pub sev_snp: ic_bn_lib_common::types::utils::SevSnpCli,
 }
 
 #[derive(Args)]
@@ -321,7 +320,7 @@ pub struct Acme {
     /// - alpn: all served domains must resolve to the host where this service is running.
     /// - dns: allows to request wildcard certificates, requires DNS backend to be configured.
     #[clap(env, long, requires = "acme_cache_path")]
-    pub acme_challenge: Option<acme::Challenge>,
+    pub acme_challenge: Option<Challenge>,
 
     /// Path to a directory where to store ACME cache (account and certificates).
     /// Directory structure is different when using ALPN and DNS, but it shouldn't collide (I hope).
@@ -331,7 +330,7 @@ pub struct Acme {
 
     /// DNS backend to use when using DNS challenge. Currently only "cloudflare" is supported.
     #[clap(env, long, default_value = "cloudflare")]
-    pub acme_dns_backend: acme::dns::DnsBackend,
+    pub acme_dns_backend: DnsBackend,
 
     /// Cloudflare API URL
     #[clap(env, long, default_value = "https://api.cloudflare.com/client/v4/")]
@@ -414,7 +413,7 @@ pub struct Log {
     pub clickhouse: Clickhouse,
 
     #[command(flatten, next_help_heading = "Vector")]
-    pub vector: vector::cli::Vector,
+    pub vector: VectorCli,
 }
 
 #[cfg(feature = "clickhouse")]

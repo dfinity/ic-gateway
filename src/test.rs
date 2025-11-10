@@ -13,11 +13,16 @@ use http::{
 };
 use http_body_util::{BodyExt, Full};
 use ic_bn_lib::{
-    custom_domains::{CustomDomain, ProvidesCustomDomains},
-    ic_agent::agent::route_provider::RoundRobinRouteProvider,
-    principal,
-    tasks::TaskManager,
+    ic_agent::agent::route_provider::RoundRobinRouteProvider, tasks::TaskManager,
     utils::health_manager::HealthManager,
+};
+use ic_bn_lib_common::{
+    principal,
+    traits::{
+        custom_domains::ProvidesCustomDomains,
+        http::{Client, ClientHttp},
+    },
+    types::{CustomDomain, http::Error as HttpError},
 };
 use ic_http_certification::HttpResponse;
 use ic_transport_types::{QueryResponse, ReplyResponse};
@@ -60,7 +65,7 @@ pub fn generate_response(response_size: usize) -> Response<AxumBody> {
         .header(CONTENT_TYPE, "application/cbor")
         .header(CONTENT_LENGTH, content_length)
         .body(AxumBody::new(
-            Full::new(Bytes::from(cbor_data)).map_err(|_| ic_bn_lib::http::Error::BodyTimedOut),
+            Full::new(Bytes::from(cbor_data)).map_err(|_| HttpError::BodyTimedOut),
         ))
         .expect("Failed to build response")
 }
@@ -69,18 +74,15 @@ pub fn generate_response(response_size: usize) -> Response<AxumBody> {
 struct TestClient(pub usize);
 
 #[async_trait]
-impl ic_bn_lib::http::Client for TestClient {
+impl Client for TestClient {
     async fn execute(&self, _req: reqwest::Request) -> Result<reqwest::Response, reqwest::Error> {
         Ok(Response::builder().body("").unwrap().into())
     }
 }
 
 #[async_trait]
-impl ic_bn_lib::http::ClientHttp<Full<Bytes>> for TestClient {
-    async fn execute(
-        &self,
-        _req: Request<Full<Bytes>>,
-    ) -> Result<Response<AxumBody>, ic_bn_lib::http::Error> {
+impl ClientHttp<Full<Bytes>> for TestClient {
+    async fn execute(&self, _req: Request<Full<Bytes>>) -> Result<Response<AxumBody>, HttpError> {
         Ok(generate_response(self.0))
     }
 }

@@ -6,10 +6,8 @@ use candid::Principal;
 use fqdn::FQDN;
 use hickory_resolver::ResolveError;
 use http::{StatusCode, header::CONTENT_TYPE};
-use ic_bn_lib::{
-    http::{Error as IcBnError, headers::CONTENT_TYPE_HTML},
-    ic_agent::AgentError,
-};
+use ic_bn_lib::{http::headers::CONTENT_TYPE_HTML, ic_agent::AgentError};
+use ic_bn_lib_common::types::http::Error as HttpError;
 use ic_http_gateway::HttpGatewayError;
 use ic_transport_types::RejectCode;
 use strum::{Display, IntoStaticStr};
@@ -133,21 +131,21 @@ impl ErrorCause {
     // Methods below are not implemented as From<> due to ambiguity
 
     // Convert from client-side error
-    pub fn from_client_error(e: IcBnError) -> Self {
+    pub fn from_client_error(e: HttpError) -> Self {
         match e {
-            IcBnError::BodyReadingFailed(v) => Self::ClientBodyError(v),
-            IcBnError::BodyTimedOut => Self::ClientBodyTimeout,
-            IcBnError::BodyTooBig => Self::ClientBodyTooLarge,
+            HttpError::BodyReadingFailed(v) => Self::ClientBodyError(v),
+            HttpError::BodyTimedOut => Self::ClientBodyTimeout,
+            HttpError::BodyTooBig => Self::ClientBodyTooLarge,
             _ => Self::Other(e.to_string()),
         }
     }
 
     // Convert from backend error
-    pub fn from_backend_error(e: IcBnError) -> Self {
+    pub fn from_backend_error(e: HttpError) -> Self {
         match e {
-            IcBnError::RequestFailed(v) => Self::from(&v),
-            IcBnError::BodyReadingFailed(v) => Self::BackendBodyError(v),
-            IcBnError::BodyTimedOut => Self::BackendBodyTimeout,
+            HttpError::RequestFailed(v) => Self::from(&v),
+            HttpError::BodyReadingFailed(v) => Self::BackendBodyError(v),
+            HttpError::BodyTimedOut => Self::BackendBodyTimeout,
             _ => Self::BackendError(e.to_string()),
         }
     }

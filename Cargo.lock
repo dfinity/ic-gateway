@@ -549,7 +549,7 @@ dependencies = [
 [[package]]
 name = "backend"
 version = "0.1.0"
-source = "git+https://github.com/dfinity/custom-domains?rev=2113c19f3cc925b2b77f092e45daf5ed1dd3bda0#2113c19f3cc925b2b77f092e45daf5ed1dd3bda0"
+source = "git+https://github.com/dfinity/custom-domains?rev=3d63b08643e71b84566f3ff428d1d4c3fc6cdcc8#3d63b08643e71b84566f3ff428d1d4c3fc6cdcc8"
 dependencies = [
  "anyhow",
  "axum 0.8.6",
@@ -564,6 +564,7 @@ dependencies = [
  "derive-new",
  "fqdn",
  "ic-bn-lib",
+ "ic-bn-lib-common",
  "prometheus",
  "serde",
  "serde_json",
@@ -590,7 +591,7 @@ dependencies = [
 [[package]]
 name = "base"
 version = "0.1.0"
-source = "git+https://github.com/dfinity/custom-domains?rev=2113c19f3cc925b2b77f092e45daf5ed1dd3bda0#2113c19f3cc925b2b77f092e45daf5ed1dd3bda0"
+source = "git+https://github.com/dfinity/custom-domains?rev=3d63b08643e71b84566f3ff428d1d4c3fc6cdcc8#3d63b08643e71b84566f3ff428d1d4c3fc6cdcc8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -605,6 +606,7 @@ dependencies = [
  "hickory-resolver",
  "humantime",
  "ic-bn-lib",
+ "ic-bn-lib-common",
  "mockall",
  "pem 3.0.6",
  "prometheus",
@@ -950,7 +952,7 @@ dependencies = [
 [[package]]
 name = "canister-api"
 version = "0.1.0"
-source = "git+https://github.com/dfinity/custom-domains?rev=2113c19f3cc925b2b77f092e45daf5ed1dd3bda0#2113c19f3cc925b2b77f092e45daf5ed1dd3bda0"
+source = "git+https://github.com/dfinity/custom-domains?rev=3d63b08643e71b84566f3ff428d1d4c3fc6cdcc8#3d63b08643e71b84566f3ff428d1d4c3fc6cdcc8"
 dependencies = [
  "candid",
  "derive-new",
@@ -962,7 +964,7 @@ dependencies = [
 [[package]]
 name = "canister-client"
 version = "0.1.0"
-source = "git+https://github.com/dfinity/custom-domains?rev=2113c19f3cc925b2b77f092e45daf5ed1dd3bda0#2113c19f3cc925b2b77f092e45daf5ed1dd3bda0"
+source = "git+https://github.com/dfinity/custom-domains?rev=3d63b08643e71b84566f3ff428d1d4c3fc6cdcc8#3d63b08643e71b84566f3ff428d1d4c3fc6cdcc8"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -973,6 +975,7 @@ dependencies = [
  "derive-new",
  "fqdn",
  "ic-bn-lib",
+ "ic-bn-lib-common",
  "tokio",
  "tokio-util",
  "tracing",
@@ -2710,7 +2713,7 @@ dependencies = [
 [[package]]
 name = "ic-bn-lib"
 version = "0.1.0"
-source = "git+https://github.com/dfinity/ic-bn-lib?rev=b5cd9d68c2c5ac3482c8a4f4a4dfb366f8ffdcff#b5cd9d68c2c5ac3482c8a4f4a4dfb366f8ffdcff"
+source = "git+https://github.com/dfinity/ic-bn-lib?rev=fb07ed1b89abee41d3202475f8aaef779c76762f#fb07ed1b89abee41d3202475f8aaef779c76762f"
 dependencies = [
  "ahash",
  "anyhow",
@@ -2742,12 +2745,12 @@ dependencies = [
  "hyper-rustls",
  "hyper-util",
  "ic-agent",
+ "ic-bn-lib-common",
  "indoc",
  "instant-acme",
  "itertools 0.14.0",
  "moka",
  "nix",
- "parse-size",
  "ppp",
  "prometheus",
  "prost 0.14.1",
@@ -2790,6 +2793,44 @@ dependencies = [
  "x509-parser 0.17.0",
  "zeroize",
  "zstd",
+]
+
+[[package]]
+name = "ic-bn-lib-common"
+version = "0.1.0"
+source = "git+https://github.com/dfinity/ic-bn-lib?rev=2ab3e0998b7ffddc7a01bb8fca688fed2fbe0afc#2ab3e0998b7ffddc7a01bb8fca688fed2fbe0afc"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum 0.8.6",
+ "candid",
+ "clap",
+ "cloudflare",
+ "derive-new",
+ "fqdn",
+ "hickory-proto",
+ "hickory-resolver",
+ "http 1.3.1",
+ "http-body",
+ "humantime",
+ "hyper",
+ "hyper-util",
+ "ic-agent",
+ "instant-acme",
+ "parse-size",
+ "prometheus",
+ "rcgen 0.14.5",
+ "reqwest",
+ "rustls",
+ "serde",
+ "socket2 0.6.1",
+ "strum 0.27.2",
+ "strum_macros 0.27.2",
+ "thiserror 2.0.17",
+ "tokio-util",
+ "tower-service",
+ "url",
+ "uuid",
 ]
 
 [[package]]
@@ -2982,6 +3023,7 @@ dependencies = [
  "httptest",
  "humantime",
  "ic-bn-lib",
+ "ic-bn-lib-common",
  "ic-certified-assets",
  "ic-http-certification 3.0.3",
  "ic-http-gateway",
