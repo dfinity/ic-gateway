@@ -563,7 +563,7 @@ dependencies = [
  "clap",
  "derive-new",
  "fqdn",
- "ic-bn-lib",
+ "ic-bn-lib 0.1.0 (git+https://github.com/dfinity/ic-bn-lib?rev=fb07ed1b89abee41d3202475f8aaef779c76762f)",
  "ic-bn-lib-common",
  "prometheus",
  "serde",
@@ -605,7 +605,7 @@ dependencies = [
  "fqdn",
  "hickory-resolver",
  "humantime",
- "ic-bn-lib",
+ "ic-bn-lib 0.1.0 (git+https://github.com/dfinity/ic-bn-lib?rev=fb07ed1b89abee41d3202475f8aaef779c76762f)",
  "ic-bn-lib-common",
  "mockall",
  "pem 3.0.6",
@@ -974,7 +974,7 @@ dependencies = [
  "canister-api",
  "derive-new",
  "fqdn",
- "ic-bn-lib",
+ "ic-bn-lib 0.1.0 (git+https://github.com/dfinity/ic-bn-lib?rev=fb07ed1b89abee41d3202475f8aaef779c76762f)",
  "ic-bn-lib-common",
  "tokio",
  "tokio-util",
@@ -2711,9 +2711,60 @@ dependencies = [
 ]
 
 [[package]]
+name = "ic-agent"
+version = "0.44.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d5337598ec943bab711e0288319761abb5a7a7087ac226b03472441a90f88e0c"
+dependencies = [
+ "arc-swap",
+ "async-channel 1.9.0",
+ "async-lock",
+ "async-trait",
+ "async-watch",
+ "backoff",
+ "bytes",
+ "cached 0.52.0",
+ "candid",
+ "der",
+ "ecdsa",
+ "ed25519-consensus",
+ "elliptic-curve",
+ "futures-util",
+ "hex",
+ "http 1.3.1",
+ "http-body",
+ "http-body-util",
+ "ic-certification 3.0.3",
+ "ic-ed25519",
+ "ic-transport-types 0.44.3",
+ "ic-verify-bls-signature",
+ "k256",
+ "leb128",
+ "p256",
+ "pem 3.0.6",
+ "pkcs8",
+ "rand 0.8.5",
+ "rangemap",
+ "reqwest",
+ "ring",
+ "sec1",
+ "serde",
+ "serde_bytes",
+ "serde_cbor",
+ "serde_repr",
+ "sha2 0.10.9",
+ "stop-token",
+ "thiserror 2.0.17",
+ "time",
+ "tokio",
+ "tower-service",
+ "url",
+]
+
+[[package]]
 name = "ic-bn-lib"
 version = "0.1.0"
-source = "git+https://github.com/dfinity/ic-bn-lib?rev=fb07ed1b89abee41d3202475f8aaef779c76762f#fb07ed1b89abee41d3202475f8aaef779c76762f"
+source = "git+https://github.com/dfinity/ic-bn-lib?rev=ec9963d0d425b353c32e612ab56974d269487230#ec9963d0d425b353c32e612ab56974d269487230"
 dependencies = [
  "ahash",
  "anyhow",
@@ -2744,7 +2795,7 @@ dependencies = [
  "hyper",
  "hyper-rustls",
  "hyper-util",
- "ic-agent",
+ "ic-agent 0.44.3",
  "ic-bn-lib-common",
  "indoc",
  "instant-acme",
@@ -2796,6 +2847,86 @@ dependencies = [
 ]
 
 [[package]]
+name = "ic-bn-lib"
+version = "0.1.0"
+source = "git+https://github.com/dfinity/ic-bn-lib?rev=fb07ed1b89abee41d3202475f8aaef779c76762f#fb07ed1b89abee41d3202475f8aaef779c76762f"
+dependencies = [
+ "ahash",
+ "anyhow",
+ "arc-swap",
+ "async-channel 2.5.0",
+ "async-trait",
+ "axum 0.8.6",
+ "axum-extra",
+ "base64 0.22.1",
+ "bytes",
+ "candid",
+ "chacha20poly1305",
+ "clap",
+ "cloudflare",
+ "derive-new",
+ "flate2",
+ "fqdn",
+ "futures",
+ "futures-util",
+ "governor",
+ "hex",
+ "hickory-proto",
+ "hickory-resolver",
+ "http 1.3.1",
+ "http-body",
+ "http-body-util",
+ "humantime",
+ "hyper",
+ "hyper-rustls",
+ "hyper-util",
+ "ic-agent 0.42.0",
+ "ic-bn-lib-common",
+ "indoc",
+ "instant-acme",
+ "itertools 0.14.0",
+ "moka",
+ "nix",
+ "ppp",
+ "prometheus",
+ "rand 0.8.5",
+ "rcgen 0.14.5",
+ "regex",
+ "reqwest",
+ "rustls",
+ "rustls-pemfile",
+ "rustls-platform-verifier",
+ "scopeguard",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "serde_yaml_ng",
+ "sha1",
+ "sha2 0.10.9",
+ "socket2 0.6.1",
+ "strum 0.27.2",
+ "strum_macros 0.27.2",
+ "systemstat",
+ "tar",
+ "tempfile",
+ "thiserror 2.0.17",
+ "tokio",
+ "tokio-io-timeout",
+ "tokio-rustls",
+ "tokio-util",
+ "tower 0.5.2",
+ "tower-service",
+ "tower_governor",
+ "tracing",
+ "url",
+ "uuid",
+ "webpki-root-certs",
+ "x509-parser 0.17.0",
+ "zeroize",
+ "zstd",
+]
+
+[[package]]
 name = "ic-bn-lib-common"
 version = "0.1.0"
 source = "git+https://github.com/dfinity/ic-bn-lib?rev=2ab3e0998b7ffddc7a01bb8fca688fed2fbe0afc#2ab3e0998b7ffddc7a01bb8fca688fed2fbe0afc"
@@ -2815,7 +2946,7 @@ dependencies = [
  "humantime",
  "hyper",
  "hyper-util",
- "ic-agent",
+ "ic-agent 0.42.0",
  "instant-acme",
  "parse-size",
  "prometheus",
@@ -3022,12 +3153,12 @@ dependencies = [
  "http-body-util",
  "httptest",
  "humantime",
- "ic-bn-lib",
+ "ic-bn-lib 0.1.0 (git+https://github.com/dfinity/ic-bn-lib?rev=ec9963d0d425b353c32e612ab56974d269487230)",
  "ic-bn-lib-common",
  "ic-certified-assets",
  "ic-http-certification 3.0.3",
  "ic-http-gateway",
- "ic-transport-types 0.42.0",
+ "ic-transport-types 0.44.3",
  "itertools 0.14.0",
  "lazy_static",
  "maxminddb",
@@ -3100,7 +3231,7 @@ dependencies = [
 [[package]]
 name = "ic-http-gateway"
 version = "0.3.0"
-source = "git+https://github.com/dfinity/http-gateway?rev=a17732786c1b300f303654500da6d2d3623dc543#a17732786c1b300f303654500da6d2d3623dc543"
+source = "git+https://github.com/dfinity/http-gateway?rev=c17ad1b378df3a85441ce2c6853ec61b6f83f730#c17ad1b378df3a85441ce2c6853ec61b6f83f730"
 dependencies = [
  "bytes",
  "candid",
@@ -3108,7 +3239,7 @@ dependencies = [
  "http 1.3.1",
  "http-body",
  "http-body-util",
- "ic-agent",
+ "ic-agent 0.44.3",
  "ic-http-certification 3.0.3",
  "ic-response-verification 3.0.3",
  "ic-utils",
@@ -3119,6 +3250,17 @@ dependencies = [
 name = "ic-management-canister-types"
 version = "0.3.2"
 source = "git+https://github.com/dfinity/cdk-rs?rev=19fdcd4c928b71d010aa124e2bb7f874290edac9#19fdcd4c928b71d010aa124e2bb7f874290edac9"
+dependencies = [
+ "candid",
+ "serde",
+ "serde_bytes",
+]
+
+[[package]]
+name = "ic-management-canister-types"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b5a939a84adbc30769d47e5de72c7b9f3713284e3ac87df4eb24795677a8df8"
 dependencies = [
  "candid",
  "serde",
@@ -3229,15 +3371,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "ic-transport-types"
+version = "0.44.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d5fec6355d0a542bfe484eb36343b6570047394124918cb8b435e22241c65427"
+dependencies = [
+ "candid",
+ "hex",
+ "ic-certification 3.0.3",
+ "leb128",
+ "serde",
+ "serde_bytes",
+ "serde_cbor",
+ "serde_repr",
+ "sha2 0.10.9",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "ic-utils"
-version = "0.42.0"
-source = "git+https://github.com/dfinity/agent-rs?rev=f34acedb5539838ffdbd4cf49a0832303977293f#f34acedb5539838ffdbd4cf49a0832303977293f"
+version = "0.44.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc35f1cf9c5053b108b24fbf24eed544dc37647a95b183e2e1c7dfb93da23d32"
 dependencies = [
  "async-trait",
  "candid",
  "futures-util",
- "ic-agent",
- "ic-management-canister-types",
+ "ic-agent 0.44.3",
+ "ic-management-canister-types 0.4.1",
  "once_cell",
  "semver",
  "serde",
@@ -3247,7 +3408,6 @@ dependencies = [
  "strum_macros 0.26.4",
  "thiserror 2.0.17",
  "time",
- "tokio",
 ]
 
 [[package]]
@@ -4435,7 +4595,7 @@ dependencies = [
  "flate2",
  "hex",
  "ic-certification 3.0.3",
- "ic-management-canister-types",
+ "ic-management-canister-types 0.3.2",
  "ic-transport-types 0.39.3",
  "reqwest",
  "schemars 0.8.22",
