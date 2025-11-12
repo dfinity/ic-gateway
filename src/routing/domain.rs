@@ -13,6 +13,7 @@ use ic_bn_lib_common::{
     traits::{Healthy, Run, custom_domains::ProvidesCustomDomains},
     types::CustomDomain,
 };
+use prometheus::{IntGauge, Registry, register_int_gauge_with_registry};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 
@@ -79,6 +80,8 @@ pub struct CustomDomainStorage {
     providers: Vec<Arc<dyn ProvidesCustomDomains>>,
     inner: ArcSwapOption<CustomDomainStorageInner>,
     snapshot: RwLock<Vec<Option<Vec<CustomDomain>>>>,
+    metric_count: IntGauge,
+    metric_dupes: IntGauge,
 }
 
 impl Healthy for CustomDomainStorage {
@@ -95,11 +98,27 @@ impl std::fmt::Debug for CustomDomainStorage {
 }
 
 impl CustomDomainStorage {
-    pub fn new(providers: Vec<Arc<dyn ProvidesCustomDomains>>) -> Self {
+    pub fn new(providers: Vec<Arc<dyn ProvidesCustomDomains>>, registry: &Registry) -> Self {
+        let metric_count = register_int_gauge_with_registry!(
+            format!("custom_domains_count"),
+            format!("Number of custom domains loaded"),
+            registry
+        )
+        .unwrap();
+
+        let metric_dupes = register_int_gauge_with_registry!(
+            format!("custom_domains_dupes"),
+            format!("Number of duplicates among custom domains"),
+            registry
+        )
+        .unwrap();
+
         Self {
             inner: ArcSwapOption::empty(),
             snapshot: RwLock::new(vec![None; providers.len()]),
             providers,
+            metric_count,
+            metric_dupes,
         }
     }
 
@@ -171,6 +190,10 @@ impl CustomDomainStorage {
             "{self:?}: got new set of domains: {} ({dupes} duplicates)",
             tree.len()
         );
+
+        // Set metrics
+        self.metric_count.set(tree.len() as i64);
+        self.metric_dupes.set(dupes as i64);
 
         // Store it
         let inner = CustomDomainStorageInner(tree);
@@ -424,10 +447,13 @@ mod test {
         ]);
 
         // Add one working and one broken provider to make sure that broken one doesn't affect the outcome
-        let custom_domain_storage = CustomDomainStorage::new(vec![
-            Arc::new(custom_domain_provider),
-            Arc::new(TestCustomDomainProviderBroken),
-        ]);
+        let custom_domain_storage = CustomDomainStorage::new(
+            vec![
+                Arc::new(custom_domain_provider),
+                Arc::new(TestCustomDomainProviderBroken),
+            ],
+            &Registry::new(),
+        );
         custom_domain_storage.refresh().await;
 
         let resolver = DomainResolver::new(

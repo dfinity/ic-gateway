@@ -3,6 +3,7 @@ use std::sync::Arc;
 use criterion::{Criterion, criterion_group, criterion_main};
 use fqdn::fqdn;
 use ic_bn_lib_common::{principal, types::CustomDomain};
+use prometheus::Registry;
 use rand::{Rng, seq::SliceRandom, thread_rng};
 
 use ic_gateway::{
@@ -38,7 +39,10 @@ fn criterion_benchmark(c: &mut Criterion) {
         })
         .collect::<Vec<_>>();
 
-    let s = CustomDomainStorage::new(vec![Arc::new(FakeDomainProvider(custom_domains))]);
+    let s = CustomDomainStorage::new(
+        vec![Arc::new(FakeDomainProvider(custom_domains))],
+        &Registry::new(),
+    );
     runtime.block_on(async {
         s.refresh().await;
     });
