@@ -1,42 +1,175 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Draft App Expired - Caffeine</title>
-    <style>
-        body {
-            margin: 0;
-            padding: 0;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
-            background-color: #f5f5f5;
-            color: #333;
-        }
-    </style>
-</head>
-<body>
-    <div id="sourceFilesEmpty" data-testid="draft-waiting-message" style="display: flex; flex-direction: column; align-items: center; justify-content: space-between; width: 100%; height: 100%;">
-        <div style="display: flex; flex-direction: column; flex-grow: 1; align-items: center; padding: 20px; height: 100%; max-width: 477px; justify-content: center; align-content: center; font-size: 1.5rem; line-height: 1.25; font-weight: 400; text-align: center;">
-            <p style="margin: 0 0 1.25rem 0; font-size: 1rem;; line-height: 1.75rem">Error 503</p>
-            <h2 style="margin: 0 0 1rem 0; font-size: 2rem; line-height: 1.25; font-weight: 400;">Draft app expired</h2>
-            <p style="margin: 0 0 1rem 0; font-size: 1.25rem; line-height: 1.75rem">Your app was in draft mode and became inactive. The system automatically cleaned up the temporary resources, resetting your app data</p>
-            <p style="margin: 0; font-size: 1.3rem; line-height: 2rem">To continue working:</p>
-            <p style="margin: 0 0 1rem 0; font-size: 1.25rem; line-height: 1.75rem">Ask Caffeine to get your app running again</p>
-            <p style="margin: 0; font-size: 1.3rem; line-height: 2rem">To keep your app in the future:</p>
-            <p style="margin: 0 0 1rem 0; font-size: 1.25rem; line-height: 1.75rem">Push your draft app "live" for permanent storage</p>
-        </div>
-        <div style="padding: 0 0 4rem 0; display: flex; justify-content: center; align-items: center; margin-top: 3rem">
-            <svg width="100" viewBox="0 0 898 156" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-                <path d="M0 97.8379C0 63.6156 27.9237 40.1009 66.555 40.1009C99.5175 40.1009 120.933 58.3668 126.811 76.6327L97.8379 89.0199C94.0588 77.4725 82.7213 67.6047 66.345 67.6047C47.0294 67.6047 32.7526 78.9422 32.7526 97.8379C32.7526 116.524 47.0294 128.071 66.345 128.071C82.7213 128.071 94.0588 118.203 97.8379 106.446L126.811 119.253C120.723 137.309 99.5175 155.365 66.555 155.365C27.9237 155.365 0 131.85 0 97.8379Z"/>
-                <path d="M183.051 155.365C155.758 155.365 136.232 142.978 136.232 121.143C136.232 99.5175 155.338 88.8099 181.372 86.2905L225.462 82.3014V81.6716C225.462 73.2735 218.323 66.555 200.477 66.555C185.361 66.555 173.813 72.8536 170.454 81.4616L140.221 73.2735C147.15 53.328 171.504 40.1009 201.947 40.1009C237.219 40.1009 258.004 54.1678 258.004 81.8815V102.037V153.053H228.611V140.878C218.533 149.696 202.577 155.365 183.051 155.365ZM225.462 110.645V104.766L186.201 108.755C174.653 109.805 168.775 112.535 168.775 119.883C168.775 127.021 176.123 130.8 189.14 130.8C206.356 130.8 225.462 123.452 225.462 110.645Z"/>
-                <path d="M275.824 40.7308C275.824 13.227 295.139 0 327.892 0C338.18 0 348.887 1.46966 355.606 3.9891L351.197 30.2332C344.268 28.3436 337.76 27.2938 329.992 27.2938C315.715 27.2938 308.996 31.4929 308.996 41.3607V42.4104H349.727V70.1242H308.996V153.055H275.824V40.7308Z"/>
-                <path d="M363.782 40.7308C363.782 13.227 383.098 0 415.851 0C426.138 0 436.846 1.46966 443.564 3.9891L439.155 30.2332C432.227 28.3436 425.718 27.2938 417.95 27.2938C403.673 27.2938 396.955 31.4929 396.955 41.3607V42.4104H437.686V70.1242H396.955V153.055H363.782V70.1242H338.798V42.4104H363.782V40.7308Z"/>
-                <path d="M505.107 128.701C519.803 128.701 531.561 121.982 536.39 111.275L565.993 121.982C558.015 141.508 534.29 155.365 505.317 155.365C466.056 155.365 438.552 132.06 438.552 97.628C438.552 64.8754 466.056 40.1009 505.107 40.1009C544.788 40.1009 567.883 65.7152 567.883 97.2081V106.446H471.304C475.084 120.513 487.891 128.701 505.107 128.701ZM504.057 66.1351C489.36 66.1351 476.763 72.8535 472.144 85.8706H534.08C532.611 76.6327 521.693 66.1351 504.057 66.1351Z"/>
-                <path d="M582.412 31.073V2.30947H616.634V31.073H582.412ZM616.214 42.4104V153.055H582.622V42.4104H616.214Z"/>
-                <path d="M634.955 153.055V42.4104H668.548V55.8474C677.156 46.8194 691.013 40.1009 708.859 40.1009C737.622 40.1009 757.148 59.4166 757.148 90.0697V153.055H723.555V99.9374C723.555 81.2517 714.527 69.9142 697.311 69.9142C679.045 69.9142 668.548 81.0417 668.548 100.147V153.055H634.955Z"/>
-                <path d="M834.338 128.701C849.034 128.701 860.792 121.982 865.62 111.275L895.224 121.982C887.246 141.508 863.521 155.365 834.547 155.365C795.286 155.365 767.783 132.06 767.783 97.628C767.783 64.8754 795.286 40.1009 834.338 40.1009C874.019 40.1009 897.113 65.7152 897.113 97.2081V106.446H800.535C804.314 120.513 817.121 128.701 834.338 128.701ZM833.288 66.1351C818.591 66.1351 805.994 72.8535 801.375 85.8706H863.311C861.841 76.6327 850.924 66.1351 833.288 66.1351Z"/>
-            </svg>
-        </div>
+
+    <style>/*! tailwindcss v4.1.13 | MIT License | https://tailwindcss.com */@layer properties{@supports (((-webkit-hyphens:none)) and (not (margin-trim:inline))) or ((-moz-orient:inline) and (not (color:rgb(from red r g b)))){*,:before,:after,::backdrop{--tw-border-style:solid;--tw-gradient-position:initial;--tw-gradient-from:#0000;--tw-gradient-via:#0000;--tw-gradient-to:#0000;--tw-gradient-stops:initial;--tw-gradient-via-stops:initial;--tw-gradient-from-position:0%;--tw-gradient-via-position:50%;--tw-gradient-to-position:100%;--tw-font-weight:initial}}}@layer theme{:root,:host{--font-sans:ui-sans-serif,system-ui,sans-serif,"Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol","Noto Color Emoji";--font-mono:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;--color-black:#000;--spacing:.25rem;--container-3xl:48rem;--text-xs:.75rem;--text-xs--line-height:1rem;--font-weight-medium:500;--radius-lg:.5rem;--default-transition-duration:.15s;--default-transition-timing-function:cubic-bezier(.4,0,.2,1);--default-font-family:var(--font-sans);--default-mono-font-family:var(--font-mono);--color-cyberbunker-400:#ddf730;--color-cyberbunker-500:#bedd05;--color-surface-25:#fbfbfb;--color-surface-400:#888;--color-surface-700:#3d3d3d;--color-surface-950:#121212;--text-s:.875rem;--text-s--line-height:1.25rem;--text-m:1rem;--text-m--line-height:1.5rem}}@layer base{*,:after,:before,::backdrop{box-sizing:border-box;border:0 solid;margin:0;padding:0}::file-selector-button{box-sizing:border-box;border:0 solid;margin:0;padding:0}html,:host{-webkit-text-size-adjust:100%;-moz-tab-size:4;tab-size:4;line-height:1.5;font-family:var(--default-font-family,ui-sans-serif,system-ui,sans-serif,"Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol","Noto Color Emoji");font-feature-settings:var(--default-font-feature-settings,normal);font-variation-settings:var(--default-font-variation-settings,normal);-webkit-tap-highlight-color:transparent}hr{height:0;color:inherit;border-top-width:1px}abbr:where([title]){-webkit-text-decoration:underline dotted;text-decoration:underline dotted}h1,h2,h3,h4,h5,h6{font-size:inherit;font-weight:inherit}a{color:inherit;-webkit-text-decoration:inherit;text-decoration:inherit}b,strong{font-weight:bolder}code,kbd,samp,pre{font-family:var(--default-mono-font-family,ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace);font-feature-settings:var(--default-mono-font-feature-settings,normal);font-variation-settings:var(--default-mono-font-variation-settings,normal);font-size:1em}small{font-size:80%}sub,sup{vertical-align:baseline;font-size:75%;line-height:0;position:relative}sub{bottom:-.25em}sup{top:-.5em}table{text-indent:0;border-color:inherit;border-collapse:collapse}:-moz-focusring{outline:auto}progress{vertical-align:baseline}summary{display:list-item}ol,ul,menu{list-style:none}img,svg,video,canvas,audio,iframe,embed,object{vertical-align:middle;display:block}img,video{max-width:100%;height:auto}button,input,select,optgroup,textarea{font:inherit;font-feature-settings:inherit;font-variation-settings:inherit;letter-spacing:inherit;color:inherit;opacity:1;background-color:#0000;border-radius:0}::file-selector-button{font:inherit;font-feature-settings:inherit;font-variation-settings:inherit;letter-spacing:inherit;color:inherit;opacity:1;background-color:#0000;border-radius:0}:where(select:is([multiple],[size])) optgroup{font-weight:bolder}:where(select:is([multiple],[size])) optgroup option{padding-inline-start:20px}::file-selector-button{margin-inline-end:4px}::placeholder{opacity:1}@supports (not ((-webkit-appearance:-apple-pay-button))) or (contain-intrinsic-size:1px){::placeholder{color:currentColor}@supports (color:color-mix(in lab,red,red)){::placeholder{color:color-mix(in oklab,currentcolor 50%,transparent)}}}textarea{resize:vertical}::-webkit-search-decoration{-webkit-appearance:none}::-webkit-date-and-time-value{min-height:1lh;text-align:inherit}::-webkit-datetime-edit{display:inline-flex}::-webkit-datetime-edit-fields-wrapper{padding:0}::-webkit-datetime-edit{padding-block:0}::-webkit-datetime-edit-year-field{padding-block:0}::-webkit-datetime-edit-month-field{padding-block:0}::-webkit-datetime-edit-day-field{padding-block:0}::-webkit-datetime-edit-hour-field{padding-block:0}::-webkit-datetime-edit-minute-field{padding-block:0}::-webkit-datetime-edit-second-field{padding-block:0}::-webkit-datetime-edit-millisecond-field{padding-block:0}::-webkit-datetime-edit-meridiem-field{padding-block:0}::-webkit-calendar-picker-indicator{line-height:1}:-moz-ui-invalid{box-shadow:none}button,input:where([type=button],[type=reset],[type=submit]){-webkit-appearance:button;-moz-appearance:button;appearance:button}::file-selector-button{-webkit-appearance:button;-moz-appearance:button;appearance:button}::-webkit-inner-spin-button{height:auto}::-webkit-outer-spin-button{height:auto}[hidden]:where(:not([hidden=until-found])){display:none!important}}@layer components;@layer utilities{.absolute{position:absolute}.relative{position:relative}.top-0{top:calc(var(--spacing)*0)}.right-0{right:calc(var(--spacing)*0)}.bottom-0{bottom:calc(var(--spacing)*0)}.left-0{left:calc(var(--spacing)*0)}.-mx-4{margin-inline:calc(var(--spacing)*-4)}.mx-auto{margin-inline:auto}.mt-8{margin-top:calc(var(--spacing)*8)}.flex{display:flex}.inline{display:inline}.h-\[100dvh\]{height:100dvh}.w-12{width:calc(var(--spacing)*12)}.max-w-3xl{max-width:var(--container-3xl)}.max-w-\[240px\]{max-width:240px}.flex-1{flex:1}.flex-col{flex-direction:column}.items-center{align-items:center}.items-end{align-items:flex-end}.justify-between{justify-content:space-between}.gap-2{gap:calc(var(--spacing)*2)}.gap-4{gap:calc(var(--spacing)*4)}.overflow-hidden{overflow:hidden}.rounded-lg{border-radius:var(--radius-lg)}.border-t{border-top-style:var(--tw-border-style);border-top-width:1px}.border-surface-700{border-color:var(--color-surface-700)}.bg-black{background-color:var(--color-black)}.bg-cyberbunker-400{background-color:var(--color-cyberbunker-400)}.bg-linear-to-l{--tw-gradient-position:to left}@supports (background-image:linear-gradient(in lab,red,red)){.bg-linear-to-l{--tw-gradient-position:to left in oklab}}.bg-linear-to-l{background-image:linear-gradient(var(--tw-gradient-stops))}.bg-linear-to-r{--tw-gradient-position:to right}@supports (background-image:linear-gradient(in lab,red,red)){.bg-linear-to-r{--tw-gradient-position:to right in oklab}}.bg-linear-to-r{background-image:linear-gradient(var(--tw-gradient-stops))}.from-black{--tw-gradient-from:var(--color-black);--tw-gradient-stops:var(--tw-gradient-via-stops,var(--tw-gradient-position),var(--tw-gradient-from)var(--tw-gradient-from-position),var(--tw-gradient-to)var(--tw-gradient-to-position))}.to-black\/0{--tw-gradient-to:#0000}@supports (color:color-mix(in lab,red,red)){.to-black\/0{--tw-gradient-to:color-mix(in oklab,var(--color-black)0%,transparent)}}.to-black\/0{--tw-gradient-stops:var(--tw-gradient-via-stops,var(--tw-gradient-position),var(--tw-gradient-from)var(--tw-gradient-from-position),var(--tw-gradient-to)var(--tw-gradient-to-position))}.px-2{padding-inline:calc(var(--spacing)*2)}.px-4{padding-inline:calc(var(--spacing)*4)}.py-1{padding-block:calc(var(--spacing)*1)}.pt-5{padding-top:calc(var(--spacing)*5)}.pr-4{padding-right:calc(var(--spacing)*4)}.pb-6{padding-bottom:calc(var(--spacing)*6)}.text-m{font-size:var(--text-m);line-height:var(--tw-leading,var(--text-m--line-height))}.text-s{font-size:var(--text-s);line-height:var(--tw-leading,var(--text-s--line-height))}.text-xs{font-size:var(--text-xs);line-height:var(--tw-leading,var(--text-xs--line-height))}.font-medium{--tw-font-weight:var(--font-weight-medium);font-weight:var(--font-weight-medium)}.whitespace-nowrap{white-space:nowrap}.text-surface-25{color:var(--color-surface-25)}.text-surface-400{color:var(--color-surface-400)}.text-surface-950{color:var(--color-surface-950)}.transition{transition-property:color,background-color,border-color,outline-color,text-decoration-color,fill,stroke,--tw-gradient-from,--tw-gradient-via,--tw-gradient-to,opacity,box-shadow,transform,translate,scale,rotate,filter,-webkit-backdrop-filter,backdrop-filter,display,content-visibility,overlay,pointer-events;transition-timing-function:var(--tw-ease,var(--default-transition-timing-function));transition-duration:var(--tw-duration,var(--default-transition-duration))}@media (hover:hover){.hover\:bg-cyberbunker-500:hover{background-color:var(--color-cyberbunker-500)}}@media (min-width:40rem){.sm\:max-w-none{max-width:none}}@media (min-width:48rem){.md\:mx-0{margin-inline:calc(var(--spacing)*0)}.md\:mt-9{margin-top:calc(var(--spacing)*9)}.md\:hidden{display:none}.md\:justify-between{justify-content:space-between}.md\:overflow-visible{overflow:visible}.md\:pr-0{padding-right:calc(var(--spacing)*0)}.md\:pb-12{padding-bottom:calc(var(--spacing)*12)}}}@keyframes marquee{0%{transform:translate(0)}to{transform:translate(calc(-1*var(--marquee-width)/3))}}@media (max-width:767px){#marquee{will-change:transform;animation:10s linear infinite marquee}}@property --tw-border-style{syntax:"*";inherits:false;initial-value:solid}@property --tw-gradient-position{syntax:"*";inherits:false}@property --tw-gradient-from{syntax:"<color>";inherits:false;initial-value:#0000}@property --tw-gradient-via{syntax:"<color>";inherits:false;initial-value:#0000}@property --tw-gradient-to{syntax:"<color>";inherits:false;initial-value:#0000}@property --tw-gradient-stops{syntax:"*";inherits:false}@property --tw-gradient-via-stops{syntax:"*";inherits:false}@property --tw-gradient-from-position{syntax:"<length-percentage>";inherits:false;initial-value:0%}@property --tw-gradient-via-position{syntax:"<length-percentage>";inherits:false;initial-value:50%}@property --tw-gradient-to-position{syntax:"<length-percentage>";inherits:false;initial-value:100%}@property --tw-font-weight{syntax:"*";inherits:false}
+</style>
+  </head>
+  <body class="bg-black text-surface-25 h-[100dvh] flex flex-col max-w-3xl mx-auto px-4">
+    <div
+      id="sourceFilesEmpty"
+      data-testid="draft-waiting-message"
+      class="flex-1 flex items-center text-m max-w-[240px] sm:max-w-none font-medium"
+    >
+      Publish or restore your Caffeine app to make it appear here.
     </div>
-</body>
+    <footer class="border-t border-surface-700 pt-5 pb-6 md:pb-12">
+      <div class="flex justify-between">
+        <div class="flex flex-col gap-2">
+          <span class="text-surface-400 text-xs">Made with</span>
+          <svg width="121" height="21" viewBox="0 0 121 21" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path
+              d="M0.010437 13.1949C0.010437 8.72684 3.65617 5.65675 8.6999 5.65675C13.0035 5.65675 15.7995 8.04155 16.567 10.4264L12.7842 12.0436C12.2908 10.536 10.8106 9.24766 8.67248 9.24766C6.15062 9.24766 4.28664 10.7279 4.28664 13.1949C4.28664 15.6345 6.15062 17.1422 8.67248 17.1422C10.8106 17.1422 12.2908 15.8538 12.7842 14.3188L16.567 15.9909C15.7721 18.3483 13.0035 20.7057 8.6999 20.7057C3.65617 20.7057 0.010437 17.6356 0.010437 13.1949Z"
+              fill="currentColor"
+            />
+            <path
+              d="M23.9097 20.7057C20.3462 20.7057 17.797 19.0884 17.797 16.2376C17.797 13.4142 20.2914 12.0162 23.6905 11.6873L29.4469 11.1665V11.0842C29.4469 9.98777 28.5149 9.1106 26.1849 9.1106C24.2113 9.1106 22.7036 9.93295 22.2651 11.0568L18.3178 9.98777C19.2224 7.38367 22.4021 5.65675 26.3768 5.65675C30.9819 5.65675 33.6957 7.49332 33.6957 11.1116V16.3747C33.6957 17.1422 34.0246 17.4985 35.5597 17.1696V20.4042C32.3525 21.0072 30.5982 20.1849 29.858 18.8143C28.5423 19.9656 26.459 20.7057 23.9097 20.7057ZM29.4469 14.867V14.0995L24.3209 14.6203C22.8133 14.7574 22.0458 15.1137 22.0458 16.0731C22.0458 17.0051 23.0052 17.4985 24.7047 17.4985C26.9524 17.4985 29.4469 16.5391 29.4469 14.867Z"
+              fill="currentColor"
+            />
+            <path
+              d="M38.6334 5.73898C38.6334 2.14807 41.1552 0.421143 45.4314 0.421143C46.7746 0.421143 48.1726 0.613023 49.0498 0.941962L48.4741 4.3684C47.5695 4.1217 46.7198 3.98464 45.7056 3.98464C43.8416 3.98464 42.9644 4.53287 42.9644 5.82122V5.95827H48.2822V9.5766H42.9644V20.4042H38.6334V9.5766H35.3714V5.95827H38.6334V5.73898Z"
+              fill="currentColor"
+            />
+            <path
+              d="M50.1173 5.73898C50.1173 2.14807 52.6392 0.421143 56.9154 0.421143C58.2585 0.421143 59.6565 0.613023 60.5337 0.941962L59.9581 4.3684C59.0535 4.1217 58.2037 3.98464 57.1895 3.98464C55.3255 3.98464 54.4483 4.53287 54.4483 5.82122V5.95827H59.7662V9.5766H54.4483V20.4042H50.1173V9.5766H46.8553V5.95827H50.1173V5.73898Z"
+              fill="currentColor"
+            />
+            <path
+              d="M68.5687 17.2244C70.4875 17.2244 72.0226 16.3472 72.653 14.9493L76.5181 16.3472C75.4764 18.8965 72.3789 20.7057 68.5961 20.7057C63.4702 20.7057 59.8792 17.663 59.8792 13.1675C59.8792 8.89131 63.4702 5.65675 68.5687 5.65675C73.7495 5.65675 76.7648 9.00096 76.7648 13.1127V14.3188H64.1554C64.6489 16.1554 66.321 17.2244 68.5687 17.2244ZM68.4317 9.05578C66.5128 9.05578 64.8681 9.93295 64.2651 11.6325H72.3515C72.1596 10.4264 70.7342 9.05578 68.4317 9.05578Z"
+              fill="currentColor"
+            />
+            <path
+              d="M78.6617 4.47805V0.722669H83.1298V4.47805H78.6617ZM83.075 5.95827V20.4042H78.6891V5.95827H83.075Z"
+              fill="currentColor"
+            />
+            <path
+              d="M85.7829 20.4042V5.95827H90.1688V7.71261C91.2927 6.53392 93.1018 5.65675 95.4318 5.65675C99.1872 5.65675 101.736 8.17861 101.736 12.1807V20.4042H97.3506V13.469C97.3506 11.0294 96.1719 9.54919 93.9242 9.54919C91.5394 9.54919 90.1688 11.002 90.1688 13.4964V20.4042H85.7829Z"
+              fill="currentColor"
+            />
+            <path
+              d="M111.814 17.2244C113.733 17.2244 115.268 16.3472 115.899 14.9493L119.764 16.3472C118.722 18.8965 115.625 20.7057 111.842 20.7057C106.716 20.7057 103.125 17.663 103.125 13.1675C103.125 8.89131 106.716 5.65675 111.814 5.65675C116.995 5.65675 120.01 9.00096 120.01 13.1127V14.3188H107.401C107.895 16.1554 109.567 17.2244 111.814 17.2244ZM111.677 9.05578C109.759 9.05578 108.114 9.93295 107.511 11.6325H115.597C115.405 10.4264 113.98 9.05578 111.677 9.05578Z"
+              fill="currentColor"
+            />
+          </svg>
+        </div>
+        <div class="flex items-end">
+          <a
+            href="https://caffeine.ai"
+            class="text-xs bg-cyberbunker-400 text-surface-950 px-2 py-1 rounded-lg hover:bg-cyberbunker-500"
+            >Try Caffeine</a
+          >
+        </div>
+      </div>
+      <div class="mt-8 md:mt-9">
+        <div class="relative overflow-hidden md:overflow-visible -mx-4 md:mx-0">
+          <div class="flex text-surface-400 text-s whitespace-nowrap gap-4 md:justify-between" id="marquee">
+            <div class="flex items-center gap-2">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <g clip-path="url(#clip0_2113_129)">
+                  <path
+                    d="M14.1686 7.99976C14.1686 7.96097 14.1544 7.92316 14.1296 7.89331C14.1047 7.86353 14.07 7.84379 14.0319 7.83667L14.0309 7.83569L10.3259 7.1355C9.96374 7.06709 9.63044 6.89117 9.36981 6.63062C9.10925 6.37005 8.93341 6.03663 8.86493 5.67456L8.16376 1.96851V1.96753C8.15656 1.92943 8.13598 1.89465 8.10614 1.86987C8.07628 1.84522 8.03842 1.83179 7.99969 1.83179C7.96092 1.83186 7.92309 1.8451 7.89325 1.86987C7.86343 1.89464 7.84382 1.92945 7.83661 1.96753L7.83563 1.96851L7.13544 5.67456C7.06697 6.03665 6.89113 6.37004 6.63055 6.63062C6.36998 6.89119 6.03659 7.06703 5.6745 7.1355L1.96844 7.83569L1.96747 7.83667C1.92939 7.84388 1.89458 7.86349 1.86981 7.89331C1.84504 7.92315 1.83179 7.96098 1.83173 7.99976C1.83173 8.03849 1.84516 8.07634 1.86981 8.1062C1.89459 8.13604 1.92937 8.15662 1.96747 8.16382H1.96844L5.6745 8.86499C6.03657 8.93347 6.36999 9.10931 6.63055 9.36987C6.8911 9.6305 7.06703 9.9638 7.13544 10.3259L7.83563 14.031L7.83661 14.032C7.84373 14.0701 7.86347 14.1048 7.89325 14.1296C7.92309 14.1544 7.96091 14.1686 7.99969 14.1687C8.03855 14.1687 8.07623 14.1544 8.10614 14.1296C8.13606 14.1048 8.15662 14.0702 8.16376 14.032V14.031L8.86493 10.3259C8.93336 9.96372 9.10916 9.63052 9.36981 9.36987C9.63046 9.10922 9.96366 8.93342 10.3259 8.86499L14.0309 8.16382H14.0319C14.0702 8.15668 14.1047 8.13612 14.1296 8.1062C14.1544 8.07629 14.1686 8.03861 14.1686 7.99976ZM3.49969 13.3337C3.49969 12.8735 3.12691 12.4998 2.66669 12.4998C2.20645 12.4998 1.83368 12.8735 1.83368 13.3337C1.83387 13.7938 2.20657 14.1667 2.66669 14.1667C3.12679 14.1667 3.4995 13.7938 3.49969 13.3337ZM12.8337 3.99976V3.16675H11.9997C11.7237 3.16659 11.4997 2.94278 11.4997 2.66675C11.4997 2.3907 11.7237 2.16691 11.9997 2.16675H12.8337V1.33374C12.8337 1.0576 13.0575 0.83374 13.3337 0.83374C13.6097 0.833933 13.8337 1.05772 13.8337 1.33374V2.16675H14.6667C14.9428 2.16677 15.1667 2.39062 15.1667 2.66675C15.1667 2.94287 14.9428 3.16673 14.6667 3.16675H13.8337V3.99976C13.8337 4.27578 13.6097 4.49956 13.3337 4.49976C13.0575 4.49976 12.8337 4.2759 12.8337 3.99976ZM4.49969 13.3337C4.4995 14.3461 3.67908 15.1667 2.66669 15.1667C1.65428 15.1667 0.833872 14.3461 0.833679 13.3337C0.833679 12.3212 1.65416 11.4998 2.66669 11.4998C3.6792 11.4998 4.49969 12.3212 4.49969 13.3337ZM15.1686 7.99976C15.1686 8.27201 15.0731 8.53641 14.8991 8.74585C14.7252 8.95516 14.483 9.09725 14.2155 9.14722L14.2145 9.14624L10.5114 9.84741C10.3468 9.87852 10.1953 9.95844 10.0768 10.0769C9.95838 10.1954 9.87846 10.3469 9.84735 10.5115L9.14618 14.2146L9.14716 14.2156C9.09719 14.4831 8.9551 14.7252 8.74579 14.8992C8.53634 15.0731 8.27195 15.1687 7.99969 15.1687C7.72754 15.1686 7.46395 15.0731 7.25458 14.8992C7.04532 14.7254 6.90331 14.4839 6.85321 14.2166L6.15302 10.5115C6.12193 10.3469 6.0419 10.1954 5.92352 10.0769C5.80515 9.95853 5.65343 9.87857 5.48895 9.84741H5.48798L1.78387 9.14624C1.51659 9.09622 1.27509 8.95495 1.10126 8.74585C0.927311 8.53641 0.831726 8.27201 0.831726 7.99976C0.831795 7.7276 0.927374 7.46401 1.10126 7.25464C1.27492 7.04563 1.51585 6.90345 1.7829 6.85327L5.48798 6.15308H5.48895C5.65346 6.12192 5.80513 6.04198 5.92352 5.92358C6.04192 5.80519 6.12186 5.65352 6.15302 5.48901V5.48804L6.85321 1.78296C6.90339 1.51591 7.04557 1.27498 7.25458 1.10132C7.46395 0.927435 7.72754 0.831856 7.99969 0.831787C8.27195 0.831787 8.53634 0.927372 8.74579 1.10132C8.95494 1.27519 9.09716 1.51658 9.14716 1.78394H9.14618L9.84735 5.48804V5.48901C9.87851 5.65349 9.95847 5.80521 10.0768 5.92358C10.1953 6.04196 10.3469 6.12199 10.5114 6.15308L14.2165 6.85327H14.2155C14.4831 6.90326 14.7252 7.0452 14.8991 7.25464C15.073 7.46401 15.1686 7.7276 15.1686 7.99976Z"
+                    fill="currentColor"
+                  />
+                </g>
+                <defs>
+                  <clipPath id="clip0_2113_129">
+                    <rect width="16" height="16" fill="currentColor" />
+                  </clipPath>
+                </defs>
+              </svg>
+              Chat to create
+            </div>
+
+            <div class="flex items-center gap-2">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path
+                  d="M14.1665 9.66645C14.1665 9.00353 13.9029 8.36764 13.4341 7.89888C12.9653 7.43017 12.3295 7.16645 11.6665 7.16645H10.4732C10.2522 7.16639 10.0569 7.02175 9.99369 6.81001C9.77292 6.06952 9.35067 5.40437 8.77397 4.89009C8.19733 4.37598 7.48875 4.03275 6.72807 3.8979C5.96747 3.76313 5.18448 3.84188 4.46635 4.12641C3.7481 4.41108 3.12252 4.88986 2.66069 5.50923C2.19888 6.12863 1.91798 6.8646 1.85014 7.63423C1.78234 8.40395 1.93044 9.17793 2.2769 9.8686C2.62328 10.559 3.15482 11.1395 3.81205 11.5454C4.46956 11.9513 5.22783 12.1663 6.00053 12.1665H11.6665C12.3294 12.1665 12.9653 11.9036 13.4341 11.435C13.903 10.9662 14.1665 10.3295 14.1665 9.66645ZM15.1665 9.66645C15.1665 10.5947 14.7975 11.4857 14.1412 12.142C13.4848 12.7982 12.5946 13.1665 11.6665 13.1665H5.99955C5.0417 13.1662 4.10275 12.9 3.28764 12.3969C2.47241 11.8937 1.81295 11.1732 1.38334 10.3168C0.953733 9.46041 0.769976 8.50079 0.854044 7.54634C0.938177 6.59203 1.28631 5.67961 1.85893 4.91157C2.43158 4.14355 3.20661 3.54974 4.09721 3.19673C4.98789 2.84371 5.95949 2.74535 6.90287 2.91255C7.84631 3.07979 8.72487 3.50629 9.43998 4.14399C10.0609 4.69769 10.5366 5.39216 10.8306 6.16645H11.6665C12.5947 6.16645 13.4848 6.5356 14.1412 7.19184C14.7975 7.84814 15.1665 8.73831 15.1665 9.66645Z"
+                  fill="currentColor"
+                ></path>
+              </svg>
+
+              Live Publish
+            </div>
+
+            <div class="flex items-center gap-2">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path
+                  d="M12.0999 6.00037C12.0999 5.20876 11.4579 4.56677 10.6663 4.56677C9.87487 4.56695 9.23371 5.20887 9.23371 6.00037C9.23388 6.79172 9.87497 7.43281 10.6663 7.43298C11.4578 7.43298 12.0997 6.79182 12.0999 6.00037ZM13.3734 7.12927C13.1522 7.12307 12.9375 7.20482 12.7767 7.35681L12.7737 7.35974L12.3997 7.70642C12.3666 7.74009 12.3313 7.7714 12.2962 7.8031L9.97394 9.95935C9.96182 9.97061 9.94679 9.97882 9.9339 9.98865C9.59295 10.3155 9.13964 10.5004 8.66632 10.5004H7.33332C7.05728 10.5004 6.83349 10.2764 6.83332 10.0004C6.83332 9.72422 7.05717 9.50037 7.33332 9.50037H8.66632C8.88734 9.50037 9.09989 9.41251 9.25617 9.25623C9.41245 9.09995 9.50031 8.88739 9.50031 8.66638C9.50022 8.44556 9.41227 8.2337 9.25617 8.07751C9.09989 7.92123 8.88734 7.83337 8.66632 7.83337H6.66632C6.37224 7.83344 6.21146 7.92912 6.13312 8.03357C6.11717 8.05481 6.09951 8.0747 6.08039 8.09314L2.7132 11.3392L4.68878 13.3148L5.3841 12.7064C5.70666 12.3229 6.18573 12.1665 6.66632 12.1664H9.33332C9.94314 12.1664 10.4647 11.9476 10.8236 11.5375L10.8548 11.5052L13.9212 8.57166L13.9232 8.5697C14.084 8.41768 14.1776 8.20791 14.1839 7.98669C14.1901 7.76552 14.1083 7.55083 13.9564 7.39001C13.8043 7.22924 13.5945 7.13553 13.3734 7.12927ZM5.50031 3.33337C5.50031 2.50506 4.82859 1.83355 4.00031 1.83337C3.17188 1.83337 2.50031 2.50495 2.50031 3.33337C2.50031 4.1618 3.17188 4.83337 4.00031 4.83337C4.82859 4.8332 5.50031 4.16169 5.50031 3.33337ZM13.0921 6.14783C13.194 6.13336 13.2974 6.12633 13.4017 6.12927C13.888 6.14302 14.3487 6.34992 14.6829 6.70349C15.0171 7.05708 15.1976 7.52871 15.1839 8.01501C15.1702 8.50022 14.9637 8.95933 14.6116 9.29333L14.6126 9.29431L11.5569 12.2152C10.9836 12.8578 10.1812 13.1664 9.33332 13.1664H6.66632C6.37224 13.1665 6.21146 13.2621 6.13312 13.3666C6.11233 13.3943 6.08887 13.4199 6.06281 13.4427L5.39777 14.0238L5.68683 14.3129C5.88204 14.5081 5.88193 14.8246 5.68683 15.0199C5.49157 15.2152 5.17506 15.2152 4.9798 15.0199L0.9798 11.0199C0.784701 10.8246 0.784592 10.5081 0.9798 10.3129C1.17502 10.1178 1.49161 10.1178 1.68683 10.3129L2.00519 10.6312L5.37921 7.37927C5.70179 6.99132 6.18321 6.83344 6.66632 6.83337H8.38312C8.28816 6.57321 8.23375 6.29338 8.23371 6.00037C8.23371 4.65658 9.32258 3.56695 10.6663 3.56677C12.0102 3.56677 13.0999 4.65647 13.0999 6.00037C13.0999 6.04995 13.095 6.09898 13.0921 6.14783ZM6.50031 3.33337C6.50031 4.71398 5.38087 5.8332 4.00031 5.83337C2.6196 5.83337 1.50031 4.71409 1.50031 3.33337C1.50031 1.95266 2.6196 0.833374 4.00031 0.833374C5.38087 0.83355 6.50031 1.95277 6.50031 3.33337Z"
+                  fill="currentColor"
+                />
+              </svg>
+
+              Monetization
+            </div>
+
+            <div class="flex items-center gap-2">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path
+                  fill-rule="evenodd"
+                  clip-rule="evenodd"
+                  d="M7.99998 1.83337C4.59422 1.83337 1.83331 4.59428 1.83331 8.00004C1.83331 11.4058 4.59422 14.1667 7.99998 14.1667C11.4057 14.1667 14.1666 11.4058 14.1666 8.00004C14.1666 4.59428 11.4057 1.83337 7.99998 1.83337ZM0.833313 8.00004C0.833313 4.042 4.04194 0.833374 7.99998 0.833374C11.958 0.833374 15.1666 4.042 15.1666 8.00004C15.1666 11.9581 11.958 15.1667 7.99998 15.1667C4.04194 15.1667 0.833313 11.9581 0.833313 8.00004Z"
+                  fill="currentColor"
+                />
+                <path
+                  fill-rule="evenodd"
+                  clip-rule="evenodd"
+                  d="M7.99998 0.833374C8.13682 0.833374 8.26768 0.889457 8.36205 0.988546C10.1624 2.87895 11.1666 5.38948 11.1666 8.00004C11.1666 10.6106 10.1624 13.1211 8.36205 15.0115C8.26768 15.1106 8.13682 15.1667 7.99998 15.1667C7.86314 15.1667 7.73228 15.1106 7.63791 15.0115C5.83752 13.1211 4.83331 10.6106 4.83331 8.00004C4.83331 5.38948 5.83752 2.87895 7.63791 0.988546C7.73228 0.889457 7.86314 0.833374 7.99998 0.833374ZM7.99998 2.08159C6.6047 3.73173 5.83331 5.82747 5.83331 8.00004C5.83331 10.1726 6.6047 12.2683 7.99998 13.9185C9.39526 12.2683 10.1666 10.1726 10.1666 8.00004C10.1666 5.82747 9.39526 3.73173 7.99998 2.08159Z"
+                  fill="currentColor"
+                />
+                <path
+                  fill-rule="evenodd"
+                  clip-rule="evenodd"
+                  d="M0.833313 8.00004C0.833313 7.7239 1.05717 7.50004 1.33331 7.50004H14.6666C14.9428 7.50004 15.1666 7.7239 15.1666 8.00004C15.1666 8.27618 14.9428 8.50004 14.6666 8.50004H1.33331C1.05717 8.50004 0.833313 8.27618 0.833313 8.00004Z"
+                  fill="currentColor"
+                />
+              </svg>
+
+              Custom domains
+            </div>
+
+            <div class="flex items-center gap-2">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path
+                  d="M2.83334 14V10C2.83334 9.72386 3.0572 9.5 3.33334 9.5C3.60949 9.5 3.83334 9.72386 3.83334 10V14C3.83334 14.2761 3.60949 14.5 3.33334 14.5C3.0572 14.5 2.83334 14.2761 2.83334 14ZM7.50034 14V6C7.50034 5.72386 7.72419 5.5 8.00034 5.5C8.27633 5.50018 8.50034 5.72397 8.50034 6V14C8.50034 14.276 8.27633 14.4998 8.00034 14.5C7.72419 14.5 7.50034 14.2761 7.50034 14ZM12.1664 14V2C12.1664 1.72397 12.3904 1.50018 12.6664 1.5C12.9425 1.5 13.1664 1.72386 13.1664 2V14C13.1664 14.2761 12.9425 14.5 12.6664 14.5C12.3904 14.4998 12.1664 14.276 12.1664 14Z"
+                  fill="currentColor"
+                />
+              </svg>
+
+              App Analytics
+            </div>
+          </div>
+          <div class="md:hidden absolute top-0 left-0 bottom-0 w-12 bg-linear-to-r from-black to-black/0"></div>
+          <div class="md:hidden absolute top-0 right-0 bottom-0 w-12 bg-linear-to-l from-black to-black/0"></div>
+        </div>
+      </div>
+    </footer>
+
+    <script>
+      const marquee = document.getElementById('marquee');
+      const children = Array.from(marquee.children);
+      let lastClonedItem = null;
+
+      // clone the elements for mobile so infinite transition
+      // reverts to the start smoothly
+      for (let i = 0; i < 2; i++) {
+        children.forEach((child, index) => {
+          const clone = child.cloneNode(true);
+          clone.classList.add('md:hidden');
+          marquee.appendChild(clone);
+          lastClonedItem = clone;
+        });
+      }
+
+      lastClonedItem.classList.add('pr-4');
+      lastClonedItem.classList.add('md:pr-0');
+
+      let totalWidth = marquee.scrollWidth;
+
+      // Set the animation distance as a CSS variable
+      marquee.style.setProperty('--marquee-width', `${totalWidth}px`);
+    </script>
+  </body>
 </html>
