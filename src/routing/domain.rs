@@ -164,11 +164,12 @@ impl CustomDomainStorage {
 
         for d in domains {
             // Do not add new domain if the same one exists with newer timestamp
-            if let Some(v) = tree.get(&d.name)
-                && v.timestamp > d.timestamp
-            {
+            if let Some(v) = tree.get(&d.name) {
                 dupes += 1;
-                continue;
+
+                if v.timestamp > d.timestamp {
+                    continue;
+                }
             }
 
             let dl = DomainLookup {
