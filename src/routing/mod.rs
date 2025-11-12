@@ -200,7 +200,7 @@ pub async fn setup_router(
     )
     .context("unable to setup API Router")?;
 
-    let custom_domain_storage = Arc::new(CustomDomainStorage::new(custom_domain_providers));
+    let custom_domain_storage = Arc::new(CustomDomainStorage::new(custom_domain_providers, registry));
     tasks.add_interval(
         "custom_domain_storage",
         custom_domain_storage.clone(),
