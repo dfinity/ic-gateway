@@ -24,9 +24,9 @@ use ic_bn_lib::{
     http::{
         cache::{CacheBuilder, KeyExtractorUriRange},
         extract_host,
-        middleware::{waf::WafLayer, rate_limiter},
+        middleware::{rate_limiter, waf::WafLayer},
         shed::{
-            sharded::{ShardedLittleLoadShedderLayer},
+            sharded::ShardedLittleLoadShedderLayer,
             system::{SystemInfo, SystemLoadShedderLayer},
         },
     },
@@ -35,7 +35,17 @@ use ic_bn_lib::{
     utils::health_manager::HealthManager,
     vector::client::Vector,
 };
-use ic_bn_lib_common::{traits::{custom_domains::ProvidesCustomDomains, http::{Client, ClientHttp}, shed::TypeExtractor}, types::{RequestType as RequestTypeApi, shed::{ShardedOptions, ShedResponse}}};
+use ic_bn_lib_common::{
+    traits::{
+        custom_domains::ProvidesCustomDomains,
+        http::{Client, ClientHttp},
+        shed::TypeExtractor,
+    },
+    types::{
+        RequestType as RequestTypeApi,
+        shed::{ShardedOptions, ShedResponse},
+    },
+};
 use prometheus::Registry;
 use strum::{Display, IntoStaticStr};
 use tokio_util::sync::CancellationToken;
@@ -200,7 +210,8 @@ pub async fn setup_router(
     )
     .context("unable to setup API Router")?;
 
-    let custom_domain_storage = Arc::new(CustomDomainStorage::new(custom_domain_providers, registry));
+    let custom_domain_storage =
+        Arc::new(CustomDomainStorage::new(custom_domain_providers, registry));
     tasks.add_interval(
         "custom_domain_storage",
         custom_domain_storage.clone(),
@@ -479,7 +490,7 @@ pub async fn setup_router(
                 get(proxy::issuer_proxy)
                     .put(proxy::issuer_proxy)
                     .delete(proxy::issuer_proxy)
-                    .layer(cors_base.allow_methods([
+                    .layer(cors_base.clone().allow_methods([
                         Method::HEAD,
                         Method::GET,
                         Method::PUT,
@@ -533,8 +544,17 @@ pub async fn setup_router(
 
     let api_hostname = cli.api.api_hostname.clone().map(|x| x.to_string());
 
-    let custom_domains_router =
-        custom_domains_router.map(|x| Router::new().nest("/custom-domains", x));
+    let custom_domains_router = custom_domains_router.map(|x| {
+        Router::new()
+            .nest("/custom-domains", x)
+            .layer(cors_base.allow_methods([
+                Method::HEAD,
+                Method::GET,
+                Method::POST,
+                Method::DELETE,
+                Method::PATCH,
+            ]))
+    });
 
     // Top-level router
     #[allow(unused_mut)]
@@ -553,18 +573,12 @@ pub async fn setup_router(
                 let canister_id = request.extensions().get::<CanisterId>();
 
                 // If the custom domains are enabled and the request came to the base domain
-                if let Some(v) = custom_domains_router 
-                    && ctx.is_base_domain()
-                    && path.starts_with("/custom-domains")
-                {
+                if let Some(v) = custom_domains_router && ctx.is_base_domain() && path.starts_with("/custom-domains") {
                     return v.oneshot(request).await;
                 }
 
                 // If there are issuers defined and the request came to the base domain -> proxy to them
-                if let Some(v) = router_issuer
-                    && ctx.is_base_domain()
-                    && path.starts_with("/registrations")
-                {
+                if let Some(v) = router_issuer && ctx.is_base_domain() && path.starts_with("/registrations") {
                     return v.oneshot(request).await;
                 }
 

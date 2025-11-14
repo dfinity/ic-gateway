@@ -214,6 +214,28 @@ fn test_cases(
             ),
             ExpectedResponse::new(None, None, Some(headers_common.clone())),
         ),
+        (
+            "custom-domains OPTIONS request".to_string(),
+            Request::new(
+                Method::OPTIONS,
+                url.join("/custom-domains/v1/foo.bar").unwrap(),
+            ),
+            ExpectedResponse::new(Some(StatusCode::OK), None, None).with_header(
+                "Access-Control-Allow-Methods",
+                "HEAD, GET, POST, PATCH, DELETE",
+            ),
+        ),
+        (
+            "custom-domains OPTIONS request to /validate".to_string(),
+            Request::new(
+                Method::OPTIONS,
+                url.join("/custom-domains/v1/foo.bar/validate").unwrap(),
+            ),
+            ExpectedResponse::new(Some(StatusCode::OK), None, None).with_header(
+                "Access-Control-Allow-Methods",
+                "HEAD, GET, POST, PATCH, DELETE",
+            ),
+        ),
     ];
 
     test_cases.into()
