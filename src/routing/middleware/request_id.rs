@@ -8,8 +8,10 @@ use axum::{
 use bytes::Bytes;
 use derive_new::new;
 use http::header::HeaderValue;
-use ic_bn_lib::http::headers::X_REQUEST_ID;
+use ic_bn_lib::http::{headers::X_REQUEST_ID, middleware::extract_ip_from_request};
 use uuid::Uuid;
+
+use crate::routing::RemoteAddr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RequestId(pub Uuid);
@@ -50,6 +52,12 @@ pub async fn middleware(
     } else {
         RequestId(Uuid::now_v7())
     };
+
+    // Extract client's IP
+    let remote_addr = extract_ip_from_request(&request);
+    if let Some(v) = remote_addr {
+        request.extensions_mut().insert(RemoteAddr(v));
+    }
 
     let hdr = HeaderValue::from_maybe_shared(Bytes::from(request_id.to_string())).unwrap();
 

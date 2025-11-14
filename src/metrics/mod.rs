@@ -19,7 +19,7 @@ use http::header::{CONTENT_TYPE, ORIGIN, REFERER, USER_AGENT};
 use ic_bn_lib::{
     http::{
         body::CountingBody, cache::CacheStatus, calc_headers_size, extract_host, http_method,
-        http_version, middleware::extract_ip_from_request,
+        http_version,
     },
     ic_agent::agent::route_provider::RouteProvider,
     tasks::TaskManager,
@@ -33,7 +33,10 @@ use prometheus::{
 use tower_http::compression::CompressionLayer;
 use tracing::info;
 
-use crate::core::{ENV, HOSTNAME};
+use crate::{
+    core::{ENV, HOSTNAME},
+    routing::RemoteAddr,
+};
 
 use crate::routing::{
     CanisterId, RequestCtx,
@@ -167,11 +170,16 @@ pub async fn middleware(
     State(state): State<Arc<HttpMetrics>>,
     Extension(conn_info): Extension<Arc<ConnInfo>>,
     Extension(request_id): Extension<RequestId>,
-    request: Request,
+    mut request: Request,
     next: Next,
 ) -> impl IntoResponse {
-    let remote_addr = extract_ip_from_request(&request);
+    let remote_addr = request.extensions().get::<RemoteAddr>().cloned();
     let tls_info = request.extensions().get::<Arc<TlsInfo>>().cloned();
+    let country_code = request
+        .extensions_mut()
+        .remove::<CountryCode>()
+        .map(|x| x.0)
+        .unwrap_or_default();
 
     // Prepare to execute the request and count its body size
     let (parts, body) = request.into_parts();
@@ -221,11 +229,6 @@ pub async fn middleware(
     let canister_id = response.extensions_mut().get::<CanisterId>().copied();
     let error_cause = response.extensions_mut().remove::<ErrorCause>();
     let ic_status = response.extensions_mut().remove::<IcResponseStatus>();
-    let country_code = response
-        .extensions_mut()
-        .remove::<CountryCode>()
-        .map(|x| x.0)
-        .unwrap_or_default();
     let status = response.status().as_u16();
 
     // IC request metadata

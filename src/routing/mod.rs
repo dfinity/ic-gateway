@@ -4,7 +4,7 @@ pub mod ic;
 pub mod middleware;
 pub mod proxy;
 
-use std::{ops::Deref, str::FromStr, sync::Arc, time::Duration};
+use std::{net::IpAddr, ops::Deref, str::FromStr, sync::Arc, time::Duration};
 
 use anyhow::{Context, Error};
 use axum::{
@@ -178,6 +178,18 @@ impl TypeExtractor for RequestTypeExtractor {
         req.extensions()
             .get::<Arc<RequestCtx>>()
             .map(|x| x.request_type)
+    }
+}
+
+/// Client address
+#[derive(Debug, Clone)]
+pub struct RemoteAddr(pub IpAddr);
+
+impl Deref for RemoteAddr {
+    type Target = IpAddr;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
@@ -534,12 +546,12 @@ pub async fn setup_router(
             request_type_state,
             request_type::middleware,
         ))
+        .layer(geoip_mw)
         .layer(metrics_mw)
         .layer(option_layer(waf_layer))
         .layer(load_shedder_system_mw)
         .layer(from_fn_with_state(validate_state, validate::middleware))
         .layer(concurrency_limit_mw)
-        .layer(geoip_mw)
         .layer(load_shedder_latency_mw);
 
     let api_hostname = cli.api.api_hostname.clone().map(|x| x.to_string());
