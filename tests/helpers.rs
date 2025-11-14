@@ -332,6 +332,16 @@ pub fn start_ic_gateway(
         cmd.arg(v.to_str().unwrap());
     }
     cmd.arg("--listen-insecure-serve-http-only");
+    cmd.arg("--custom-domains-ic-identity");
+    cmd.arg("test_data/test_ic_identity.pem");
+    cmd.arg("--custom-domains-canister-id");
+    cmd.arg("aaaaa-aa");
+    cmd.arg("--custom-domains-cloudflare-token");
+    cmd.arg("foobar");
+    cmd.arg("--custom-domains-encryption-key");
+    cmd.arg("sVq8LeaZwKSU81632y7kelNJ3EwBFhMcbuKB6OYZiKI=");
+    cmd.arg("--custom-domains-acme-account");
+    cmd.arg("test_data/test_acme_account.json");
     cmd.arg("--log-stdout");
     cmd.arg("--log-level");
     cmd.arg("info");
