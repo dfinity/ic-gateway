@@ -532,8 +532,8 @@ dependencies = [
 
 [[package]]
 name = "axum-server"
-version = "0.7.2"
-source = "git+https://github.com/AlvaroParker/axum-server?branch=fix-trait-bound#1fab3a4522d62aa6b75be531c4066d0ae68a4413"
+version = "0.7.3"
+source = "git+https://github.com/AlvaroParker/axum-server?branch=fix-trait-bound#aed42cd59919450edf2cccf971da97f49ea00af0"
 dependencies = [
  "bytes",
  "fs-err",
@@ -830,9 +830,9 @@ checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 
 [[package]]
 name = "bytes"
-version = "1.10.1"
+version = "1.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d71b6127be86fdcfddb610f7182ac57211d4b18a3e9c82eb2d17662f2227ad6a"
+checksum = "b35204fbdc0b3f4446b89fc1ac2cf84a8a68971995d0bf2e925ec7cd960f9cb3"
 
 [[package]]
 name = "bytesize"
@@ -6841,9 +6841,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-encoder"
-version = "0.240.0"
+version = "0.241.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06d642d8c5ecc083aafe9ceb32809276a304547a3a6eeecceb5d8152598bc71f"
+checksum = "e01164c9dda68301e34fdae536c23ed6fe90ce6d97213ccc171eebbd3d02d6b8"
 dependencies = [
  "leb128fmt",
  "wasmparser",
@@ -6864,9 +6864,9 @@ dependencies = [
 
 [[package]]
 name = "wasmparser"
-version = "0.240.0"
+version = "0.241.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b722dcf61e0ea47440b53ff83ccb5df8efec57a69d150e4f24882e4eba7e24a4"
+checksum = "46d90019b1afd4b808c263e428de644f3003691f243387d30d673211ee0cb8e8"
 dependencies = [
  "bitflags",
  "indexmap 2.12.0",
@@ -6875,9 +6875,9 @@ dependencies = [
 
 [[package]]
 name = "wast"
-version = "240.0.0"
+version = "241.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0efe1c93db4ac562b9733e3dca19ed7fc878dba29aef22245acf84f13da4a19"
+checksum = "63f66e07e2ddf531fef6344dbf94d112df7c2f23ed6ffb10962e711500b8d816"
 dependencies = [
  "bumpalo",
  "leb128fmt",
@@ -6888,9 +6888,9 @@ dependencies = [
 
 [[package]]
 name = "wat"
-version = "1.240.0"
+version = "1.241.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ec9b6eab7ecd4d639d78515e9ea491c9bacf494aa5eda10823bd35992cf8c1e"
+checksum = "45f923705c40830af909c5dec2352ec2821202e4a66008194585e1917458a26d"
 dependencies = [
  "wast",
 ]
