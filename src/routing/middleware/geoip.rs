@@ -47,7 +47,7 @@ pub async fn middleware(
     let ip = extract_ip_from_request(&request);
 
     // Lookup code
-    let country_code = ip.map(|x| geoip.lookup(x));
+    let country_code = ip.and_then(|x| geoip.lookup(x));
 
     if let Some(v) = &country_code {
         request.extensions_mut().insert(v.clone());

@@ -19,7 +19,7 @@ use http::header::{CONTENT_TYPE, ORIGIN, REFERER, USER_AGENT};
 use ic_bn_lib::{
     http::{
         body::CountingBody, cache::CacheStatus, calc_headers_size, extract_host, http_method,
-        http_version,
+        http_version, middleware::extract_ip_from_request,
     },
     ic_agent::agent::route_provider::RouteProvider,
     tasks::TaskManager,
@@ -170,6 +170,7 @@ pub async fn middleware(
     request: Request,
     next: Next,
 ) -> impl IntoResponse {
+    let remote_addr = extract_ip_from_request(&request);
     let tls_info = request.extensions().get::<Arc<TlsInfo>>().cloned();
 
     // Prepare to execute the request and count its body size
@@ -338,7 +339,7 @@ pub async fn middleware(
         let conn_rcvd = conn_info.traffic.rcvd();
         let conn_sent = conn_info.traffic.sent();
         let conn_reqs = conn_info.req_count();
-        let remote_addr = conn_info.remote_addr.ip().to_string();
+        let remote_addr = remote_addr.map(|x| x.to_string()).unwrap_or_default();
         let request_id_str = request_id.to_string();
 
         let (ic_http_streaming, ic_http_upgrade) = ic_status.as_ref().map_or((false, false), |x| {
