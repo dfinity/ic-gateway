@@ -4,7 +4,7 @@ pub mod ic;
 pub mod middleware;
 pub mod proxy;
 
-use std::{ops::Deref, str::FromStr, sync::Arc, time::Duration};
+use std::{net::IpAddr, ops::Deref, str::FromStr, sync::Arc, time::Duration};
 
 use anyhow::{Context, Error};
 use axum::{
@@ -178,6 +178,18 @@ impl TypeExtractor for RequestTypeExtractor {
         req.extensions()
             .get::<Arc<RequestCtx>>()
             .map(|x| x.request_type)
+    }
+}
+
+/// Client address
+#[derive(Debug, Clone, Copy)]
+pub struct RemoteAddr(pub IpAddr);
+
+impl Deref for RemoteAddr {
+    type Target = IpAddr;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
@@ -534,12 +546,12 @@ pub async fn setup_router(
             request_type_state,
             request_type::middleware,
         ))
+        .layer(geoip_mw)
         .layer(metrics_mw)
         .layer(option_layer(waf_layer))
         .layer(load_shedder_system_mw)
         .layer(from_fn_with_state(validate_state, validate::middleware))
         .layer(concurrency_limit_mw)
-        .layer(geoip_mw)
         .layer(load_shedder_latency_mw);
 
     let api_hostname = cli.api.api_hostname.clone().map(|x| x.to_string());
@@ -634,15 +646,20 @@ pub async fn setup_router(
 
 #[cfg(test)]
 mod test {
-    use crate::test::setup_test_router;
+    use crate::{
+        routing::middleware::{geoip::CountryCode, request_id::RequestId},
+        test::setup_test_router,
+    };
 
     use super::*;
     use axum::body::{Body, to_bytes};
-    use http::Uri;
+    use http::{HeaderValue, Uri};
+    use ic_bn_lib::http::headers::{X_REAL_IP, X_REQUEST_ID};
     use ic_bn_lib_common::types::http::ConnInfo;
     use rand::{seq::SliceRandom, thread_rng};
     use std::str::FromStr;
     use tower::Service;
+    use uuid::Uuid;
 
     #[test]
     fn test_request_type() {
@@ -704,11 +721,30 @@ mod test {
         let mut req = axum::extract::Request::new(Body::from(""));
         *req.uri_mut() = Uri::try_from(format!("http://{domain}")).unwrap();
         let conn_info = Arc::new(ConnInfo::default());
-        (*req.extensions_mut()).insert(conn_info);
+        req.extensions_mut().insert(conn_info);
+        // Some Swiss IP
+        let remote_addr = IpAddr::from_str("77.109.180.4").unwrap();
+        req.headers_mut().insert(
+            X_REAL_IP,
+            HeaderValue::from_str(&remote_addr.to_string()).unwrap(),
+        );
+
+        // Send request id
+        let request_id = Uuid::from_str("7373F02E-9560-4E16-AC6D-4974300C827B").unwrap();
+        req.headers_mut().insert(
+            X_REQUEST_ID,
+            HeaderValue::from_str(&request_id.to_string()).unwrap(),
+        );
 
         // Make sure that we get right answer
         let resp = router.call(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            resp.extensions().get::<RemoteAddr>().unwrap().0,
+            remote_addr,
+        );
+        assert_eq!(resp.extensions().get::<CountryCode>().unwrap().0, "CH");
+        assert_eq!(resp.extensions().get::<RequestId>().unwrap().0, request_id);
 
         let body = resp.into_body();
         let body = to_bytes(body, 1024).await.unwrap();

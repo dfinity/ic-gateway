@@ -8,8 +8,10 @@ use axum::{
 use bytes::Bytes;
 use derive_new::new;
 use http::header::HeaderValue;
-use ic_bn_lib::http::headers::X_REQUEST_ID;
+use ic_bn_lib::http::{headers::X_REQUEST_ID, middleware::extract_ip_from_request};
 use uuid::Uuid;
+
+use crate::routing::RemoteAddr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RequestId(pub Uuid);
@@ -42,7 +44,7 @@ pub async fn middleware(
     mut request: Request,
     next: Next,
 ) -> Response {
-    // Try to get & parse incoming UUID if it's there
+    // Try to get & parse incoming request UUID if it's there
     let request_id = if let Some(v) = extract_request_id(&request)
         && state.trust_incoming
     {
@@ -51,15 +53,27 @@ pub async fn middleware(
         RequestId(Uuid::now_v7())
     };
 
+    // Extract client's IP
+    let remote_addr = extract_ip_from_request(&request).map(RemoteAddr);
+    if let Some(v) = remote_addr {
+        request.extensions_mut().insert(v);
+    }
+
     let hdr = HeaderValue::from_maybe_shared(Bytes::from(request_id.to_string())).unwrap();
 
     request.extensions_mut().insert(request_id);
     request.headers_mut().insert(X_REQUEST_ID, hdr.clone());
 
     let mut response = next.run(request).await;
-
-    response.extensions_mut().insert(request_id);
     response.headers_mut().insert(X_REQUEST_ID, hdr);
+
+    #[cfg(test)]
+    {
+        response.extensions_mut().insert(request_id);
+        if let Some(v) = remote_addr {
+            response.extensions_mut().insert(v);
+        }
+    }
 
     response
 }

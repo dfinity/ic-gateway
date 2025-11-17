@@ -24,7 +24,7 @@ const HEADERS_REMOVE: [HeaderName; 12] = [
     X_IC_COUNTRY_CODE,
 ];
 
-// Add various headers
+// Add various headers to the response
 pub async fn middleware(request: Request, next: Next) -> Response {
     let mut response = next.run(request).await;
 
