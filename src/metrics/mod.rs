@@ -173,7 +173,7 @@ pub async fn middleware(
     mut request: Request,
     next: Next,
 ) -> impl IntoResponse {
-    let remote_addr = request.extensions().get::<RemoteAddr>().cloned();
+    let remote_addr = request.extensions_mut().remove::<RemoteAddr>();
     let tls_info = request.extensions().get::<Arc<TlsInfo>>().cloned();
     let country_code = request
         .extensions_mut()

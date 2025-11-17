@@ -44,7 +44,7 @@ pub async fn middleware(
     mut request: Request,
     next: Next,
 ) -> Response {
-    // Try to get & parse incoming UUID if it's there
+    // Try to get & parse incoming request UUID if it's there
     let request_id = if let Some(v) = extract_request_id(&request)
         && state.trust_incoming
     {
@@ -54,9 +54,9 @@ pub async fn middleware(
     };
 
     // Extract client's IP
-    let remote_addr = extract_ip_from_request(&request);
+    let remote_addr = extract_ip_from_request(&request).map(RemoteAddr);
     if let Some(v) = remote_addr {
-        request.extensions_mut().insert(RemoteAddr(v));
+        request.extensions_mut().insert(v);
     }
 
     let hdr = HeaderValue::from_maybe_shared(Bytes::from(request_id.to_string())).unwrap();
@@ -65,9 +65,15 @@ pub async fn middleware(
     request.headers_mut().insert(X_REQUEST_ID, hdr.clone());
 
     let mut response = next.run(request).await;
-
-    response.extensions_mut().insert(request_id);
     response.headers_mut().insert(X_REQUEST_ID, hdr);
+
+    #[cfg(test)]
+    {
+        response.extensions_mut().insert(request_id);
+        if let Some(v) = remote_addr {
+            response.extensions_mut().insert(v);
+        }
+    }
 
     response
 }

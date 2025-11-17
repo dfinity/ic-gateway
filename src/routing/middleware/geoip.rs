@@ -45,7 +45,7 @@ pub async fn middleware(
     mut request: Request,
     next: Next,
 ) -> Response {
-    let remote_addr = request.extensions().get::<RemoteAddr>().cloned();
+    let remote_addr = request.extensions().get::<RemoteAddr>().copied();
 
     // Lookup code
     let country_code = remote_addr.and_then(|x| geoip.lookup(*x));
@@ -54,8 +54,10 @@ pub async fn middleware(
         request.extensions_mut().insert(v.clone());
     }
 
+    #[allow(unused_mut)]
     let mut response = next.run(request).await;
 
+    #[cfg(test)]
     if let Some(v) = country_code {
         response.extensions_mut().insert(v);
     }

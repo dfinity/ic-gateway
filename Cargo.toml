@@ -3,6 +3,7 @@ name = "ic-gateway"
 version = "0.2.0"
 description = "HTTP-to-IC gateway"
 edition = "2024"
+default-run = "ic-gateway"
 
 [features]
 default = []

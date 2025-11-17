@@ -103,6 +103,7 @@ pub async fn setup_test_router(tasks: &mut TaskManager) -> (Router, Vec<String>)
     let args = vec![
         "",
         "--ic-unsafe-disable-response-verification",
+        "--network-trust-x-request-id",
         "--cache-size",
         "2gb",
         "--domain",
@@ -113,6 +114,8 @@ pub async fn setup_test_router(tasks: &mut TaskManager) -> (Router, Vec<String>)
         "test_data/denylist.json",
         "--policy-denylist-allowlist",
         "test_data/allowlist.txt",
+        "--geoip-db",
+        "test_data/GeoLite2-Country.mmdb",
         "--log-vector-url",
         "http://127.0.0.1/vector",
     ];
