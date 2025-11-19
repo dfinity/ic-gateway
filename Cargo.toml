@@ -38,8 +38,8 @@ cloudflare = { version = "0.14.0", default-features = false, features = [
 ] }
 console-subscriber = { version = "0.4.1", optional = true }
 ctrlc = { version = "3.4.5", features = ["termination"] }
-custom-domains-backend = { package = "backend", git = "https://github.com/dfinity/custom-domains", rev = "c839322dccaaa36a4991cba142435d12cdba4c93" }
-custom-domains-base = { package = "base", git = "https://github.com/dfinity/custom-domains", rev = "c839322dccaaa36a4991cba142435d12cdba4c93" }
+custom-domains-backend = { package = "backend", git = "https://github.com/dfinity/custom-domains", rev = "d672fec312348373eff59cdef06705487bb1da18" }
+custom-domains-base = { package = "base", git = "https://github.com/dfinity/custom-domains", rev = "d672fec312348373eff59cdef06705487bb1da18" }
 derive-new = "0.7.0"
 fqdn = { version = "0.4.1", features = ["serde"] }
 futures = "0.3.31"

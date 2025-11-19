@@ -191,6 +191,7 @@ pub async fn main(
             &mut tasks,
             &mut certificate_providers,
             &mut custom_domain_providers,
+            cli.rate_limit.rate_limit_bypass_token.clone(),
         )
         .await
         .context("unable to setup Custom Domains")?;
@@ -382,6 +383,7 @@ async fn setup_custom_domains(
     tasks: &mut TaskManager,
     certificate_providers: &mut Vec<Arc<dyn ProvidesCertificates>>,
     custom_domain_providers: &mut Vec<Arc<dyn ProvidesCustomDomains>>,
+    rate_limiter_bypass_token: Option<String>,
 ) -> Result<Router, Error> {
     let token = tasks.token();
     let (workers, router, client) = setup(
@@ -390,6 +392,7 @@ async fn setup_custom_domains(
         token,
         HOSTNAME.get().unwrap(),
         metrics_registry.clone(),
+        rate_limiter_bypass_token,
     )
     .await?;
 

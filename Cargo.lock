@@ -548,7 +548,7 @@ dependencies = [
 [[package]]
 name = "backend"
 version = "0.1.0"
-source = "git+https://github.com/dfinity/custom-domains?rev=c839322dccaaa36a4991cba142435d12cdba4c93#c839322dccaaa36a4991cba142435d12cdba4c93"
+source = "git+https://github.com/dfinity/custom-domains?rev=d672fec312348373eff59cdef06705487bb1da18#d672fec312348373eff59cdef06705487bb1da18"
 dependencies = [
  "anyhow",
  "axum 0.8.6",
@@ -590,7 +590,7 @@ dependencies = [
 [[package]]
 name = "base"
 version = "0.1.0"
-source = "git+https://github.com/dfinity/custom-domains?rev=c839322dccaaa36a4991cba142435d12cdba4c93#c839322dccaaa36a4991cba142435d12cdba4c93"
+source = "git+https://github.com/dfinity/custom-domains?rev=d672fec312348373eff59cdef06705487bb1da18#d672fec312348373eff59cdef06705487bb1da18"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -951,7 +951,7 @@ dependencies = [
 [[package]]
 name = "canister-api"
 version = "0.1.0"
-source = "git+https://github.com/dfinity/custom-domains?rev=c839322dccaaa36a4991cba142435d12cdba4c93#c839322dccaaa36a4991cba142435d12cdba4c93"
+source = "git+https://github.com/dfinity/custom-domains?rev=d672fec312348373eff59cdef06705487bb1da18#d672fec312348373eff59cdef06705487bb1da18"
 dependencies = [
  "candid",
  "derive-new",
@@ -963,7 +963,7 @@ dependencies = [
 [[package]]
 name = "canister-client"
 version = "0.1.0"
-source = "git+https://github.com/dfinity/custom-domains?rev=c839322dccaaa36a4991cba142435d12cdba4c93#c839322dccaaa36a4991cba142435d12cdba4c93"
+source = "git+https://github.com/dfinity/custom-domains?rev=d672fec312348373eff59cdef06705487bb1da18#d672fec312348373eff59cdef06705487bb1da18"
 dependencies = [
  "anyhow",
  "arc-swap",
