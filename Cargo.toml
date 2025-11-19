@@ -128,9 +128,6 @@ wat = "1.228.0"
 [patch.crates-io]
 # v0.3.3 breaks backwards compatibility, do not remove unless you want to deal with it.
 ic-management-canister-types = { git = "https://github.com/dfinity/cdk-rs", rev = "19fdcd4c928b71d010aa124e2bb7f874290edac9" }
-# Temporary use fixed branch until new version is released.
-# See https://github.com/programatik29/axum-server/issues/170
-axum-server = { git = "https://github.com/AlvaroParker/axum-server", branch = "fix-trait-bound" }
 
 [profile.release]
 strip = "symbols"
