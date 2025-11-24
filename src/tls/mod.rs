@@ -106,6 +106,8 @@ async fn setup_acme(
                         token,
                     )?) as Arc<dyn DnsManager>
                 }
+
+                _ => bail!("unsupported DNS backend: {}", cli.acme.acme_dns_backend),
             };
 
             let token_manager = Arc::new(TokenManagerDns::new(dns_resolver, dns_backend, None));

@@ -55,7 +55,7 @@ pub struct Cli {
     pub domain: Domain,
 
     #[command(flatten, next_help_heading = "Custom Domains")]
-    pub custom_domains: Option<custom_domains_base::cli::CustomDomainsCli>,
+    pub custom_domains: Option<ic_custom_domains_base::cli::CustomDomainsCli>,
 
     #[command(flatten, next_help_heading = "Policy")]
     pub policy: Policy,
