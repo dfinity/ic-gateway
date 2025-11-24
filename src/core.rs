@@ -5,7 +5,6 @@ use std::{
 
 use anyhow::{Context, Error, anyhow};
 use axum::Router;
-use custom_domains_backend::setup;
 use ic_bn_lib::{
     custom_domains::{self},
     http::{self as bnhttp, dns::ApiBnResolver, middleware::waf::WafLayer, redirect_to_https},
@@ -377,7 +376,7 @@ pub async fn main(
 }
 
 async fn setup_custom_domains(
-    cli: &custom_domains_base::cli::CustomDomainsCli,
+    cli: &ic_custom_domains_base::cli::CustomDomainsCli,
     dns_options: DnsOptions,
     metrics_registry: &Registry,
     tasks: &mut TaskManager,
@@ -386,7 +385,7 @@ async fn setup_custom_domains(
     rate_limiter_bypass_token: Option<String>,
 ) -> Result<Router, Error> {
     let token = tasks.token();
-    let (workers, router, client) = setup(
+    let (workers, router, client) = ic_custom_domains_backend::setup(
         cli,
         dns_options,
         token,

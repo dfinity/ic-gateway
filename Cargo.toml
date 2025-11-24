@@ -38,8 +38,6 @@ cloudflare = { version = "0.14.0", default-features = false, features = [
 ] }
 console-subscriber = { version = "0.4.1", optional = true }
 ctrlc = { version = "3.4.5", features = ["termination"] }
-custom-domains-backend = { package = "backend", git = "https://github.com/dfinity/custom-domains", rev = "d672fec312348373eff59cdef06705487bb1da18" }
-custom-domains-base = { package = "base", git = "https://github.com/dfinity/custom-domains", rev = "d672fec312348373eff59cdef06705487bb1da18" }
 derive-new = "0.7.0"
 fqdn = { version = "0.4.1", features = ["serde"] }
 futures = "0.3.31"
@@ -54,13 +52,15 @@ http = "1.3.1"
 http-body = "1.0.1"
 http-body-util = "0.1.2"
 humantime = "2.2.0"
-ic-bn-lib = { git = "https://github.com/dfinity/ic-bn-lib", rev = "ec9963d0d425b353c32e612ab56974d269487230", features = [
+ic-bn-lib = { version = "0.1", features = [
     "acme",
     "vector",
     "cert-providers",
     "clients-hyper",
 ] }
-ic-bn-lib-common = { git = "https://github.com/dfinity/ic-bn-lib", rev = "2ab3e0998b7ffddc7a01bb8fca688fed2fbe0afc" }
+ic-bn-lib-common = "0.1"
+ic-custom-domains-backend = "0.1"
+ic-custom-domains-base = "0.1"
 ic-http-certification = { version = "3.0.3", optional = true }
 ic-transport-types = "0.44"
 ic-http-gateway = { git = "https://github.com/dfinity/http-gateway", rev = "c17ad1b378df3a85441ce2c6853ec61b6f83f730" }
