@@ -5,11 +5,15 @@ use axum::response::{IntoResponse, Response};
 use candid::Principal;
 use fqdn::FQDN;
 use hickory_resolver::ResolveError;
-use http::{StatusCode, header::CONTENT_TYPE};
-use ic_bn_lib::{http::headers::CONTENT_TYPE_HTML, ic_agent::AgentError};
+use http::{HeaderValue, StatusCode, header::CONTENT_TYPE};
+use ic_bn_lib::{
+    http::headers::{CONTENT_TYPE_HTML, X_IC_ERROR_CAUSE},
+    ic_agent::AgentError,
+};
 use ic_bn_lib_common::types::http::Error as HttpError;
 use ic_http_gateway::HttpGatewayError;
 use ic_transport_types::RejectCode;
+use serde_json::{json, to_string_pretty};
 use strum::{Display, IntoStaticStr};
 use tokio::task_local;
 
@@ -18,6 +22,7 @@ use super::ic::BNResponseMetadata;
 #[derive(Default, Clone)]
 pub struct ErrorContext {
     pub request_type: RequestType,
+    pub is_browser: bool,
     pub authority: Option<FQDN>,
     pub alternate_error_domain: Option<FQDN>,
 }
@@ -523,36 +528,45 @@ impl IntoResponse for ErrorClientFacing {
 
         let error_data = self.data();
 
-        // Return an HTML error page if it was an HTTP request
-        let body = match context.request_type {
-            RequestType::Http => {
-                // Check if this is an alternate error domain
-                // and produce alternate errors then
-                if context
-                    .alternate_error_domain
-                    .as_ref()
-                    .zip(context.authority.as_ref())
-                    .map(|(alternate, authority)| authority.is_subdomain_of(alternate))
-                    == Some(true)
-                {
-                    match self {
-                        Self::UnknownDomain(_) => ALTERNATE_ERROR_UNKNOWN_DOMAIN,
-                        _ => ALTERNATE_ERROR,
-                    }
-                    .to_string()
-                } else {
-                    error_data.html()
+        // Return an HTML error page if it was an HTTP request and it was sent from a browser
+        let body = if context.request_type == RequestType::Http && context.is_browser {
+            // Check if this is an alternate error domain
+            // and produce alternate errors then
+            if context
+                .alternate_error_domain
+                .as_ref()
+                .zip(context.authority.as_ref())
+                .map(|(alternate, authority)| authority.is_subdomain_of(alternate))
+                == Some(true)
+            {
+                match self {
+                    Self::UnknownDomain(_) => ALTERNATE_ERROR_UNKNOWN_DOMAIN,
+                    _ => ALTERNATE_ERROR,
                 }
+                .to_string()
+            } else {
+                error_data.html()
             }
-
-            _ => format!("error: {}\ndetails:\n{}", self, error_data.description),
+        } else {
+            to_string_pretty(&json!({
+                "error_type": self.to_string(),
+                "details": error_data.description
+            }))
+            .unwrap() // this never fails
         };
 
         // Build the final response
         let mut resp = (error_data.status_code, body).into_response();
+
+        // Insert the error cause header
+        let error_cause_str: &'static str = self.into();
+        resp.headers_mut()
+            .insert(X_IC_ERROR_CAUSE, HeaderValue::from_static(error_cause_str));
+
         if context.request_type == RequestType::Http {
             resp.headers_mut().insert(CONTENT_TYPE, CONTENT_TYPE_HTML);
         }
+
         resp
     }
 }
@@ -571,7 +585,7 @@ struct ErrorData {
 impl Default for ErrorData {
     fn default() -> Self {
         Self {
-            status_code: StatusCode::INTERNAL_SERVER_ERROR, // or whatever default makes sense
+            status_code: StatusCode::SERVICE_UNAVAILABLE,
             title: String::new(),
             description: String::new(),
             description_html: None,
@@ -632,7 +646,7 @@ mod test {
     use http_body_util::BodyExt;
     use ic_bn_lib::{http::headers::X_IC_ERROR_CAUSE, hval, ic_agent::AgentError};
     use ic_transport_types::RejectResponse;
-    use std::sync::Arc;
+    use std::{collections::HashMap, sync::Arc};
 
     #[tokio::test]
     async fn test_error_cause() {
@@ -758,6 +772,7 @@ mod test {
         // Test alternate errors
         let context = RefCell::new(ErrorContext {
             alternate_error_domain: Some(fqdn!("caffeine.ai")),
+            is_browser: true,
             request_type: RequestType::Http,
             authority: Some(fqdn!("foobar.caffeine.ai")),
         });
@@ -786,6 +801,7 @@ mod test {
 
         let context = RefCell::new(ErrorContext {
             alternate_error_domain: Some(fqdn!("caffeine.ai")),
+            is_browser: true,
             request_type: RequestType::Http,
             authority: Some(fqdn!("foobar.cocaine.ai")),
         });
@@ -798,6 +814,47 @@ mod test {
                 let resp = error.into_response();
                 let body = resp.into_body().collect().await.unwrap().to_bytes();
                 assert_ne!(body, ALTERNATE_ERROR_UNKNOWN_DOMAIN.as_bytes());
+            })
+            .await;
+
+        // Test browser
+        let context = RefCell::new(ErrorContext {
+            alternate_error_domain: None,
+            is_browser: true,
+            request_type: RequestType::Http,
+            authority: Some(fqdn!("foobar")),
+        });
+
+        let error = ErrorCause::SubnetUnavailable;
+        let error: ErrorClientFacing = (&error).into();
+
+        ERROR_CONTEXT
+            .scope(context.clone(), async move {
+                let resp = error.into_response();
+                assert_eq!(
+                    resp.headers().get(CONTENT_TYPE).unwrap().to_str().unwrap(),
+                    CONTENT_TYPE_HTML
+                );
+            })
+            .await;
+
+        // Test non-browser
+        let context = RefCell::new(ErrorContext {
+            alternate_error_domain: None,
+            is_browser: false,
+            request_type: RequestType::Http,
+            authority: Some(fqdn!("foobar")),
+        });
+
+        let error = ErrorCause::SubnetUnavailable;
+        let error: ErrorClientFacing = (&error).into();
+
+        ERROR_CONTEXT
+            .scope(context.clone(), async move {
+                let resp = error.into_response();
+                let body = resp.into_body().collect().await.unwrap().to_bytes();
+                let js: HashMap<String, String> = serde_json::from_slice(&body).unwrap();
+                assert_eq!(js.get("error_type").unwrap(), "subnet_updating");
             })
             .await;
     }
