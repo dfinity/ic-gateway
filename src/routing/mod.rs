@@ -53,6 +53,7 @@ use tower::{ServiceBuilder, ServiceExt, limit::ConcurrencyLimitLayer, util::MapR
 use tracing::warn;
 use tracing_core::LevelFilter;
 use tracing_subscriber::reload::Handle;
+use woothee::parser::Parser;
 
 use crate::{
     api::setup_api_router,
@@ -533,6 +534,7 @@ pub async fn setup_router(
     // Request type state for alternate error domain configuration
     let request_type_state = Arc::new(RequestTypeState {
         alternate_error_domain: cli.misc.alternate_error_domain.clone(),
+        ua_parser: Parser::new(),
     });
 
     // Common layers for all routes

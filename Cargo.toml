@@ -109,6 +109,7 @@ url = "2.5.3"
 # DO NOT upgrade, this breaks monorepo compatibility
 # Read https://github.com/uuid-rs/uuid/releases/tag/1.13.0
 uuid = { version = "=1.12.1", features = ["v7"] }
+woothee = "0.13.0"
 x509-parser = "0.17.0"
 
 [dev-dependencies]
