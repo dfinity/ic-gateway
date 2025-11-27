@@ -536,7 +536,7 @@ pub async fn setup_router(
     // Request type state for alternate error domain configuration
     let request_type_state = Arc::new(PreprocessState::new(
         cli.misc.alternate_error_domain.clone(),
-        cli.misc.disable_user_friendly_error_messages,
+        cli.misc.disable_html_error_messages,
     ));
 
     // Common layers for all routes

@@ -25,7 +25,7 @@ pub struct ErrorContext {
     pub request_type: RequestType,
     pub canister_id: Option<Principal>,
     pub is_browser: bool,
-    pub disable_user_friendly_error_messages: bool,
+    pub disable_html_error_messages: bool,
     pub authority: Option<FQDN>,
     pub alternate_error_domain: Option<FQDN>,
 }
@@ -216,7 +216,7 @@ impl From<&BNResponseMetadata> for Option<ErrorCause> {
         }
 
         let canister_id = ERROR_CONTEXT
-            .try_with(|ctx| ctx.borrow().canister_id)
+            .try_with(|x| x.borrow().canister_id)
             .ok()
             .flatten();
 
@@ -237,7 +237,7 @@ impl From<&BNResponseMetadata> for Option<ErrorCause> {
 impl From<HttpGatewayError> for ErrorCause {
     fn from(v: HttpGatewayError) -> Self {
         let canister_id = ERROR_CONTEXT
-            .try_with(|ctx| ctx.borrow().canister_id)
+            .try_with(|x| x.borrow().canister_id)
             .ok()
             .flatten();
 
@@ -561,7 +561,7 @@ impl From<&ErrorCause> for ErrorClientFacing {
 impl IntoResponse for ErrorClientFacing {
     fn into_response(self) -> Response {
         let ctx = ERROR_CONTEXT
-            .try_with(|ctx| ctx.borrow().clone())
+            .try_with(|x| x.borrow().clone())
             .unwrap_or_default();
 
         let error_data = self.data();
@@ -569,7 +569,7 @@ impl IntoResponse for ErrorClientFacing {
         // Return an HTML error page if it was an HTTP request and it was sent from a browser.
         let (body, content_type) = if ctx.request_type == RequestType::Http
             && ctx.is_browser
-            && !ctx.disable_user_friendly_error_messages
+            && !ctx.disable_html_error_messages
         {
             // Check if this is an alternate error domain
             // and produce alternate errors in this case
@@ -825,10 +825,9 @@ mod test {
         let context = RefCell::new(ErrorContext {
             alternate_error_domain: Some(fqdn!("caffeine.ai")),
             is_browser: true,
-            canister_id: None,
-            disable_user_friendly_error_messages: false,
             request_type: RequestType::Http,
             authority: Some(fqdn!("foobar.caffeine.ai")),
+            ..Default::default()
         });
 
         let error = ErrorCause::UnknownDomain(fqdn!("foo"));
@@ -856,10 +855,9 @@ mod test {
         let context = RefCell::new(ErrorContext {
             alternate_error_domain: Some(fqdn!("caffeine.ai")),
             is_browser: true,
-            canister_id: None,
-            disable_user_friendly_error_messages: false,
             request_type: RequestType::Http,
             authority: Some(fqdn!("foobar.cocaine.ai")),
+            ..Default::default()
         });
 
         let error = ErrorCause::UnknownDomain(fqdn!("foo"));
@@ -875,12 +873,10 @@ mod test {
 
         // Test browser
         let context = RefCell::new(ErrorContext {
-            alternate_error_domain: None,
             is_browser: true,
-            canister_id: None,
-            disable_user_friendly_error_messages: false,
             request_type: RequestType::Http,
             authority: Some(fqdn!("foobar")),
+            ..Default::default()
         });
 
         let error = ErrorCause::SubnetUnavailable;
@@ -898,12 +894,9 @@ mod test {
 
         // Test non-browser
         let context = RefCell::new(ErrorContext {
-            alternate_error_domain: None,
-            is_browser: false,
-            canister_id: None,
-            disable_user_friendly_error_messages: false,
             request_type: RequestType::Http,
             authority: Some(fqdn!("foobar")),
+            ..Default::default()
         });
 
         let error = ErrorCause::SubnetUnavailable;
@@ -923,12 +916,11 @@ mod test {
     async fn test_no_friendly_messages() {
         // Should produce JSON even if is_browser == true
         let context = RefCell::new(ErrorContext {
-            alternate_error_domain: None,
             is_browser: true,
-            canister_id: None,
-            disable_user_friendly_error_messages: true,
+            disable_html_error_messages: true,
             request_type: RequestType::Http,
             authority: Some(fqdn!("foobar")),
+            ..Default::default()
         });
 
         let error = ErrorCause::CanisterError("some scary error".into());

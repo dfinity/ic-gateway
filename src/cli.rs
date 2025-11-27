@@ -502,7 +502,7 @@ pub struct Misc {
     /// Disable generating of nice user-friendly HTML error messages.
     /// Instead it produces more detailed JSON-encoded errors.
     #[clap(env, long)]
-    pub disable_user_friendly_error_messages: bool,
+    pub disable_html_error_messages: bool,
 }
 
 #[derive(Args)]

@@ -18,7 +18,7 @@ use crate::routing::{
 pub struct PreprocessState {
     alternate_error_domain: Option<FQDN>,
     /// Making it a state field and not a global static results in a testable code
-    disable_user_friendly_error_messages: bool,
+    disable_html_error_messages: bool,
     #[new(default)]
     ua_parser: Parser,
 }
@@ -52,7 +52,7 @@ pub async fn middleware(
         request_type,
         is_browser,
         canister_id: None,
-        disable_user_friendly_error_messages: state.disable_user_friendly_error_messages,
+        disable_html_error_messages: state.disable_html_error_messages,
         authority: None,
         alternate_error_domain: state.alternate_error_domain.clone(),
     });
