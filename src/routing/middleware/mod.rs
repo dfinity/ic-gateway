@@ -4,6 +4,6 @@ pub mod cors;
 pub mod denylist;
 pub mod geoip;
 pub mod headers;
+pub mod preprocess;
 pub mod request_id;
-pub mod request_type;
 pub mod validate;

@@ -1,6 +1,6 @@
 use std::{cell::RefCell, error::Error as StdError};
 
-use crate::routing::RequestType;
+use crate::routing::{CONTENT_TYPE_JSON, RequestType};
 use axum::response::{IntoResponse, Response};
 use candid::Principal;
 use fqdn::FQDN;
@@ -13,7 +13,8 @@ use ic_bn_lib::{
 use ic_bn_lib_common::types::http::Error as HttpError;
 use ic_http_gateway::HttpGatewayError;
 use ic_transport_types::RejectCode;
-use serde_json::{json, to_string_pretty};
+use serde::{Deserialize, Serialize};
+use serde_json::to_string_pretty;
 use strum::{Display, IntoStaticStr};
 use tokio::task_local;
 
@@ -24,8 +25,16 @@ pub struct ErrorContext {
     pub request_type: RequestType,
     pub canister_id: Option<Principal>,
     pub is_browser: bool,
+    pub disable_user_friendly_error_messages: bool,
     pub authority: Option<FQDN>,
     pub alternate_error_domain: Option<FQDN>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ErrorMessage {
+    error_type: String,
+    description: String,
+    details: Option<String>,
 }
 
 task_local! {
@@ -87,7 +96,7 @@ pub enum ErrorCause {
     UnknownDomain(FQDN),
     CanisterNotFound(Option<Principal>),
     CanisterReject,
-    CanisterError,
+    CanisterError(String),
     CanisterFrozen,
     CanisterIdIncorrect(String),
     CanisterIdNotResolved,
@@ -159,22 +168,9 @@ impl ErrorCause {
 
 // Creates the response from ErrorCause and injects itself into extensions to be visible by middleware
 impl IntoResponse for ErrorCause {
-    #[cfg(not(feature = "debug"))]
     fn into_response(self) -> Response {
         let client_facing_error: ErrorClientFacing = (&self).into();
         let mut resp = client_facing_error.into_response();
-        resp.extensions_mut().insert(self);
-        resp
-    }
-
-    #[cfg(feature = "debug")]
-    fn into_response(self) -> Response {
-        let client_facing_error: ErrorClientFacing = (&self).into();
-        let error_data = client_facing_error.data();
-
-        let body = format!("error: {}\ndetails:\n{}", self, error_data.description);
-
-        let mut resp = (error_data.status_code, body).into_response();
         resp.extensions_mut().insert(self);
         resp
     }
@@ -250,7 +246,7 @@ impl From<HttpGatewayError> for ErrorCause {
             HttpGatewayError::AgentError(ae) => match ae.as_ref() {
                 AgentError::CertifiedReject { reject, .. }
                 | AgentError::UncertifiedReject { reject, .. } => match reject.reject_code {
-                    RejectCode::CanisterError => Self::CanisterError,
+                    RejectCode::CanisterError => Self::CanisterError(reject.reject_message.clone()),
                     RejectCode::SysTransient if reject.reject_message.contains("frozen") => {
                         Self::CanisterFrozen
                     }
@@ -302,7 +298,7 @@ pub enum ErrorClientFacing {
     BodyTimedOut,
     CanisterNotFound(Option<Principal>),
     CanisterReject,
-    CanisterError,
+    CanisterError(String),
     CanisterFrozen,
     CanisterIdNotResolved,
     CanisterIdIncorrect,
@@ -318,11 +314,11 @@ pub enum ErrorClientFacing {
     MalformedRequest(String),
     NoAuthority,
     #[strum(serialize = "internal_server_error")]
-    Other,
+    Other(String),
     PayloadTooLarge,
     RateLimited,
     UnknownDomain(FQDN),
-    UpstreamError,
+    UpstreamError(String),
 }
 
 impl ErrorClientFacing {
@@ -341,6 +337,7 @@ impl ErrorClientFacing {
                     status_code: StatusCode::NOT_FOUND,
                     title: "Canister Not Found".into(),
                     description: format!("The requested canister ({canister_id}) does not exist or is no longer available on the Internet Computer."),
+                    canister_id: *v,
                     icon: CANISTER_ERROR_SVG.into(),
                     ..Default::default()
                 }
@@ -352,13 +349,14 @@ impl ErrorClientFacing {
                 icon: CANISTER_WARNING_SVG.into(),
                 ..Default::default()
             },
-            Self::CanisterError => ErrorData {
+            Self::CanisterError(e) => ErrorData {
                 status_code: StatusCode::SERVICE_UNAVAILABLE,
                 title: "Canister Error".into(),
                 description: r#"The canister failed to process your request.
                     This may be due to an issue with the canister's program, the resources it has allocated, or its configuration.
                     This is not an ICP issue, but local to this specific canister. You might want to try again in a moment.
                     If the problem persists, please reach out to the developers or check the ICP developer forum."#.trim().into(),
+                details: Some(e.clone()),
                 icon: CANISTER_ERROR_SVG.into(),
                 ..Default::default()
             },
@@ -460,7 +458,8 @@ impl ErrorClientFacing {
             Self::MalformedRequest(x) => ErrorData {
                 status_code: StatusCode::BAD_REQUEST,
                 title: "Malformed Request".into(),
-                description: x.clone(),
+                description: "Your request was not correctly formed.".into(),
+                details: Some(x.clone()),
                 ..Default::default()
             },
             Self::NoAuthority => ErrorData {
@@ -469,10 +468,11 @@ impl ErrorClientFacing {
                 description: "The request is missing the required authority information (e.g. 'Host' header).".into(),
                 ..Default::default()
             },
-            Self::Other => ErrorData {
+            Self::Other(e) => ErrorData {
                 status_code: StatusCode::INTERNAL_SERVER_ERROR,
                 title: "Internal Gateway Error".into(),
                 description: "Something went wrong. Please try again later.".into(),
+                details: Some(e.clone()),
                 ..Default::default()
             },
             Self::PayloadTooLarge => ErrorData {
@@ -493,10 +493,11 @@ impl ErrorClientFacing {
                 description: "The requested domain is not served by this HTTP gateway. Please check that the address is correct.".into(),
                 ..Default::default()
             },
-            Self::UpstreamError => ErrorData {
+            Self::UpstreamError(e) => ErrorData {
                 status_code: StatusCode::SERVICE_UNAVAILABLE,
                 title: "Upstream Unavailable".into(),
                 description: "The HTTP gateway is temporarily unable to process the request. Please try again later. If this persists, check the status page for updates and reach out on the ICP developer forum.".into(),
+                details: Some(e.clone()),
                 icon: SUBNET_SVG.into(),
                 ..Default::default()
             },
@@ -507,7 +508,7 @@ impl ErrorClientFacing {
 impl From<&ErrorCause> for ErrorClientFacing {
     fn from(v: &ErrorCause) -> Self {
         match v {
-            ErrorCause::Other(_) => Self::Other,
+            ErrorCause::Other(x) => Self::Other(x.clone()),
             ErrorCause::ClientBodyTooLarge => Self::PayloadTooLarge,
             ErrorCause::ClientBodyTimeout => Self::BodyTimedOut,
             ErrorCause::ClientBodyError(x) => Self::MalformedRequest(x.clone()),
@@ -517,7 +518,7 @@ impl From<&ErrorCause> for ErrorClientFacing {
             ErrorCause::UnknownDomain(x) => Self::UnknownDomain(x.clone()),
             ErrorCause::CanisterNotFound(x) => Self::CanisterNotFound(*x),
             ErrorCause::CanisterReject => Self::CanisterReject,
-            ErrorCause::CanisterError => Self::CanisterError,
+            ErrorCause::CanisterError(x) => Self::CanisterError(x.clone()),
             ErrorCause::CanisterFrozen => Self::CanisterFrozen,
             ErrorCause::CanisterRouteNotFound(x) => Self::CanisterNotFound(*x),
             ErrorCause::CanisterIdNotResolved => Self::CanisterIdNotResolved,
@@ -530,7 +531,28 @@ impl From<&ErrorCause> for ErrorClientFacing {
             ErrorCause::Forbidden => Self::Forbidden,
             ErrorCause::NoAuthority => Self::NoAuthority,
             ErrorCause::RateLimited(_) => Self::RateLimited,
-            _ => Self::UpstreamError,
+            ErrorCause::BackendErrorConnect => {
+                Self::UpstreamError("Backend: connection failed".into())
+            }
+            ErrorCause::BackendErrorDNS(e) => {
+                Self::UpstreamError(format!("Backend: DNS error: {e}"))
+            }
+            ErrorCause::BackendBodyError(e) => {
+                Self::UpstreamError(format!("Backend: body error: {e}"))
+            }
+            ErrorCause::BackendTLSErrorCert(e) => {
+                Self::UpstreamError(format!("Backend: TLS certificate error: {e}"))
+            }
+            ErrorCause::BackendTLSErrorOther(e) => {
+                Self::UpstreamError(format!("Backend: TLS error: {e}"))
+            }
+            ErrorCause::BackendTimeout => Self::UpstreamError("Backend: timeout".into()),
+            ErrorCause::BackendBodyTimeout => Self::UpstreamError("Backend: body timeout".into()),
+            ErrorCause::BoundaryNodeError(e) => {
+                Self::UpstreamError(format!("Backend: Boundary Node error: {e}"))
+            }
+
+            _ => Self::UpstreamError("Backend: unknown error".into()),
         }
     }
 }
@@ -538,21 +560,23 @@ impl From<&ErrorCause> for ErrorClientFacing {
 // Creates the response from ErrorClientFacing
 impl IntoResponse for ErrorClientFacing {
     fn into_response(self) -> Response {
-        let context = ERROR_CONTEXT
-            .try_with(|ctx| ctx.clone())
+        let ctx = ERROR_CONTEXT
+            .try_with(|ctx| ctx.borrow().clone())
             .unwrap_or_default();
-        let context = context.borrow();
 
         let error_data = self.data();
 
-        // Return an HTML error page if it was an HTTP request and it was sent from a browser
-        let body = if context.request_type == RequestType::Http && context.is_browser {
+        // Return an HTML error page if it was an HTTP request and it was sent from a browser.
+        let (body, content_type) = if ctx.request_type == RequestType::Http
+            && ctx.is_browser
+            && !ctx.disable_user_friendly_error_messages
+        {
             // Check if this is an alternate error domain
-            // and produce alternate errors then
-            if context
+            // and produce alternate errors in this case
+            let msg = if ctx
                 .alternate_error_domain
                 .as_ref()
-                .zip(context.authority.as_ref())
+                .zip(ctx.authority.as_ref())
                 .map(|(alternate, authority)| authority.is_subdomain_of(alternate))
                 == Some(true)
             {
@@ -563,13 +587,20 @@ impl IntoResponse for ErrorClientFacing {
                 .to_string()
             } else {
                 error_data.html()
-            }
+            };
+
+            (msg, CONTENT_TYPE_HTML)
         } else {
-            to_string_pretty(&json!({
-                "error_type": self.to_string(),
-                "details": error_data.description
-            }))
-            .unwrap() // this never fails
+            let msg = ErrorMessage {
+                error_type: self.to_string(),
+                description: error_data.description,
+                details: error_data.details,
+            };
+
+            // this never fails
+            let js = to_string_pretty(&msg).unwrap();
+
+            (js, CONTENT_TYPE_JSON)
         };
 
         // Build the final response
@@ -579,10 +610,7 @@ impl IntoResponse for ErrorClientFacing {
         let error_cause_str: &'static str = self.into();
         resp.headers_mut()
             .insert(X_IC_ERROR_CAUSE, HeaderValue::from_static(error_cause_str));
-
-        if context.request_type == RequestType::Http {
-            resp.headers_mut().insert(CONTENT_TYPE, CONTENT_TYPE_HTML);
-        }
+        resp.headers_mut().insert(CONTENT_TYPE, content_type);
 
         resp
     }
@@ -593,6 +621,7 @@ struct ErrorData {
     title: String,
     description: String,
     description_html: Option<String>,
+    details: Option<String>,
     retry_message: Option<String>,
     canister_id: Option<Principal>,
     appeal_section: bool,
@@ -606,6 +635,7 @@ impl Default for ErrorData {
             title: String::new(),
             description: String::new(),
             description_html: None,
+            details: None,
             retry_message: None,
             canister_id: None,
             appeal_section: false,
@@ -658,12 +688,14 @@ impl ErrorData {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    use std::sync::Arc;
+
     use fqdn::fqdn;
     use http::HeaderMap;
     use http_body_util::BodyExt;
     use ic_bn_lib::{http::headers::X_IC_ERROR_CAUSE, hval, ic_agent::AgentError};
     use ic_transport_types::RejectResponse;
-    use std::{collections::HashMap, sync::Arc};
 
     #[tokio::test]
     async fn test_error_cause() {
@@ -734,7 +766,7 @@ mod test {
                     },
                     operation: None,
                 },
-                ErrorCause::CanisterError,
+                ErrorCause::CanisterError("".into()),
             ),
             (
                 AgentError::CertifiedReject {
@@ -794,6 +826,7 @@ mod test {
             alternate_error_domain: Some(fqdn!("caffeine.ai")),
             is_browser: true,
             canister_id: None,
+            disable_user_friendly_error_messages: false,
             request_type: RequestType::Http,
             authority: Some(fqdn!("foobar.caffeine.ai")),
         });
@@ -809,7 +842,7 @@ mod test {
             })
             .await;
 
-        let error = ErrorCause::CanisterError;
+        let error = ErrorCause::CanisterError("".into());
         let error: ErrorClientFacing = (&error).into();
 
         ERROR_CONTEXT
@@ -824,6 +857,7 @@ mod test {
             alternate_error_domain: Some(fqdn!("caffeine.ai")),
             is_browser: true,
             canister_id: None,
+            disable_user_friendly_error_messages: false,
             request_type: RequestType::Http,
             authority: Some(fqdn!("foobar.cocaine.ai")),
         });
@@ -844,6 +878,7 @@ mod test {
             alternate_error_domain: None,
             is_browser: true,
             canister_id: None,
+            disable_user_friendly_error_messages: false,
             request_type: RequestType::Http,
             authority: Some(fqdn!("foobar")),
         });
@@ -866,6 +901,7 @@ mod test {
             alternate_error_domain: None,
             is_browser: false,
             canister_id: None,
+            disable_user_friendly_error_messages: false,
             request_type: RequestType::Http,
             authority: Some(fqdn!("foobar")),
         });
@@ -877,8 +913,38 @@ mod test {
             .scope(context.clone(), async move {
                 let resp = error.into_response();
                 let body = resp.into_body().collect().await.unwrap().to_bytes();
-                let js: HashMap<String, String> = serde_json::from_slice(&body).unwrap();
-                assert_eq!(js.get("error_type").unwrap(), "subnet_updating");
+                let msg: ErrorMessage = serde_json::from_slice(&body).unwrap();
+                assert_eq!(msg.error_type, "subnet_updating");
+            })
+            .await;
+    }
+
+    #[tokio::test]
+    async fn test_no_friendly_messages() {
+        // Should produce JSON even if is_browser == true
+        let context = RefCell::new(ErrorContext {
+            alternate_error_domain: None,
+            is_browser: true,
+            canister_id: None,
+            disable_user_friendly_error_messages: true,
+            request_type: RequestType::Http,
+            authority: Some(fqdn!("foobar")),
+        });
+
+        let error = ErrorCause::CanisterError("some scary error".into());
+        let error: ErrorClientFacing = (&error).into();
+
+        ERROR_CONTEXT
+            .scope(context, async move {
+                let resp = error.into_response();
+                assert_eq!(
+                    resp.headers().get(CONTENT_TYPE).unwrap().to_str().unwrap(),
+                    CONTENT_TYPE_JSON
+                );
+                let body = resp.into_body().collect().await.unwrap().to_bytes();
+                let msg: ErrorMessage = serde_json::from_slice(&body).unwrap();
+                assert_eq!(msg.error_type, "canister_error");
+                assert_eq!(msg.details, Some("some scary error".into()));
             })
             .await;
     }
