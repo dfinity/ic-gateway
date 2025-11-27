@@ -36,8 +36,8 @@ pub async fn middleware(
 
     // Inject authority into error context
     let _ = ERROR_CONTEXT.try_with(|x| {
-        let mut v = x.borrow_mut();
-        v.authority = Some(authority.clone());
+        let mut ctx = x.borrow_mut();
+        ctx.authority = Some(authority.clone());
     });
 
     // Resolve the domain
@@ -64,8 +64,14 @@ pub async fn middleware(
             });
     }
 
-    // Inject canister_id separately if it was resolved
+    // Inject the canister id separately if it was resolved
     if let Some(v) = lookup.canister_id {
+        // Inject the canister id into error context
+        let _ = ERROR_CONTEXT.try_with(|x| {
+            let mut ctx = x.borrow_mut();
+            ctx.canister_id = Some(v);
+        });
+
         request.extensions_mut().insert(CanisterId(v));
     }
 

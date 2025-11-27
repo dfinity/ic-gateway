@@ -46,6 +46,7 @@ pub async fn middleware(
     let context = RefCell::new(ErrorContext {
         request_type,
         is_browser,
+        canister_id: None,
         authority: None,
         alternate_error_domain: state.alternate_error_domain.clone(),
     });

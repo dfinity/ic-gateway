@@ -22,6 +22,7 @@ use super::ic::BNResponseMetadata;
 #[derive(Default, Clone)]
 pub struct ErrorContext {
     pub request_type: RequestType,
+    pub canister_id: Option<Principal>,
     pub is_browser: bool,
     pub authority: Option<FQDN>,
     pub alternate_error_domain: Option<FQDN>,
@@ -84,13 +85,13 @@ pub enum ErrorCause {
     MalformedRequest(String),
     NoAuthority,
     UnknownDomain(FQDN),
-    CanisterNotFound,
+    CanisterNotFound(Option<Principal>),
     CanisterReject,
     CanisterError,
     CanisterFrozen,
     CanisterIdIncorrect(String),
     CanisterIdNotResolved,
-    CanisterRouteNotFound,
+    CanisterRouteNotFound(Option<Principal>),
     SubnetNotFound,
     SubnetUnavailable,
     NoRoutingTable,
@@ -218,9 +219,16 @@ impl From<&BNResponseMetadata> for Option<ErrorCause> {
             return Some(ErrorCause::RateLimited(RateLimitCause::BoundaryNode));
         }
 
+        let canister_id = ERROR_CONTEXT
+            .try_with(|ctx| ctx.borrow().canister_id)
+            .ok()
+            .flatten();
+
         Some(match v.error_cause.as_ref() {
             NO_HEALTHY_NODES => ErrorCause::SubnetUnavailable,
-            CANISTER_NOT_FOUND | CANISTER_ROUTE_NOT_FOUND => ErrorCause::CanisterRouteNotFound,
+            CANISTER_NOT_FOUND | CANISTER_ROUTE_NOT_FOUND => {
+                ErrorCause::CanisterRouteNotFound(canister_id)
+            }
             SUBNET_NOT_FOUND => ErrorCause::SubnetNotFound,
             FORBIDDEN => ErrorCause::Forbidden,
             LOAD_SHED => ErrorCause::LoadShed,
@@ -232,6 +240,11 @@ impl From<&BNResponseMetadata> for Option<ErrorCause> {
 
 impl From<HttpGatewayError> for ErrorCause {
     fn from(v: HttpGatewayError) -> Self {
+        let canister_id = ERROR_CONTEXT
+            .try_with(|ctx| ctx.borrow().canister_id)
+            .ok()
+            .flatten();
+
         match v {
             HttpGatewayError::ResponseVerificationError(_) => Self::ResponseVerificationError,
             HttpGatewayError::AgentError(ae) => match ae.as_ref() {
@@ -242,7 +255,7 @@ impl From<HttpGatewayError> for ErrorCause {
                         Self::CanisterFrozen
                     }
                     RejectCode::CanisterReject => Self::CanisterReject,
-                    RejectCode::DestinationInvalid => Self::CanisterNotFound,
+                    RejectCode::DestinationInvalid => Self::CanisterNotFound(canister_id),
                     _ => Self::BackendError(ae.to_string()),
                 },
                 _ => Self::HttpGatewayError(ae.to_string()),
@@ -287,7 +300,7 @@ impl From<anyhow::Error> for ErrorCause {
 #[strum(serialize_all = "snake_case")]
 pub enum ErrorClientFacing {
     BodyTimedOut,
-    CanisterNotFound,
+    CanisterNotFound(Option<Principal>),
     CanisterReject,
     CanisterError,
     CanisterFrozen,
@@ -321,12 +334,16 @@ impl ErrorClientFacing {
                 description: "The request took too long to complete because data was arriving too slowly. Check your network connection and try again. If you are on a spotty network, switch to a more stable connection.".into(),
                 ..Default::default()
             },
-            Self::CanisterNotFound => ErrorData {
-                status_code: StatusCode::NOT_FOUND,
-                title: "Canister Not Found".into(),
-                description: "The requested canister does not exist or is no longer available on the Internet Computer.".into(),
-                icon: CANISTER_ERROR_SVG.into(),
-                ..Default::default()
+            Self::CanisterNotFound(v) => {
+                let canister_id = v.map(|x| x.to_string()).unwrap_or_else(|| "unknown".into());
+
+                ErrorData {
+                    status_code: StatusCode::NOT_FOUND,
+                    title: "Canister Not Found".into(),
+                    description: format!("The requested canister ({canister_id}) does not exist or is no longer available on the Internet Computer."),
+                    icon: CANISTER_ERROR_SVG.into(),
+                    ..Default::default()
+                }
             },
             Self::CanisterReject => ErrorData {
                 status_code: StatusCode::SERVICE_UNAVAILABLE,
@@ -498,11 +515,11 @@ impl From<&ErrorCause> for ErrorClientFacing {
             ErrorCause::IncorrectPrincipal => Self::IncorrectPrincipal,
             ErrorCause::MalformedRequest(x) => Self::MalformedRequest(x.clone()),
             ErrorCause::UnknownDomain(x) => Self::UnknownDomain(x.clone()),
-            ErrorCause::CanisterNotFound => Self::CanisterNotFound,
+            ErrorCause::CanisterNotFound(x) => Self::CanisterNotFound(*x),
             ErrorCause::CanisterReject => Self::CanisterReject,
             ErrorCause::CanisterError => Self::CanisterError,
             ErrorCause::CanisterFrozen => Self::CanisterFrozen,
-            ErrorCause::CanisterRouteNotFound => Self::CanisterNotFound,
+            ErrorCause::CanisterRouteNotFound(x) => Self::CanisterNotFound(*x),
             ErrorCause::CanisterIdNotResolved => Self::CanisterIdNotResolved,
             ErrorCause::CanisterIdIncorrect(_) => Self::CanisterIdIncorrect,
             ErrorCause::SubnetNotFound => Self::SubnetNotFound,
@@ -677,10 +694,13 @@ mod test {
             (NO_ROUTING_TABLE, Some(ErrorCause::NoRoutingTable)),
             (FORBIDDEN, Some(ErrorCause::Forbidden)),
             (LOAD_SHED, Some(ErrorCause::LoadShed)),
-            (CANISTER_NOT_FOUND, Some(ErrorCause::CanisterRouteNotFound)),
+            (
+                CANISTER_NOT_FOUND,
+                Some(ErrorCause::CanisterRouteNotFound(None)),
+            ),
             (
                 CANISTER_ROUTE_NOT_FOUND,
-                Some(ErrorCause::CanisterRouteNotFound),
+                Some(ErrorCause::CanisterRouteNotFound(None)),
             ),
             (SUBNET_NOT_FOUND, Some(ErrorCause::SubnetNotFound)),
             ("foo", Some(ErrorCause::BoundaryNodeError("foo".into()))),
@@ -736,7 +756,7 @@ mod test {
                     },
                     operation: None,
                 },
-                ErrorCause::CanisterNotFound,
+                ErrorCause::CanisterNotFound(None),
             ),
             (
                 AgentError::CertifiedReject {
@@ -773,6 +793,7 @@ mod test {
         let context = RefCell::new(ErrorContext {
             alternate_error_domain: Some(fqdn!("caffeine.ai")),
             is_browser: true,
+            canister_id: None,
             request_type: RequestType::Http,
             authority: Some(fqdn!("foobar.caffeine.ai")),
         });
@@ -802,6 +823,7 @@ mod test {
         let context = RefCell::new(ErrorContext {
             alternate_error_domain: Some(fqdn!("caffeine.ai")),
             is_browser: true,
+            canister_id: None,
             request_type: RequestType::Http,
             authority: Some(fqdn!("foobar.cocaine.ai")),
         });
@@ -821,6 +843,7 @@ mod test {
         let context = RefCell::new(ErrorContext {
             alternate_error_domain: None,
             is_browser: true,
+            canister_id: None,
             request_type: RequestType::Http,
             authority: Some(fqdn!("foobar")),
         });
@@ -842,6 +865,7 @@ mod test {
         let context = RefCell::new(ErrorContext {
             alternate_error_domain: None,
             is_browser: false,
+            canister_id: None,
             request_type: RequestType::Http,
             authority: Some(fqdn!("foobar")),
         });
