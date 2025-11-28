@@ -64,6 +64,7 @@ pub fn error_infer<E: StdError + Send + Sync + 'static>(error: &anyhow::Error) -
             return Some(e);
         }
     }
+
     None
 }
 
@@ -81,9 +82,51 @@ impl IntoResponse for RateLimitCause {
     }
 }
 
+#[derive(Debug, Clone, Display, IntoStaticStr, Eq, PartialEq)]
+#[strum(serialize_all = "snake_case")]
+pub enum CanisterError {
+    NotFound(Option<Principal>),
+    Reject,
+    Error(String),
+    Frozen,
+    IdIncorrect(String),
+    IdNotResolved,
+    RouteNotFound(Option<Principal>),
+}
+
+#[derive(Debug, Clone, Display, IntoStaticStr, Eq, PartialEq)]
+#[strum(serialize_all = "snake_case")]
+pub enum BackendError {
+    Dns(String),
+    Connect,
+    Timeout,
+    BodyTimeout,
+    Body(String),
+    TLSOther(String),
+    TLSCert(String),
+    BoundaryNode(String),
+    HttpGateway(String),
+    Other(String),
+}
+
+impl BackendError {
+    pub fn details(&self) -> Option<String> {
+        match self {
+            Self::Dns(x) => Some(x.clone()),
+            Self::Body(x) => Some(x.clone()),
+            Self::TLSOther(x) => Some(x.clone()),
+            Self::TLSCert(x) => Some(x.clone()),
+            Self::BoundaryNode(x) => Some(x.clone()),
+            Self::HttpGateway(x) => Some(x.clone()),
+            Self::Other(x) => Some(x.clone()),
+            _ => None,
+        }
+    }
+}
+
 // Categorized possible causes for request processing failures
 // Not using Error as inner type since it's not cloneable
-#[derive(Debug, Clone, Display, IntoStaticStr, Eq, PartialEq)]
+#[derive(Debug, Clone, Display, Eq, PartialEq)]
 #[strum(serialize_all = "snake_case")]
 pub enum ErrorCause {
     ClientBodyTooLarge,
@@ -94,30 +137,17 @@ pub enum ErrorCause {
     MalformedRequest(String),
     NoAuthority,
     UnknownDomain(FQDN),
-    CanisterNotFound(Option<Principal>),
-    CanisterReject,
-    CanisterError(String),
-    CanisterFrozen,
-    CanisterIdIncorrect(String),
-    CanisterIdNotResolved,
-    CanisterRouteNotFound(Option<Principal>),
+    #[strum(to_string = "canister_{0}")]
+    Canister(CanisterError),
     SubnetNotFound,
     SubnetUnavailable,
     NoRoutingTable,
     ResponseVerificationError,
-    HttpGatewayError(String),
     DomainCanisterMismatch(Principal),
     Denylisted,
     Forbidden,
-    BackendError(String),
-    BackendErrorDNS(String),
-    BackendErrorConnect,
-    BackendTimeout,
-    BackendBodyTimeout,
-    BackendBodyError(String),
-    BackendTLSErrorOther(String),
-    BackendTLSErrorCert(String),
-    BoundaryNodeError(String),
+    #[strum(to_string = "backend_{0}")]
+    Backend(BackendError),
     #[strum(serialize = "rate_limited_{0}")]
     RateLimited(RateLimitCause),
     #[strum(serialize = "internal_server_error")]
@@ -129,15 +159,9 @@ impl ErrorCause {
         match self {
             Self::ClientBodyError(x) => Some(x.clone()),
             Self::MalformedRequest(x) => Some(x.clone()),
-            Self::CanisterIdIncorrect(x) => Some(x.clone()),
-            Self::BackendError(x) => Some(x.clone()),
-            Self::BackendErrorDNS(x) => Some(x.clone()),
-            Self::BackendBodyError(x) => Some(x.clone()),
-            Self::BackendTLSErrorOther(x) => Some(x.clone()),
-            Self::BackendTLSErrorCert(x) => Some(x.clone()),
-            Self::BoundaryNodeError(x) => Some(x.clone()),
+            Self::Canister(CanisterError::IdIncorrect(x)) => Some(x.clone()),
+            Self::Backend(x) => x.details(),
             Self::RateLimited(x) => Some(x.to_string()),
-            Self::HttpGatewayError(x) => Some(x.to_string()),
             Self::Other(x) => Some(x.clone()),
             _ => None,
         }
@@ -159,9 +183,9 @@ impl ErrorCause {
     pub fn from_backend_error(e: HttpError) -> Self {
         match e {
             HttpError::RequestFailed(v) => Self::from(&v),
-            HttpError::BodyReadingFailed(v) => Self::BackendBodyError(v),
-            HttpError::BodyTimedOut => Self::BackendBodyTimeout,
-            _ => Self::BackendError(e.to_string()),
+            HttpError::BodyReadingFailed(v) => Self::Backend(BackendError::Body(v)),
+            HttpError::BodyTimedOut => Self::Backend(BackendError::BodyTimeout),
+            _ => Self::Backend(BackendError::Other(e.to_string())),
         }
     }
 }
@@ -179,14 +203,14 @@ impl IntoResponse for ErrorCause {
 impl From<&reqwest::Error> for ErrorCause {
     fn from(e: &reqwest::Error) -> Self {
         if e.is_connect() {
-            return Self::BackendErrorConnect;
+            return Self::Backend(BackendError::Connect);
         }
 
         if e.is_timeout() {
-            return Self::BackendTimeout;
+            return Self::Backend(BackendError::Timeout);
         }
 
-        Self::BackendError(e.to_string())
+        Self::Backend(BackendError::Other(e.to_string()))
     }
 }
 
@@ -223,13 +247,13 @@ impl From<&BNResponseMetadata> for Option<ErrorCause> {
         Some(match v.error_cause.as_ref() {
             NO_HEALTHY_NODES => ErrorCause::SubnetUnavailable,
             CANISTER_NOT_FOUND | CANISTER_ROUTE_NOT_FOUND => {
-                ErrorCause::CanisterRouteNotFound(canister_id)
+                ErrorCause::Canister(CanisterError::RouteNotFound(canister_id))
             }
             SUBNET_NOT_FOUND => ErrorCause::SubnetNotFound,
             FORBIDDEN => ErrorCause::Forbidden,
             LOAD_SHED => ErrorCause::LoadShed,
             NO_ROUTING_TABLE => ErrorCause::NoRoutingTable,
-            _ => ErrorCause::BoundaryNodeError(v.error_cause.clone()),
+            _ => ErrorCause::Backend(BackendError::BoundaryNode(v.error_cause.clone())),
         })
     }
 }
@@ -246,17 +270,21 @@ impl From<HttpGatewayError> for ErrorCause {
             HttpGatewayError::AgentError(ae) => match ae.as_ref() {
                 AgentError::CertifiedReject { reject, .. }
                 | AgentError::UncertifiedReject { reject, .. } => match reject.reject_code {
-                    RejectCode::CanisterError => Self::CanisterError(reject.reject_message.clone()),
-                    RejectCode::SysTransient if reject.reject_message.contains("frozen") => {
-                        Self::CanisterFrozen
+                    RejectCode::CanisterError => {
+                        Self::Canister(CanisterError::Error(reject.reject_message.clone()))
                     }
-                    RejectCode::CanisterReject => Self::CanisterReject,
-                    RejectCode::DestinationInvalid => Self::CanisterNotFound(canister_id),
-                    _ => Self::BackendError(ae.to_string()),
+                    RejectCode::SysTransient if reject.reject_message.contains("frozen") => {
+                        Self::Canister(CanisterError::Frozen)
+                    }
+                    RejectCode::CanisterReject => Self::Canister(CanisterError::Reject),
+                    RejectCode::DestinationInvalid => {
+                        Self::Canister(CanisterError::NotFound(canister_id))
+                    }
+                    _ => Self::Backend(BackendError::Other(ae.to_string())),
                 },
-                _ => Self::HttpGatewayError(ae.to_string()),
+                _ => Self::Backend(BackendError::HttpGateway(ae.to_string())),
             },
-            _ => Self::HttpGatewayError(v.to_string()),
+            _ => Self::Backend(BackendError::HttpGateway(v.to_string())),
         }
     }
 }
@@ -265,17 +293,19 @@ impl From<anyhow::Error> for ErrorCause {
     fn from(e: anyhow::Error) -> Self {
         // Check if it's a DNS error
         if let Some(e) = error_infer::<ResolveError>(&e) {
-            return Self::BackendErrorDNS(e.to_string());
+            return Self::Backend(BackendError::Dns(e.to_string()));
         }
 
         // Check if it's a Rustls error
         if let Some(e) = error_infer::<rustls::Error>(&e) {
             return match e {
-                rustls::Error::InvalidCertificate(v) => Self::BackendTLSErrorCert(format!("{v:?}")),
-                rustls::Error::NoCertificatesPresented => {
-                    Self::BackendTLSErrorCert("no certificate presented".into())
+                rustls::Error::InvalidCertificate(v) => {
+                    Self::Backend(BackendError::TLSCert(format!("{v:?}")))
                 }
-                _ => Self::BackendTLSErrorOther(e.to_string()),
+                rustls::Error::NoCertificatesPresented => {
+                    Self::Backend(BackendError::TLSCert("no certificate presented".into()))
+                }
+                _ => Self::Backend(BackendError::TLSOther(e.to_string())),
             };
         }
 
@@ -292,16 +322,12 @@ impl From<anyhow::Error> for ErrorCause {
     }
 }
 
-#[derive(Debug, Clone, Display, IntoStaticStr)]
+#[derive(Debug, Clone, Display)]
 #[strum(serialize_all = "snake_case")]
 pub enum ErrorClientFacing {
     BodyTimedOut,
-    CanisterNotFound(Option<Principal>),
-    CanisterReject,
-    CanisterError(String),
-    CanisterFrozen,
-    CanisterIdNotResolved,
-    CanisterIdIncorrect,
+    #[strum(to_string = "canister_{0}")]
+    Canister(CanisterError),
     SubnetNotFound,
     #[strum(serialize = "subnet_updating")]
     SubnetUnavailable,
@@ -318,7 +344,8 @@ pub enum ErrorClientFacing {
     PayloadTooLarge,
     RateLimited,
     UnknownDomain(FQDN),
-    UpstreamError(String),
+    #[strum(to_string = "backend_{0}")]
+    Backend(BackendError),
 }
 
 impl ErrorClientFacing {
@@ -330,7 +357,7 @@ impl ErrorClientFacing {
                 description: "The request took too long to complete because data was arriving too slowly. Check your network connection and try again. If you are on a spotty network, switch to a more stable connection.".into(),
                 ..Default::default()
             },
-            Self::CanisterNotFound(v) => {
+            Self::Canister(CanisterError::NotFound(v)) | Self::Canister(CanisterError::RouteNotFound(v)) => {
                 let canister_id = v.map(|x| x.to_string()).unwrap_or_else(|| "unknown".into());
 
                 ErrorData {
@@ -342,14 +369,14 @@ impl ErrorClientFacing {
                     ..Default::default()
                 }
             },
-            Self::CanisterReject => ErrorData {
+            Self::Canister(CanisterError::Reject) => ErrorData {
                 status_code: StatusCode::SERVICE_UNAVAILABLE,
                 title: "Request Rejected".into(),
                 description: "The canister explicitly rejected the request.".into(),
                 icon: CANISTER_WARNING_SVG.into(),
                 ..Default::default()
             },
-            Self::CanisterError(e) => ErrorData {
+            Self::Canister(CanisterError::Error(e)) => ErrorData {
                 status_code: StatusCode::SERVICE_UNAVAILABLE,
                 title: "Canister Error".into(),
                 description: r#"The canister failed to process your request.
@@ -360,7 +387,7 @@ impl ErrorClientFacing {
                 icon: CANISTER_ERROR_SVG.into(),
                 ..Default::default()
             },
-            Self::CanisterFrozen => ErrorData {
+            Self::Canister(CanisterError::Frozen) => ErrorData {
                 status_code: StatusCode::SERVICE_UNAVAILABLE,
                 title: "Canister Temporarily Unavailable".into(),
                 description: "The canister has run out of cycles. You or others can top it up to restore functionality.".into(),
@@ -375,17 +402,18 @@ impl ErrorClientFacing {
                 icon: CANISTER_ERROR_SVG.into(),
                 ..Default::default()
             },
-            Self::CanisterIdNotResolved => ErrorData {
+            Self::Canister(CanisterError::IdNotResolved) => ErrorData {
                 status_code: StatusCode::BAD_REQUEST,
                 title: "Canister ID Not Resolved".into(),
                 description: "The gateway couldn't determine the destination canister for this request. Ensure the request includes a valid canister ID or uses a recognized domain.".into(),
                 icon: CANISTER_WARNING_SVG.into(),
                 ..Default::default()
             },
-            Self::CanisterIdIncorrect => ErrorData {
+            Self::Canister(CanisterError::IdIncorrect(e)) => ErrorData {
                 status_code: StatusCode::BAD_REQUEST,
                 title: "Incorrect Canister ID".into(),
                 description: "The canister ID you provided is invalid. Please verify the canister ID and try again.".into(),
+                details: Some(e.clone()),
                 icon: CANISTER_ERROR_SVG.into(),
                 ..Default::default()
             },
@@ -487,17 +515,18 @@ impl ErrorClientFacing {
                 description: "Your request has exceeded the rate limit. Please slow down your requests and try again in a moment.".into(),
                 ..Default::default()
             },
-            Self::UnknownDomain(_) => ErrorData {
+            Self::UnknownDomain(d) => ErrorData {
                 status_code: StatusCode::BAD_REQUEST,
                 title: "Unknown Domain".into(),
                 description: "The requested domain is not served by this HTTP gateway. Please check that the address is correct.".into(),
+                details: Some(format!("The domain {d} is not served by this gateway")),
                 ..Default::default()
             },
-            Self::UpstreamError(e) => ErrorData {
+            Self::Backend(e) => ErrorData {
                 status_code: StatusCode::SERVICE_UNAVAILABLE,
                 title: "Upstream Unavailable".into(),
                 description: "The HTTP gateway is temporarily unable to process the request. Please try again later. If this persists, check the status page for updates and reach out on the ICP developer forum.".into(),
-                details: Some(e.clone()),
+                details: e.details(),
                 icon: SUBNET_SVG.into(),
                 ..Default::default()
             },
@@ -516,13 +545,7 @@ impl From<&ErrorCause> for ErrorClientFacing {
             ErrorCause::IncorrectPrincipal => Self::IncorrectPrincipal,
             ErrorCause::MalformedRequest(x) => Self::MalformedRequest(x.clone()),
             ErrorCause::UnknownDomain(x) => Self::UnknownDomain(x.clone()),
-            ErrorCause::CanisterNotFound(x) => Self::CanisterNotFound(*x),
-            ErrorCause::CanisterReject => Self::CanisterReject,
-            ErrorCause::CanisterError(x) => Self::CanisterError(x.clone()),
-            ErrorCause::CanisterFrozen => Self::CanisterFrozen,
-            ErrorCause::CanisterRouteNotFound(x) => Self::CanisterNotFound(*x),
-            ErrorCause::CanisterIdNotResolved => Self::CanisterIdNotResolved,
-            ErrorCause::CanisterIdIncorrect(_) => Self::CanisterIdIncorrect,
+            ErrorCause::Canister(x) => Self::Canister(x.clone()),
             ErrorCause::SubnetNotFound => Self::SubnetNotFound,
             ErrorCause::SubnetUnavailable => Self::SubnetUnavailable,
             ErrorCause::ResponseVerificationError => Self::ResponseVerificationError,
@@ -531,28 +554,8 @@ impl From<&ErrorCause> for ErrorClientFacing {
             ErrorCause::Forbidden => Self::Forbidden,
             ErrorCause::NoAuthority => Self::NoAuthority,
             ErrorCause::RateLimited(_) => Self::RateLimited,
-            ErrorCause::BackendErrorConnect => {
-                Self::UpstreamError("Backend: connection failed".into())
-            }
-            ErrorCause::BackendErrorDNS(e) => {
-                Self::UpstreamError(format!("Backend: DNS error: {e}"))
-            }
-            ErrorCause::BackendBodyError(e) => {
-                Self::UpstreamError(format!("Backend: body error: {e}"))
-            }
-            ErrorCause::BackendTLSErrorCert(e) => {
-                Self::UpstreamError(format!("Backend: TLS certificate error: {e}"))
-            }
-            ErrorCause::BackendTLSErrorOther(e) => {
-                Self::UpstreamError(format!("Backend: TLS error: {e}"))
-            }
-            ErrorCause::BackendTimeout => Self::UpstreamError("Backend: timeout".into()),
-            ErrorCause::BackendBodyTimeout => Self::UpstreamError("Backend: body timeout".into()),
-            ErrorCause::BoundaryNodeError(e) => {
-                Self::UpstreamError(format!("Backend: Boundary Node error: {e}"))
-            }
-
-            _ => Self::UpstreamError("Backend: unknown error".into()),
+            ErrorCause::Backend(x) => Self::Backend(x.clone()),
+            ErrorCause::NoRoutingTable => Self::Other("No routing table available".into()),
         }
     }
 }
@@ -607,9 +610,10 @@ impl IntoResponse for ErrorClientFacing {
         let mut resp = (error_data.status_code, body).into_response();
 
         // Insert the error cause header
-        let error_cause_str: &'static str = self.into();
-        resp.headers_mut()
-            .insert(X_IC_ERROR_CAUSE, HeaderValue::from_static(error_cause_str));
+        resp.headers_mut().insert(
+            X_IC_ERROR_CAUSE,
+            HeaderValue::from_str(&self.to_string()).unwrap(), // This should never fail
+        );
         resp.headers_mut().insert(CONTENT_TYPE, content_type);
 
         resp
@@ -703,7 +707,7 @@ mod test {
         let err = anyhow::Error::new(rustls::Error::NoCertificatesPresented);
         assert!(matches!(
             ErrorCause::from(err),
-            ErrorCause::BackendTLSErrorCert(_)
+            ErrorCause::Backend(BackendError::TLSCert(_))
         ));
 
         let err = anyhow::Error::new(rustls::Error::InvalidCertificate(
@@ -711,13 +715,13 @@ mod test {
         ));
         assert!(matches!(
             ErrorCause::from(err),
-            ErrorCause::BackendTLSErrorCert(_)
+            ErrorCause::Backend(BackendError::TLSCert(_))
         ));
 
         let err = anyhow::Error::new(rustls::Error::BadMaxFragmentSize);
         assert!(matches!(
             ErrorCause::from(err),
-            ErrorCause::BackendTLSErrorOther(_)
+            ErrorCause::Backend(BackendError::TLSOther(_))
         ));
 
         // Mapping of "error_cause" BN headers
@@ -728,14 +732,19 @@ mod test {
             (LOAD_SHED, Some(ErrorCause::LoadShed)),
             (
                 CANISTER_NOT_FOUND,
-                Some(ErrorCause::CanisterRouteNotFound(None)),
+                Some(ErrorCause::Canister(CanisterError::RouteNotFound(None))),
             ),
             (
                 CANISTER_ROUTE_NOT_FOUND,
-                Some(ErrorCause::CanisterRouteNotFound(None)),
+                Some(ErrorCause::Canister(CanisterError::RouteNotFound(None))),
             ),
             (SUBNET_NOT_FOUND, Some(ErrorCause::SubnetNotFound)),
-            ("foo", Some(ErrorCause::BoundaryNodeError("foo".into()))),
+            (
+                "foo",
+                Some(ErrorCause::Backend(BackendError::BoundaryNode(
+                    "foo".into(),
+                ))),
+            ),
             ("", None),
             ("none", None),
         ];
@@ -766,7 +775,7 @@ mod test {
                     },
                     operation: None,
                 },
-                ErrorCause::CanisterError("".into()),
+                ErrorCause::Canister(CanisterError::Error("".into())),
             ),
             (
                 AgentError::CertifiedReject {
@@ -777,7 +786,7 @@ mod test {
                     },
                     operation: None,
                 },
-                ErrorCause::CanisterReject,
+                ErrorCause::Canister(CanisterError::Reject),
             ),
             (
                 AgentError::CertifiedReject {
@@ -788,7 +797,7 @@ mod test {
                     },
                     operation: None,
                 },
-                ErrorCause::CanisterNotFound(None),
+                ErrorCause::Canister(CanisterError::NotFound(None)),
             ),
             (
                 AgentError::CertifiedReject {
@@ -799,7 +808,7 @@ mod test {
                     },
                     operation: None,
                 },
-                ErrorCause::CanisterFrozen,
+                ErrorCause::Canister(CanisterError::Frozen),
             ),
         ];
         for (ae, err) in cases {
@@ -807,19 +816,19 @@ mod test {
             assert_eq!(ErrorCause::from(http_gw_error), err);
         }
 
-        let ae = AgentError::CertifiedReject {
+        let ae = Arc::new(AgentError::CertifiedReject {
             reject: RejectResponse {
                 reject_code: RejectCode::SysFatal,
                 reject_message: "".into(),
                 error_code: None,
             },
             operation: None,
-        };
-        let http_gw_error = HttpGatewayError::AgentError(Arc::new(ae));
-        assert!(matches!(
+        });
+        let http_gw_error = HttpGatewayError::AgentError(ae.clone());
+        assert_eq!(
             ErrorCause::from(http_gw_error),
-            ErrorCause::BackendError(_)
-        ));
+            ErrorCause::Backend(BackendError::Other(ae.to_string()))
+        );
 
         // Test alternate errors
         let context = RefCell::new(ErrorContext {
@@ -841,7 +850,7 @@ mod test {
             })
             .await;
 
-        let error = ErrorCause::CanisterError("".into());
+        let error = ErrorCause::Canister(CanisterError::Error("".into()));
         let error: ErrorClientFacing = (&error).into();
 
         ERROR_CONTEXT
@@ -923,7 +932,7 @@ mod test {
             ..Default::default()
         });
 
-        let error = ErrorCause::CanisterError("some scary error".into());
+        let error = ErrorCause::Canister(CanisterError::Error("some scary error".into()));
         let error: ErrorClientFacing = (&error).into();
 
         ERROR_CONTEXT

@@ -13,8 +13,9 @@ use ic_bn_lib::http::extract_authority;
 use url::{Url, form_urlencoded};
 
 use crate::routing::{
-    CanisterId, ErrorCause, RequestCtx, RequestType, domain::ResolvesDomain,
-    error_cause::ERROR_CONTEXT,
+    CanisterId, ErrorCause, RequestCtx, RequestType,
+    domain::ResolvesDomain,
+    error_cause::{CanisterError, ERROR_CONTEXT},
 };
 
 #[derive(Clone)]
@@ -49,7 +50,7 @@ pub async fn middleware(
     // If configured - try to resolve canister id from query params
     if state.canister_id_from_query_params && lookup.canister_id.is_none() {
         lookup.canister_id = canister_id_from_query_params(&request)
-            .map_err(|e| ErrorCause::CanisterIdIncorrect(e.to_string()))?
+            .map_err(|e| ErrorCause::Canister(CanisterError::IdIncorrect(e.to_string())))?
     }
 
     if state.canister_id_from_referer && lookup.canister_id.is_none() {
