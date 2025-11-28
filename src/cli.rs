@@ -498,6 +498,11 @@ pub struct Misc {
     /// If enabled - requires all providers to report healthy status for `ic-gateway` to be healthy.
     #[clap(env, long)]
     pub custom_domain_provider_critical: bool,
+
+    /// Disable generation of nice user-friendly HTML error messages.
+    /// Instead it produces more detailed JSON-encoded errors.
+    #[clap(env, long)]
+    pub disable_html_error_messages: bool,
 }
 
 #[derive(Args)]

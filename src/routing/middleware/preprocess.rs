@@ -3,6 +3,7 @@ use axum::{
     middleware::Next,
     response::IntoResponse,
 };
+use derive_new::new;
 use fqdn::FQDN;
 use http::header::USER_AGENT;
 use std::{cell::RefCell, sync::Arc};
@@ -13,12 +14,16 @@ use crate::routing::{
     error_cause::{ERROR_CONTEXT, ErrorContext},
 };
 
-pub struct RequestTypeState {
-    pub alternate_error_domain: Option<FQDN>,
-    pub ua_parser: Parser,
+#[derive(new)]
+pub struct PreprocessState {
+    alternate_error_domain: Option<FQDN>,
+    /// Making it a state field and not a global static results in a testable code
+    disable_html_error_messages: bool,
+    #[new(default)]
+    ua_parser: Parser,
 }
 
-impl RequestTypeState {
+impl PreprocessState {
     fn is_browser(&self, ua: &str) -> bool {
         self.ua_parser
             .parse(ua)
@@ -29,7 +34,7 @@ impl RequestTypeState {
 }
 
 pub async fn middleware(
-    State(state): State<Arc<RequestTypeState>>,
+    State(state): State<Arc<PreprocessState>>,
     mut request: Request,
     next: Next,
 ) -> Result<impl IntoResponse, ErrorCause> {
@@ -47,6 +52,7 @@ pub async fn middleware(
         request_type,
         is_browser,
         canister_id: None,
+        disable_html_error_messages: state.disable_html_error_messages,
         authority: None,
         alternate_error_domain: state.alternate_error_domain.clone(),
     });
@@ -68,10 +74,7 @@ mod test {
 
     #[test]
     fn test_is_browser() {
-        let state = RequestTypeState {
-            alternate_error_domain: None,
-            ua_parser: Parser::new(),
-        };
+        let state = PreprocessState::new(None, false);
 
         assert!(!state.is_browser("curl/8.7.1"));
         assert!(!state.is_browser("python-requests/2.25.0"));

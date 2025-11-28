@@ -13,7 +13,7 @@ use ic_http_gateway::{CanisterRequest, HttpGatewayClient, HttpGatewayRequestArgs
 
 use crate::routing::{
     CanisterId, RequestCtx,
-    error_cause::ErrorCause,
+    error_cause::{CanisterError, ErrorCause},
     ic::{
         IcResponseStatus,
         http_service::{CONTEXT, Context},
@@ -41,7 +41,7 @@ pub async fn handler(
     request: Request,
 ) -> Response {
     let Some(canister_id) = request.extensions().get::<CanisterId>().map(|x| x.0) else {
-        return ErrorCause::CanisterIdNotResolved.into_response();
+        return ErrorCause::Canister(CanisterError::IdNotResolved).into_response();
     };
 
     let (mut parts, body) = request.into_parts();

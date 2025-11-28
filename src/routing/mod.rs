@@ -18,7 +18,7 @@ use axum_extra::{either::Either, extract::Host, middleware::option_layer};
 use bytes::Bytes;
 use candid::Principal;
 use fqdn::FQDN;
-use http::{StatusCode, method::Method};
+use http::{HeaderValue, StatusCode, method::Method};
 use http_body_util::Full;
 use ic_bn_lib::{
     http::{
@@ -30,6 +30,7 @@ use ic_bn_lib::{
             system::{SystemInfo, SystemLoadShedderLayer},
         },
     },
+    hval,
     ic_agent::agent::route_provider::RouteProvider,
     tasks::TaskManager,
     utils::health_manager::HealthManager,
@@ -53,7 +54,6 @@ use tower::{ServiceBuilder, ServiceExt, limit::ConcurrencyLimitLayer, util::MapR
 use tracing::warn;
 use tracing_core::LevelFilter;
 use tracing_subscriber::reload::Handle;
-use woothee::parser::Parser;
 
 use crate::{
     api::setup_api_router,
@@ -61,14 +61,14 @@ use crate::{
     metrics::{self},
     routing::{
         error_cause::RateLimitCause,
-        middleware::{canister_match, cors, geoip, headers, request_id, request_type, validate},
+        middleware::{canister_match, cors, geoip, headers, preprocess, request_id, validate},
     },
 };
 use domain::{CustomDomainStorage, DomainResolver};
 use middleware::{
     cache,
     cors::{ALLOW_HEADERS, ALLOW_HEADERS_HTTP, ALLOW_METHODS_HTTP},
-    request_type::RequestTypeState,
+    preprocess::PreprocessState,
     validate::ValidateState,
 };
 
@@ -82,6 +82,8 @@ use {
     error_cause::ErrorCause,
     ic::handler,
 };
+
+pub const CONTENT_TYPE_JSON: HeaderValue = hval!("application/json");
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash)]
 pub struct CanisterId(pub Principal);
@@ -532,10 +534,10 @@ pub async fn setup_router(
     };
 
     // Request type state for alternate error domain configuration
-    let request_type_state = Arc::new(RequestTypeState {
-        alternate_error_domain: cli.misc.alternate_error_domain.clone(),
-        ua_parser: Parser::new(),
-    });
+    let request_type_state = Arc::new(PreprocessState::new(
+        cli.misc.alternate_error_domain.clone(),
+        cli.misc.disable_html_error_messages,
+    ));
 
     // Common layers for all routes
     let common_layers = ServiceBuilder::new()
@@ -546,7 +548,7 @@ pub async fn setup_router(
         .layer(from_fn(headers::middleware))
         .layer(from_fn_with_state(
             request_type_state,
-            request_type::middleware,
+            preprocess::middleware,
         ))
         .layer(geoip_mw)
         .layer(metrics_mw)
