@@ -703,6 +703,24 @@ mod test {
 
     #[tokio::test]
     async fn test_error_cause() {
+        // Basic naming
+        assert_eq!(
+            ErrorCause::Backend(BackendError::BodyTimeout).to_string(),
+            "backend_body_timeout"
+        );
+        assert_eq!(
+            ErrorCause::Backend(BackendError::Dns("foo".into())).to_string(),
+            "backend_dns"
+        );
+        assert_eq!(
+            ErrorCause::Canister(CanisterError::Frozen).to_string(),
+            "canister_frozen"
+        );
+        assert_eq!(
+            ErrorCause::Canister(CanisterError::IdIncorrect("bar".into())).to_string(),
+            "canister_id_incorrect"
+        );
+
         // Mapping of Rustls errors
         let err = anyhow::Error::new(rustls::Error::NoCertificatesPresented);
         assert!(matches!(
