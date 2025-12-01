@@ -512,7 +512,14 @@ pub async fn setup_router(
                         Method::DELETE,
                     ])),
             )
-            .route("/registrations", post(proxy::issuer_proxy).layer(cors_post))
+            .route(
+                "/registrations",
+                post(|| async move {
+                    (StatusCode::GONE, concat!("This endpoint is deprecated, please use the new Custom Domains API.\n", 
+                    "See the documentation here: https://internetcomputer.org/docs/building-apps/frontends/custom-domains/using-custom-domains"))
+                })
+                .layer(cors_post),
+            )
             .layer(rate_limiter::layer_by_ip(
                 1,
                 2,
