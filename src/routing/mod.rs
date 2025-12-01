@@ -499,12 +499,22 @@ pub async fn setup_router(
             cli.cert.cert_provider_issuer_url.clone(),
         ));
 
+        let deprecated_handler = || async move {
+            (
+                StatusCode::GONE,
+                concat!(
+                    "This endpoint is deprecated, please use the new Custom Domains API.\n",
+                    "See the documentation here: https://internetcomputer.org/docs/building-apps/frontends/custom-domains/using-custom-domains"
+                ),
+            )
+        };
+
         let router = Router::new()
             .route(
                 "/registrations/{id}",
                 get(proxy::issuer_proxy)
-                    .put(proxy::issuer_proxy)
-                    .delete(proxy::issuer_proxy)
+                    .put(deprecated_handler)
+                    .delete(deprecated_handler)
                     .layer(cors_base.clone().allow_methods([
                         Method::HEAD,
                         Method::GET,
@@ -512,14 +522,7 @@ pub async fn setup_router(
                         Method::DELETE,
                     ])),
             )
-            .route(
-                "/registrations",
-                post(|| async move {
-                    (StatusCode::GONE, concat!("This endpoint is deprecated, please use the new Custom Domains API.\n", 
-                    "See the documentation here: https://internetcomputer.org/docs/building-apps/frontends/custom-domains/using-custom-domains"))
-                })
-                .layer(cors_post),
-            )
+            .route("/registrations", post(deprecated_handler).layer(cors_post))
             .layer(rate_limiter::layer_by_ip(
                 1,
                 2,
