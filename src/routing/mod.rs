@@ -515,7 +515,7 @@ pub async fn setup_router(
             .route(
                 "/registrations",
                 post(|| async move {
-                    (StatusCode::BAD_REQUEST, concat!("This endpoint is deprecated, please use the new Custom Domains API.\n", 
+                    (StatusCode::GONE, concat!("This endpoint is deprecated, please use the new Custom Domains API.\n", 
                     "See the documentation here: https://internetcomputer.org/docs/building-apps/frontends/custom-domains/using-custom-domains"))
                 })
                 .layer(cors_post),
