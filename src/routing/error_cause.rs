@@ -153,8 +153,7 @@ impl ClientError {
     }
 }
 
-// Categorized possible causes for request processing failures
-// Not using Error as inner type since it's not cloneable
+/// Categorized possible causes for request processing failures
 #[derive(Debug, Clone, Display, Eq, PartialEq)]
 #[strum(serialize_all = "snake_case")]
 pub enum ErrorCause {

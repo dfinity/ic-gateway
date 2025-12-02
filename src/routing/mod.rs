@@ -769,6 +769,7 @@ mod test {
                 "/custom-domains/v1/foo.bar/validate",
                 RequestType::CustomDomains,
             ),
+            ("", RequestType::Unknown),
         ];
 
         for (path, rt) in cases {
