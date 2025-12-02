@@ -12,6 +12,8 @@ use tokio::task_local;
 
 use crate::routing::proxy::{http_error_needs_retrying, status_code_needs_retrying};
 
+/// Request context to pass information through the ic-agent boundaries
+#[derive(Default)]
 pub struct Context {
     pub hostname: Option<String>,
     pub headers_in: HeaderMap<HeaderValue>,
@@ -21,12 +23,7 @@ pub struct Context {
 
 impl Context {
     pub fn new() -> RefCell<Self> {
-        RefCell::new(Self {
-            hostname: None,
-            headers_in: HeaderMap::new(),
-            headers_out: HeaderMap::new(),
-            status: None,
-        })
+        RefCell::new(Self::default())
     }
 }
 

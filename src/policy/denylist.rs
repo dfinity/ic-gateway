@@ -42,7 +42,7 @@ impl Denylist {
     ) -> Result<Self, Error> {
         let allowlist = if let Some(v) = allowlist {
             let r = load_principal_list(&v).context("unable to read allowlist")?;
-            warn!("Denylist allowlist loaded: {}", r.len());
+            warn!("Denylist: allowlist loaded: {} canisters", r.len());
             r
         } else {
             AHashSet::new()
@@ -53,7 +53,7 @@ impl Denylist {
         if let Some(v) = seed {
             let seed = fs::read(v).context("unable to read seed")?;
             let r = denylist.load_json(&seed).context("unable to parse seed")?;
-            warn!("Denylist seed loaded: {r} canisters");
+            warn!("Denylist: seed loaded: {r} canisters");
         }
 
         Ok(denylist)

@@ -7,6 +7,7 @@ use axum::{
     response::IntoResponse,
 };
 use candid::Principal;
+use derive_new::new;
 use fqdn::FQDN;
 use http::header::REFERER;
 use ic_bn_lib::http::extract_authority;
@@ -18,7 +19,7 @@ use crate::routing::{
     error_cause::{CanisterError, ClientError, ERROR_CONTEXT},
 };
 
-#[derive(Clone)]
+#[derive(Clone, new)]
 pub struct ValidateState {
     pub resolver: Arc<dyn ResolvesDomain>,
     pub canister_id_from_query_params: bool,
@@ -78,8 +79,11 @@ pub async fn middleware(
         request.extensions_mut().insert(CanisterId(v));
     }
 
-    // Always provided by the preceding middleware so should be safe
-    let request_type = request.extensions().get::<RequestType>().copied().unwrap();
+    let request_type = request
+        .extensions()
+        .get::<RequestType>()
+        .copied()
+        .unwrap_or_default();
 
     // Inject request context
     let ctx = Arc::new(RequestCtx {

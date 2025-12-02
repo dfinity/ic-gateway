@@ -38,13 +38,13 @@ pub struct DomainLookup {
     pub verify: bool,
 }
 
-// Resolves hostname to a canister id
+/// Resolves hostname to a canister id
 pub trait ResolvesDomain: Send + Sync {
     fn resolve(&self, host: &Fqdn) -> Option<DomainLookup>;
 }
 
-// Alias for a canister under all served domains.
-// E.g. an alias 'nns' would resolve under both 'nns.ic0.app' and 'nns.icp0.io'
+/// Alias for a canister under all served domains.
+/// E.g. an alias 'nns' would resolve under both 'nns.ic0.app' and 'nns.icp0.io'
 #[derive(Clone)]
 pub struct CanisterAlias(FQDN, Principal);
 

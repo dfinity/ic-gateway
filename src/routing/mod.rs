@@ -537,11 +537,11 @@ pub async fn setup_router(
         None
     };
 
-    let validate_state = ValidateState {
-        resolver: domain_resolver,
-        canister_id_from_query_params: cli.domain.domain_canister_id_from_query_params,
-        canister_id_from_referer: cli.domain.domain_canister_id_from_referer,
-    };
+    let validate_state = ValidateState::new(
+        domain_resolver,
+        cli.domain.domain_canister_id_from_query_params,
+        cli.domain.domain_canister_id_from_referer,
+    );
 
     // Request type state for alternate error domain configuration
     let request_type_state = Arc::new(PreprocessState::new(

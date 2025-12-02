@@ -232,7 +232,7 @@ pub async fn middleware(
     let mut response = next.run(request).await;
 
     // If the request was OPTIONS but we didn't get a valid response,
-    // return our own response with default headers set.
+    // return our own response with default headers set and mark canister as invalid.
     if method == Method::OPTIONS && !is_valid_preflight_response(&response) {
         state.invalid_canisters.insert(canister_id, ());
         return state.default_preflight_response();

@@ -26,13 +26,14 @@ pub const SYSTEM_SUBNETS: [(Principal, Principal); 5] = [
     ),
 ];
 
+/// Checks if given canister id belongs to a system subnet
 pub fn is_system_subnet(canister_id: Principal) -> bool {
     SYSTEM_SUBNETS
         .iter()
         .any(|x| canister_id >= x.0 && canister_id <= x.1)
 }
 
-// Things needed to verify domain-canister match
+/// Things needed to verify domain-canister match
 #[derive(derive_new::new)]
 pub struct DomainCanisterMatcher {
     pre_isolation_canisters: AHashSet<Principal>,
@@ -41,6 +42,7 @@ pub struct DomainCanisterMatcher {
 }
 
 impl DomainCanisterMatcher {
+    /// Check if given canister id and host match from policy perspective
     pub fn check(&self, canister_id: Principal, host: &Fqdn) -> bool {
         // These are always allowed
         if self.pre_isolation_canisters.contains(&canister_id) {

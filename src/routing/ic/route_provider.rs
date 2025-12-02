@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use candid::Principal;
+use derive_new::new;
 use ic_bn_lib::ic_agent::agent::{
     http_transport::reqwest_transport::reqwest::Client as AgentClient,
     route_provider::{
@@ -25,7 +26,7 @@ use crate::{
 };
 
 /// Provides Healthy trait for the RouteProvider
-#[derive(derive_new::new, Debug)]
+#[derive(new, Debug)]
 pub struct RouteProviderWrapper(Arc<dyn RouteProvider>);
 
 impl Healthy for RouteProviderWrapper {
@@ -35,6 +36,7 @@ impl Healthy for RouteProviderWrapper {
     }
 }
 
+/// Creates a route provider to use with Agent
 pub async fn setup_route_provider(
     cli: &Cli,
     reqwest_client: reqwest::Client,
@@ -66,6 +68,7 @@ pub async fn setup_route_provider(
                         );
                         LatencyRoutingSnapshot::new().set_k_top_nodes(k)
                     });
+
             // This temporary client is only needed for the instantiation. It is later overridden by the checker/fetcher accepting the reqwest_client.
             let tmp_client = AgentClient::builder()
                 .build()
@@ -79,6 +82,7 @@ pub async fn setup_route_provider(
                     .with_fetcher(Arc::new(fetcher))
                     .build()
                     .await;
+
             Arc::new(route_provider)
         };
 

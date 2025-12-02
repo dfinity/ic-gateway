@@ -22,11 +22,13 @@ impl GeoIp {
     pub fn new(db_path: &PathBuf) -> Result<Self, Error> {
         let start = Instant::now();
         let db = maxminddb::Reader::open_readfile(db_path)?;
+
         warn!(
             "GeoIP loaded with {} entries in {}s",
             db.metadata.node_count,
             start.elapsed().as_secs_f64()
         );
+
         Ok(Self { db })
     }
 

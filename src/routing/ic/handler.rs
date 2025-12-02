@@ -32,7 +32,6 @@ pub struct HandlerState {
 }
 
 // Main HTTP->IC request handler
-//#[axum::debug_handler]
 pub async fn handler(
     State(state): State<Arc<HandlerState>>,
     Extension(conn_info): Extension<Arc<ConnInfo>>,

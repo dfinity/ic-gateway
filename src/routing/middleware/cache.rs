@@ -18,5 +18,6 @@ pub async fn middleware(
         .process_request(request, next)
         .await
         .map_err(|e| ErrorCause::Other(e.to_string()))?;
+
     Ok(response)
 }
