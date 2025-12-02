@@ -7,6 +7,7 @@ use axum::{
     response::IntoResponse,
 };
 use candid::Principal;
+use derive_new::new;
 use fqdn::FQDN;
 use http::header::REFERER;
 use ic_bn_lib::http::extract_authority;
@@ -15,10 +16,10 @@ use url::{Url, form_urlencoded};
 use crate::routing::{
     CanisterId, ErrorCause, RequestCtx, RequestType,
     domain::ResolvesDomain,
-    error_cause::{CanisterError, ERROR_CONTEXT},
+    error_cause::{CanisterError, ClientError, ERROR_CONTEXT},
 };
 
-#[derive(Clone)]
+#[derive(Clone, new)]
 pub struct ValidateState {
     pub resolver: Arc<dyn ResolvesDomain>,
     pub canister_id_from_query_params: bool,
@@ -32,7 +33,7 @@ pub async fn middleware(
 ) -> Result<impl IntoResponse, ErrorCause> {
     // Try to extract the authority
     let Some(authority) = extract_authority(&request).and_then(|x| FQDN::from_str(x).ok()) else {
-        return Err(ErrorCause::NoAuthority);
+        return Err(ErrorCause::Client(ClientError::NoAuthority));
     };
 
     // Inject authority into error context
@@ -45,7 +46,9 @@ pub async fn middleware(
     let mut lookup = state
         .resolver
         .resolve(&authority)
-        .ok_or(ErrorCause::UnknownDomain(authority.clone()))?;
+        .ok_or(ErrorCause::Client(ClientError::UnknownDomain(
+            authority.clone(),
+        )))?;
 
     // If configured - try to resolve canister id from query params
     if state.canister_id_from_query_params && lookup.canister_id.is_none() {
@@ -76,8 +79,11 @@ pub async fn middleware(
         request.extensions_mut().insert(CanisterId(v));
     }
 
-    // Always provided by the preceding middleware so should be safe
-    let request_type = request.extensions().get::<RequestType>().copied().unwrap();
+    let request_type = request
+        .extensions()
+        .get::<RequestType>()
+        .copied()
+        .unwrap_or_default();
 
     // Inject request context
     let ctx = Arc::new(RequestCtx {

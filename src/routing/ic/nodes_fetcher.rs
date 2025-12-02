@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use candid::Principal;
+use derive_new::new;
 use ic_bn_lib::ic_agent::{
     Agent,
     agent::route_provider::dynamic_routing::{
@@ -13,24 +14,13 @@ pub const MAINNET_ROOT_SUBNET_ID: &str =
     "tdb26-jop6k-aogll-7ltgs-eruif-6kk7m-qpktf-gdiqx-mxtrf-vb5e6-eqe";
 
 /// A struct representing the fetcher of the nodes from the topology.
-#[derive(Debug)]
+#[derive(Debug, new)]
 pub struct NodesFetcher {
     http_client: Client,
     subnet_id: Principal,
     // By default, the nodes fetcher is configured to talk to the mainnet of Internet Computer, and verifies responses using a hard-coded public key.
     // However, for testnets one can set up a custom public key.
     root_key: Option<Vec<u8>>,
-}
-
-impl NodesFetcher {
-    /// Creates a new `NodesFetcher` instance.
-    pub const fn new(http_client: Client, subnet_id: Principal, root_key: Option<Vec<u8>>) -> Self {
-        Self {
-            http_client,
-            subnet_id,
-            root_key,
-        }
-    }
 }
 
 #[async_trait]

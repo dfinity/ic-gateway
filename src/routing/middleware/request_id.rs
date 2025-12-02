@@ -38,7 +38,7 @@ fn extract_request_id(request: &Request) -> Option<RequestId> {
         .map(RequestId)
 }
 
-// Generate & insert request UUID into extensions and headers
+/// Generate & insert request UUID into extensions and headers
 pub async fn middleware(
     State(state): State<RequestIdState>,
     mut request: Request,

@@ -32,13 +32,13 @@ use tracing::warn;
 
 use crate::Cli;
 
-/// Metadata about the request to a Boundary Node (ic-boundary)
+/// Metadata about the request to an API Boundary Node (ic-boundary)
 #[derive(Clone, Debug, Default)]
 pub struct BNRequestMetadata {
     pub upstream: Option<String>,
 }
 
-/// Metadata about the response from a Boundary Node (ic-boundary)
+/// Metadata about the response from an API Boundary Node (ic-boundary)
 #[derive(Clone, Debug)]
 pub struct BNResponseMetadata {
     pub node_id: String,
@@ -88,6 +88,7 @@ impl From<&mut HeaderMap> for BNResponseMetadata {
     }
 }
 
+/// Response information from IC HTTP Gateway Library
 #[derive(Clone)]
 pub struct IcResponseStatus {
     pub streaming: bool,

@@ -40,7 +40,6 @@ impl MetricParams {
 #[derive(Clone)]
 pub struct DenylistState(Arc<Denylist>, MetricParams);
 
-#[allow(clippy::type_complexity)]
 impl DenylistState {
     pub fn new(
         denylist_url: Option<Url>,
@@ -68,6 +67,7 @@ impl Run for DenylistState {
                 warn!("Denylist update failed: {e:#}");
                 "fail"
             }
+
             Ok(v) => {
                 info!("Denylist updated: {} canisters", v);
                 "ok"

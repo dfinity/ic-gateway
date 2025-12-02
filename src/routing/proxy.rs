@@ -40,6 +40,8 @@ use regex::Regex;
 use tokio::time::sleep;
 use url::Url;
 
+use crate::routing::error_cause::ClientError;
+
 use super::{
     error_cause::ErrorCause,
     ic::{BNRequestMetadata, BNResponseMetadata},
@@ -108,7 +110,8 @@ pub async fn api_proxy(
 ) -> Result<impl IntoResponse, ErrorCause> {
     // Check principal for correctness
     if let Some(v) = principal {
-        Principal::from_text(v.0).map_err(|_| ErrorCause::IncorrectPrincipal)?;
+        Principal::from_text(v.0)
+            .map_err(|_| ErrorCause::Client(ClientError::IncorrectPrincipal))?;
     }
 
     // Obtain a list of IC URLs from the provider
@@ -124,7 +127,7 @@ pub async fn api_proxy(
     // Buffer the request body to be able to retry it
     let body = Full::new(
         buffer_body(body, state.request_max_size, state.request_body_timeout)
-            .map_err(|e| ErrorCause::ClientBodyError(e.to_string()))
+            .map_err(|e| ErrorCause::Client(ClientError::Body(e.to_string())))
             .await?,
     );
 
@@ -147,10 +150,13 @@ pub async fn api_proxy(
                 .unwrap_or(&state.pq_default)
                 .as_str(),
         )
-        .map_err(|e| ErrorCause::MalformedRequest(format!("invalid URL: {e:#}")))?;
+        .map_err(|e| {
+            ErrorCause::Client(ClientError::MalformedRequest(format!("invalid URL: {e:#}")))
+        })?;
 
-        let uri = url_to_uri(&url)
-            .map_err(|e| ErrorCause::MalformedRequest(format!("invalid URL: {e:#}")))?;
+        let uri = url_to_uri(&url).map_err(|e| {
+            ErrorCause::Client(ClientError::MalformedRequest(format!("invalid URL: {e:#}")))
+        })?;
 
         let mut request = Request::from_parts(parts.clone(), body.clone());
         *request.uri_mut() = uri;
@@ -210,7 +216,7 @@ pub struct IssuerProxyState {
     next: AtomicUsize,
 }
 
-// Proxies /registrations endpoint to the certificate issuers if they're defined
+/// Proxies /registrations endpoint to the certificate issuers if they're defined
 pub async fn issuer_proxy(
     State(state): State<Arc<IssuerProxyState>>,
     OriginalUri(original_uri): OriginalUri,
@@ -222,9 +228,9 @@ pub async fn issuer_proxy(
     if let Some(v) = id
         && !REGEX_REG_ID.is_match(&v.0)
     {
-        return Err(ErrorCause::MalformedRequest(
+        return Err(ErrorCause::Client(ClientError::MalformedRequest(
             "Incorrect request ID format".into(),
-        ));
+        )));
     }
 
     // Pick next issuer using round-robin & generate request URL for it
