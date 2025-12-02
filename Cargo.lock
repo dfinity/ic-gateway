@@ -2660,8 +2660,8 @@ dependencies = [
  "nix",
  "ppp",
  "prometheus",
- "prost 0.14.2",
- "prost-types 0.14.2",
+ "prost 0.14.1",
+ "prost-types 0.14.1",
  "rand 0.8.5",
  "rcgen 0.14.5",
  "regex",
@@ -3731,9 +3731,9 @@ checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
 
 [[package]]
 name = "libc"
-version = "0.2.177"
+version = "0.2.178"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2874a2af47a2325c2001a6e6fad9b16a53b802102b528163885171cf92b15976"
+checksum = "37c93d8daa9d8a012fd8ab92f088405fb202ea0b6ab73ee2482ae66af4f42091"
 
 [[package]]
 name = "libredox"
@@ -4627,12 +4627,12 @@ dependencies = [
 
 [[package]]
 name = "prost"
-version = "0.14.2"
+version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "101fec8d036f8d9d4a1e8ebf90d566d1d798f3b1aa379d2576a54a0d9acea5bd"
+checksum = "7231bd9b3d3d33c86b58adbac74b5ec0ad9f496b19d22801d773636feaa95f3d"
 dependencies = [
  "bytes",
- "prost-derive 0.14.2",
+ "prost-derive 0.14.1",
 ]
 
 [[package]]
@@ -4650,9 +4650,9 @@ dependencies = [
 
 [[package]]
 name = "prost-derive"
-version = "0.14.2"
+version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2d93e596a829ebe00afa41c3a056e6308d6b8a4c7d869edf184e2c91b1ba564"
+checksum = "9120690fafc389a67ba3803df527d0ec9cbbc9cc45e4cc20b332996dfb672425"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
@@ -4672,11 +4672,11 @@ dependencies = [
 
 [[package]]
 name = "prost-types"
-version = "0.14.2"
+version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f5d7b7346e150de32340ae3390b8b3ffa37ad93ec31fb5dad86afe817619e4e7"
+checksum = "b9b4db3d6da204ed77bb26ba83b6122a73aeb2e87e25fbf7ad2e84c4ccbf8f72"
 dependencies = [
- "prost 0.14.2",
+ "prost 0.14.1",
 ]
 
 [[package]]
