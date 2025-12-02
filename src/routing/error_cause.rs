@@ -107,6 +107,7 @@ pub enum BackendError {
     BoundaryNode(String),
     HttpGateway(String),
     Other(String),
+    ResponseVerification(String),
 }
 
 impl BackendError {
@@ -124,30 +125,50 @@ impl BackendError {
     }
 }
 
+#[derive(Debug, Clone, Display, IntoStaticStr, Eq, PartialEq)]
+#[strum(serialize_all = "snake_case")]
+pub enum ClientError {
+    BodyTooLarge,
+    BodyTimeout,
+    Body(String),
+    IncorrectPrincipal,
+    MalformedRequest(String),
+    NoAuthority,
+    UnknownDomain(FQDN),
+    DomainCanisterMismatch(Principal),
+    SubnetNotFound,
+}
+
+impl ClientError {
+    pub fn details(&self) -> Option<String> {
+        match self {
+            Self::Body(x) => Some(x.clone()),
+            Self::MalformedRequest(x) => Some(x.clone()),
+            Self::UnknownDomain(x) => Some(x.to_string()),
+            Self::DomainCanisterMismatch(x) => {
+                Some(format!("The canister {x} is not served by this domain"))
+            }
+            _ => None,
+        }
+    }
+}
+
 // Categorized possible causes for request processing failures
 // Not using Error as inner type since it's not cloneable
 #[derive(Debug, Clone, Display, Eq, PartialEq)]
 #[strum(serialize_all = "snake_case")]
 pub enum ErrorCause {
-    ClientBodyTooLarge,
-    ClientBodyTimeout,
-    ClientBodyError(String),
     LoadShed,
-    IncorrectPrincipal,
-    MalformedRequest(String),
-    NoAuthority,
-    UnknownDomain(FQDN),
-    #[strum(to_string = "canister_{0}")]
-    Canister(CanisterError),
-    SubnetNotFound,
     SubnetUnavailable,
     NoRoutingTable,
-    ResponseVerificationError,
-    DomainCanisterMismatch(Principal),
     Denylisted,
     Forbidden,
+    #[strum(to_string = "client_{0}")]
+    Client(ClientError),
     #[strum(to_string = "backend_{0}")]
     Backend(BackendError),
+    #[strum(to_string = "canister_{0}")]
+    Canister(CanisterError),
     #[strum(serialize = "rate_limited_{0}")]
     RateLimited(RateLimitCause),
     #[strum(serialize = "internal_server_error")]
@@ -157,10 +178,9 @@ pub enum ErrorCause {
 impl ErrorCause {
     pub fn details(&self) -> Option<String> {
         match self {
-            Self::ClientBodyError(x) => Some(x.clone()),
-            Self::MalformedRequest(x) => Some(x.clone()),
-            Self::Canister(CanisterError::IdIncorrect(x)) => Some(x.clone()),
+            Self::Client(x) => x.details(),
             Self::Backend(x) => x.details(),
+            Self::Canister(CanisterError::IdIncorrect(x)) => Some(x.clone()),
             Self::RateLimited(x) => Some(x.to_string()),
             Self::Other(x) => Some(x.clone()),
             _ => None,
@@ -172,9 +192,9 @@ impl ErrorCause {
     // Convert from client-side error
     pub fn from_client_error(e: HttpError) -> Self {
         match e {
-            HttpError::BodyReadingFailed(v) => Self::ClientBodyError(v),
-            HttpError::BodyTimedOut => Self::ClientBodyTimeout,
-            HttpError::BodyTooBig => Self::ClientBodyTooLarge,
+            HttpError::BodyReadingFailed(v) => Self::Client(ClientError::Body(v)),
+            HttpError::BodyTimedOut => Self::Client(ClientError::BodyTimeout),
+            HttpError::BodyTooBig => Self::Client(ClientError::BodyTooLarge),
             _ => Self::Other(e.to_string()),
         }
     }
@@ -249,7 +269,7 @@ impl From<&BNResponseMetadata> for Option<ErrorCause> {
             CANISTER_NOT_FOUND | CANISTER_ROUTE_NOT_FOUND => {
                 ErrorCause::Canister(CanisterError::RouteNotFound(canister_id))
             }
-            SUBNET_NOT_FOUND => ErrorCause::SubnetNotFound,
+            SUBNET_NOT_FOUND => ErrorCause::Client(ClientError::SubnetNotFound),
             FORBIDDEN => ErrorCause::Forbidden,
             LOAD_SHED => ErrorCause::LoadShed,
             NO_ROUTING_TABLE => ErrorCause::NoRoutingTable,
@@ -266,7 +286,9 @@ impl From<HttpGatewayError> for ErrorCause {
             .flatten();
 
         match v {
-            HttpGatewayError::ResponseVerificationError(_) => Self::ResponseVerificationError,
+            HttpGatewayError::ResponseVerificationError(e) => {
+                Self::Backend(BackendError::ResponseVerification(e.to_string()))
+            }
             HttpGatewayError::AgentError(ae) => match ae.as_ref() {
                 AgentError::CertifiedReject { reject, .. }
                 | AgentError::UncertifiedReject { reject, .. } => match reject.reject_code {
@@ -315,7 +337,7 @@ impl From<anyhow::Error> for ErrorCause {
         }
 
         if error_infer::<http_body_util::LengthLimitError>(&e).is_some() {
-            return Self::ClientBodyTooLarge;
+            return Self::Client(ClientError::BodyTooLarge);
         }
 
         Self::Other(e.to_string())
@@ -325,38 +347,106 @@ impl From<anyhow::Error> for ErrorCause {
 #[derive(Debug, Clone, Display)]
 #[strum(serialize_all = "snake_case")]
 pub enum ErrorClientFacing {
-    BodyTimedOut,
-    #[strum(to_string = "canister_{0}")]
-    Canister(CanisterError),
-    SubnetNotFound,
     #[strum(serialize = "subnet_updating")]
     SubnetUnavailable,
-    ResponseVerificationError,
     Denylisted,
     Forbidden,
-    DomainCanisterMismatch(Principal),
-    IncorrectPrincipal,
     LoadShed,
-    MalformedRequest(String),
-    NoAuthority,
     #[strum(serialize = "internal_server_error")]
     Other(String),
-    PayloadTooLarge,
     RateLimited,
-    UnknownDomain(FQDN),
+    #[strum(to_string = "client_{0}")]
+    Client(ClientError),
     #[strum(to_string = "backend_{0}")]
     Backend(BackendError),
+    #[strum(to_string = "canister_{0}")]
+    Canister(CanisterError),
 }
 
 impl ErrorClientFacing {
     fn data(&self) -> ErrorData {
         match self {
-            Self::BodyTimedOut => ErrorData {
-                status_code: StatusCode::REQUEST_TIMEOUT,
-                title: "Request Timed Out".into(),
-                description: "The request took too long to complete because data was arriving too slowly. Check your network connection and try again. If you are on a spotty network, switch to a more stable connection.".into(),
+            // Client errors
+            Self::Client(ClientError::SubnetNotFound) => ErrorData {
+                status_code: StatusCode::BAD_REQUEST,
+                title: "Subnet Not Found".into(),
+                description: "The requested subnet was not found.".into(),
+                icon: SUBNET_SVG.into(),
                 ..Default::default()
             },
+            Self::Client(ClientError::UnknownDomain(d)) => ErrorData {
+                status_code: StatusCode::BAD_REQUEST,
+                title: "Unknown Domain".into(),
+                description: "The requested domain is not served by this HTTP gateway. Please check that the address is correct.".into(),
+                details: Some(format!("The domain {d} is not served by this gateway")),
+                ..Default::default()
+            },
+            Self::Client(ClientError::DomainCanisterMismatch(canister_id)) => ErrorData {
+                status_code: StatusCode::BAD_REQUEST,
+                title: "Canister Not Available Through This Gateway".into(),
+                description: "This canister is not served through this gateway. Use a gateway that matches the canister's configuration.".into(),
+                description_html: Some(format!(
+                    r#"
+                        This canister is not served through this gateway. Use a gateway that matches the canister's configuration:<br>
+                        <a href="https://{canister_id}.icp0.io" target="_blank" rel="noopener noreferrer" class="external-link">
+                            {canister_id}.icp0.io
+                    </a>.
+                "#).trim().into()),
+                canister_id: Some(*canister_id),
+                ..Default::default()
+            },
+            Self::Client(ClientError::IncorrectPrincipal) => ErrorData {
+                status_code: StatusCode::BAD_REQUEST,
+                title: "Incorrect Principal".into(),
+                description: "The principal in the request is incorrectly formatted.".into(),
+                ..Default::default()
+            },
+            Self::Client(ClientError::MalformedRequest(x)) => ErrorData {
+                status_code: StatusCode::BAD_REQUEST,
+                title: "Malformed Request".into(),
+                description: "Your request was not correctly formed.".into(),
+                details: Some(x.clone()),
+                ..Default::default()
+            },
+            Self::Client(ClientError::NoAuthority) => ErrorData {
+                status_code: StatusCode::BAD_REQUEST,
+                title: "Missing Authority".into(),
+                description: "The request is missing the required authority information (e.g. 'Host' header).".into(),
+                ..Default::default()
+            },
+            Self::Client(ClientError::BodyTooLarge) => ErrorData {
+                status_code: StatusCode::PAYLOAD_TOO_LARGE,
+                title: "Payload too Large".into(),
+                description: "The data you sent is too large for the Internet Computer to handle. Please reduce your payload and try again.".into(),
+                ..Default::default()
+            },
+            // The remaining errors are never shown to the clients: if the request never completes we don't send response obviously.
+            // So there's no need to provide any details. Code 408 is informational (for logging) - clients never see it.
+            Self::Client(_) => ErrorData {
+                status_code: StatusCode::REQUEST_TIMEOUT,
+                title: "".into(),
+                description: "".into(),
+                ..Default::default()
+            },
+
+            // Backend errors
+            Self::Backend(BackendError::ResponseVerification(e)) => ErrorData {
+                status_code: StatusCode::SERVICE_UNAVAILABLE,
+                title: "Response Verification Error".into(),
+                description: "The response from the canister failed verification and cannot be trusted. If you understand the risks, you can retry using the raw domain to bypass certification.".into(),
+                details: Some(e.clone()),
+                ..Default::default()
+            },
+            Self::Backend(e) => ErrorData {
+                status_code: StatusCode::SERVICE_UNAVAILABLE,
+                title: "Upstream Unavailable".into(),
+                description: "The HTTP gateway is temporarily unable to process the request. Please try again later. If this persists, check the status page for updates and reach out on the ICP developer forum.".into(),
+                details: e.details(),
+                icon: SUBNET_SVG.into(),
+                ..Default::default()
+            },
+
+            // Canister errors
             Self::Canister(CanisterError::NotFound(v)) | Self::Canister(CanisterError::RouteNotFound(v)) => {
                 let canister_id = v.map(|x| x.to_string()).unwrap_or_else(|| "unknown".into());
 
@@ -417,26 +507,14 @@ impl ErrorClientFacing {
                 icon: CANISTER_ERROR_SVG.into(),
                 ..Default::default()
             },
-            Self::SubnetNotFound => ErrorData {
-                status_code: StatusCode::BAD_REQUEST,
-                title: "Subnet Not Found".into(),
-                description: "The requested subnet was not found.".into(),
-                icon: SUBNET_SVG.into(),
 
-                ..Default::default()
-            },
+            // Other errors
             Self::SubnetUnavailable => ErrorData {
                 status_code: StatusCode::SERVICE_UNAVAILABLE,
                 title: "Subnet Upgrade".into(),
                 description: "The protocol currently upgrades this part of the Internet Computer. It should be back momentarily. No worries—your data is safe!".into(),
                 retry_message: Some("Wait a few minutes and refresh this page.".into()),
                 icon: SUBNET_SVG.into(),
-                ..Default::default()
-            },
-            Self::ResponseVerificationError => ErrorData {
-                status_code: StatusCode::SERVICE_UNAVAILABLE,
-                title: "Response Verification Error".into(),
-                description: "The response from the canister failed verification and cannot be trusted. If you understand the risks, you can retry using the raw domain to bypass certification.".into(),
                 ..Default::default()
             },
             Self::Denylisted => ErrorData {
@@ -457,43 +535,16 @@ impl ErrorClientFacing {
                 icon: SUBNET_SVG.into(),
                 ..Default::default()
             },
-            Self::DomainCanisterMismatch(canister_id) => ErrorData {
-                status_code: StatusCode::BAD_REQUEST,
-                title: "Canister Not Available Through This Gateway".into(),
-                description: "This canister is not served through this gateway. Use a gateway that matches the canister's configuration.".into(),
-                description_html: Some(format!(
-                    r#"
-                        This canister is not served through this gateway. Use a gateway that matches the canister's configuration:<br>
-                        <a href="https://{canister_id}.icp0.io" target="_blank" rel="noopener noreferrer" class="external-link">
-                            {canister_id}.icp0.io
-                    </a>.
-                "#).trim().into()),
-                canister_id: Some(*canister_id),
-                ..Default::default()
-            },
-            Self::IncorrectPrincipal => ErrorData {
-                status_code: StatusCode::BAD_REQUEST,
-                title: "Incorrect Principal".into(),
-                description: "The principal in the request is incorrectly formatted.".into(),
-                ..Default::default()
-            },
             Self::LoadShed => ErrorData {
                 status_code: StatusCode::TOO_MANY_REQUESTS,
                 title: "Too Many Requests".into(),
                 description: "The HTTP gateway is experiencing high load and cannot process your request right now. Please try again later.".into(),
                 ..Default::default()
             },
-            Self::MalformedRequest(x) => ErrorData {
-                status_code: StatusCode::BAD_REQUEST,
-                title: "Malformed Request".into(),
-                description: "Your request was not correctly formed.".into(),
-                details: Some(x.clone()),
-                ..Default::default()
-            },
-            Self::NoAuthority => ErrorData {
-                status_code: StatusCode::BAD_REQUEST,
-                title: "Missing Authority".into(),
-                description: "The request is missing the required authority information (e.g. 'Host' header).".into(),
+            Self::RateLimited => ErrorData {
+                status_code: StatusCode::TOO_MANY_REQUESTS,
+                title: "Rate Limited".into(),
+                description: "Your request has exceeded the rate limit. Please slow down your requests and try again in a moment.".into(),
                 ..Default::default()
             },
             Self::Other(e) => ErrorData {
@@ -503,33 +554,6 @@ impl ErrorClientFacing {
                 details: Some(e.clone()),
                 ..Default::default()
             },
-            Self::PayloadTooLarge => ErrorData {
-                status_code: StatusCode::PAYLOAD_TOO_LARGE,
-                title: "Payload too Large".into(),
-                description: "The data you sent is too large for the Internet Computer to handle. Please reduce your payload and try again.".into(),
-                ..Default::default()
-            },
-            Self::RateLimited => ErrorData {
-                status_code: StatusCode::TOO_MANY_REQUESTS,
-                title: "Rate Limited".into(),
-                description: "Your request has exceeded the rate limit. Please slow down your requests and try again in a moment.".into(),
-                ..Default::default()
-            },
-            Self::UnknownDomain(d) => ErrorData {
-                status_code: StatusCode::BAD_REQUEST,
-                title: "Unknown Domain".into(),
-                description: "The requested domain is not served by this HTTP gateway. Please check that the address is correct.".into(),
-                details: Some(format!("The domain {d} is not served by this gateway")),
-                ..Default::default()
-            },
-            Self::Backend(e) => ErrorData {
-                status_code: StatusCode::SERVICE_UNAVAILABLE,
-                title: "Upstream Unavailable".into(),
-                description: "The HTTP gateway is temporarily unable to process the request. Please try again later. If this persists, check the status page for updates and reach out on the ICP developer forum.".into(),
-                details: e.details(),
-                icon: SUBNET_SVG.into(),
-                ..Default::default()
-            },
         }
     }
 }
@@ -537,25 +561,16 @@ impl ErrorClientFacing {
 impl From<&ErrorCause> for ErrorClientFacing {
     fn from(v: &ErrorCause) -> Self {
         match v {
-            ErrorCause::Other(x) => Self::Other(x.clone()),
-            ErrorCause::ClientBodyTooLarge => Self::PayloadTooLarge,
-            ErrorCause::ClientBodyTimeout => Self::BodyTimedOut,
-            ErrorCause::ClientBodyError(x) => Self::MalformedRequest(x.clone()),
             ErrorCause::LoadShed => Self::LoadShed,
-            ErrorCause::IncorrectPrincipal => Self::IncorrectPrincipal,
-            ErrorCause::MalformedRequest(x) => Self::MalformedRequest(x.clone()),
-            ErrorCause::UnknownDomain(x) => Self::UnknownDomain(x.clone()),
-            ErrorCause::Canister(x) => Self::Canister(x.clone()),
-            ErrorCause::SubnetNotFound => Self::SubnetNotFound,
             ErrorCause::SubnetUnavailable => Self::SubnetUnavailable,
-            ErrorCause::ResponseVerificationError => Self::ResponseVerificationError,
-            ErrorCause::DomainCanisterMismatch(cid) => Self::DomainCanisterMismatch(*cid),
             ErrorCause::Denylisted => Self::Denylisted,
             ErrorCause::Forbidden => Self::Forbidden,
-            ErrorCause::NoAuthority => Self::NoAuthority,
             ErrorCause::RateLimited(_) => Self::RateLimited,
+            ErrorCause::Client(x) => Self::Client(x.clone()),
             ErrorCause::Backend(x) => Self::Backend(x.clone()),
+            ErrorCause::Canister(x) => Self::Canister(x.clone()),
             ErrorCause::NoRoutingTable => Self::Other("No routing table available".into()),
+            ErrorCause::Other(x) => Self::Other(x.clone()),
         }
     }
 }
@@ -584,7 +599,7 @@ impl IntoResponse for ErrorClientFacing {
                 == Some(true)
             {
                 match self {
-                    Self::UnknownDomain(_) => ALTERNATE_ERROR_UNKNOWN_DOMAIN,
+                    Self::Client(ClientError::UnknownDomain(_)) => ALTERNATE_ERROR_UNKNOWN_DOMAIN,
                     _ => ALTERNATE_ERROR,
                 }
                 .to_string()
@@ -756,7 +771,10 @@ mod test {
                 CANISTER_ROUTE_NOT_FOUND,
                 Some(ErrorCause::Canister(CanisterError::RouteNotFound(None))),
             ),
-            (SUBNET_NOT_FOUND, Some(ErrorCause::SubnetNotFound)),
+            (
+                SUBNET_NOT_FOUND,
+                Some(ErrorCause::Client(ClientError::SubnetNotFound)),
+            ),
             (
                 "foo",
                 Some(ErrorCause::Backend(BackendError::BoundaryNode(
@@ -857,7 +875,7 @@ mod test {
             ..Default::default()
         });
 
-        let error = ErrorCause::UnknownDomain(fqdn!("foo"));
+        let error = ErrorCause::Client(ClientError::UnknownDomain(fqdn!("foo")));
         let error: ErrorClientFacing = (&error).into();
 
         ERROR_CONTEXT
@@ -887,7 +905,7 @@ mod test {
             ..Default::default()
         });
 
-        let error = ErrorCause::UnknownDomain(fqdn!("foo"));
+        let error = ErrorCause::Client(ClientError::UnknownDomain(fqdn!("foo")));
         let error: ErrorClientFacing = (&error).into();
 
         ERROR_CONTEXT

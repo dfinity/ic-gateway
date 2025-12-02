@@ -11,7 +11,7 @@ use axum::{
 use crate::{
     cli::Cli,
     policy::{domain_canister::DomainCanisterMatcher, load_principal_list},
-    routing::{CanisterId, ErrorCause, RequestCtx},
+    routing::{CanisterId, ErrorCause, RequestCtx, error_cause::ClientError},
 };
 
 #[derive(Clone)]
@@ -47,7 +47,7 @@ pub async fn middleware(
     if let Some(v) = canister_id {
         // Do not run for custom domains
         if !ctx.domain.custom && !state.0.check(v.0, &ctx.authority) {
-            return Err(ErrorCause::DomainCanisterMismatch(v.0));
+            return Err(ErrorCause::Client(ClientError::DomainCanisterMismatch(v.0)));
         }
     }
 

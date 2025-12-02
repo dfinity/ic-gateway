@@ -15,7 +15,7 @@ use url::{Url, form_urlencoded};
 use crate::routing::{
     CanisterId, ErrorCause, RequestCtx, RequestType,
     domain::ResolvesDomain,
-    error_cause::{CanisterError, ERROR_CONTEXT},
+    error_cause::{CanisterError, ClientError, ERROR_CONTEXT},
 };
 
 #[derive(Clone)]
@@ -32,7 +32,7 @@ pub async fn middleware(
 ) -> Result<impl IntoResponse, ErrorCause> {
     // Try to extract the authority
     let Some(authority) = extract_authority(&request).and_then(|x| FQDN::from_str(x).ok()) else {
-        return Err(ErrorCause::NoAuthority);
+        return Err(ErrorCause::Client(ClientError::NoAuthority));
     };
 
     // Inject authority into error context
@@ -45,7 +45,9 @@ pub async fn middleware(
     let mut lookup = state
         .resolver
         .resolve(&authority)
-        .ok_or(ErrorCause::UnknownDomain(authority.clone()))?;
+        .ok_or(ErrorCause::Client(ClientError::UnknownDomain(
+            authority.clone(),
+        )))?;
 
     // If configured - try to resolve canister id from query params
     if state.canister_id_from_query_params && lookup.canister_id.is_none() {
