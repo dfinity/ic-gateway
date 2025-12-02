@@ -72,6 +72,7 @@ pub async fn log_handler(
     "Ok\n".into_response()
 }
 
+/// Handles shutdown requests
 pub async fn shutdown_handler(State(state): State<Arc<ApiState>>) -> Response {
     state.shutdown_token.cancel();
     "Shutting down gracefully\n".into_response()
@@ -86,6 +87,7 @@ pub async fn health_handler(State(state): State<Arc<dyn Healthy>>) -> impl IntoR
     }
 }
 
+/// Creates an Axum router for the API
 pub fn setup_api_router(
     cli: &Cli,
     log_handle: Handle<LevelFilter, Registry>,

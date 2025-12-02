@@ -9,7 +9,7 @@ use std::{net::IpAddr, ops::Deref, str::FromStr, sync::Arc, time::Duration};
 use anyhow::{Context, Error};
 use axum::{
     Extension, Router,
-    extract::{MatchedPath, Request},
+    extract::Request,
     middleware::{FromFnLayer, from_fn, from_fn_with_state},
     response::{IntoResponse, Redirect},
     routing::{get, post},
@@ -48,7 +48,7 @@ use ic_bn_lib_common::{
     },
 };
 use prometheus::Registry;
-use strum::{Display, IntoStaticStr};
+use strum::Display;
 use tokio_util::sync::CancellationToken;
 use tower::{ServiceBuilder, ServiceExt, limit::ConcurrencyLimitLayer, util::MapResponseLayer};
 use tracing::warn;
@@ -102,21 +102,21 @@ impl Deref for CanisterId {
     }
 }
 
-#[derive(
-    Debug, Default, Clone, Copy, Display, PartialEq, Eq, PartialOrd, Ord, Hash, IntoStaticStr,
-)]
+#[derive(Debug, Default, Clone, Copy, Display, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[strum(serialize_all = "snake_case")]
 pub enum RequestType {
     Http,
     Health,
     Registrations,
-    #[strum(to_string = "{0}")]
+    CustomDomains,
+    #[strum(transparent)]
     Api(RequestTypeApi),
     #[default]
     Unknown,
 }
 
-// Strum can't handle FromStr for nested types (Api) the way we want
+// Strum can't handle FromStr for nested types (Api) the way we want.
+// See https://github.com/Peternator7/strum/pull/331
 impl FromStr for RequestType {
     type Err = ic_bn_lib_common::Error;
 
@@ -125,6 +125,7 @@ impl FromStr for RequestType {
             "http" => Self::Http,
             "health" => Self::Health,
             "registrations" => Self::Registrations,
+            "custom_domains" => Self::CustomDomains,
             "unknown" => Self::Unknown,
             _ => Self::Api(RequestTypeApi::from_str(s).context("unable to parse API type")?),
         })
@@ -132,13 +133,17 @@ impl FromStr for RequestType {
 }
 
 // Derive request type from the matched path if there's one
-impl From<Option<&MatchedPath>> for RequestType {
-    fn from(path: Option<&MatchedPath>) -> Self {
+impl From<Option<&str>> for RequestType {
+    fn from(path: Option<&str>) -> Self {
         let Some(path) = path else {
             return Self::Http;
         };
 
-        match path.as_str() {
+        if path.starts_with("/custom-domains/v1/") {
+            return Self::CustomDomains;
+        }
+
+        match path {
             "/api/v2/canister/{principal}/query" => Self::Api(RequestTypeApi::QueryV2),
             "/api/v3/canister/{principal}/query" => Self::Api(RequestTypeApi::QueryV3),
             "/api/v2/canister/{principal}/call" => Self::Api(RequestTypeApi::CallV2),
@@ -715,6 +720,62 @@ mod test {
             RequestType::Api(RequestTypeApi::ReadStateSubnetV2),
             RequestType::from_str("read_state_subnet_v2").unwrap()
         );
+    }
+
+    #[test]
+    fn test_request_type_derive() {
+        let cases = [
+            (
+                "/api/v2/canister/{principal}/query",
+                RequestType::Api(RequestTypeApi::QueryV2),
+            ),
+            (
+                "/api/v3/canister/{principal}/query",
+                RequestType::Api(RequestTypeApi::QueryV3),
+            ),
+            (
+                "/api/v2/canister/{principal}/call",
+                RequestType::Api(RequestTypeApi::CallV2),
+            ),
+            (
+                "/api/v3/canister/{principal}/call",
+                RequestType::Api(RequestTypeApi::CallV3),
+            ),
+            (
+                "/api/v4/canister/{principal}/call",
+                RequestType::Api(RequestTypeApi::CallV4),
+            ),
+            (
+                "/api/v2/canister/{principal}/read_state",
+                RequestType::Api(RequestTypeApi::ReadStateV2),
+            ),
+            (
+                "/api/v3/canister/{principal}/read_state",
+                RequestType::Api(RequestTypeApi::ReadStateV3),
+            ),
+            (
+                "/api/v2/subnet/{principal}/read_state",
+                RequestType::Api(RequestTypeApi::ReadStateSubnetV2),
+            ),
+            (
+                "/api/v3/subnet/{principal}/read_state",
+                RequestType::Api(RequestTypeApi::ReadStateSubnetV3),
+            ),
+            ("/api/v2/status", RequestType::Api(RequestTypeApi::Status)),
+            ("/health", RequestType::Health),
+            ("/registrations", RequestType::Registrations),
+            ("/custom-domains/v1/foo.bar", RequestType::CustomDomains),
+            (
+                "/custom-domains/v1/foo.bar/validate",
+                RequestType::CustomDomains,
+            ),
+        ];
+
+        for (path, rt) in cases {
+            assert_eq!(RequestType::from(Some(path)), rt);
+        }
+
+        assert_eq!(RequestType::from(None), RequestType::Http);
     }
 
     #[tokio::test]

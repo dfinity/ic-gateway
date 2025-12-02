@@ -216,7 +216,7 @@ pub struct IssuerProxyState {
     next: AtomicUsize,
 }
 
-// Proxies /registrations endpoint to the certificate issuers if they're defined
+/// Proxies /registrations endpoint to the certificate issuers if they're defined
 pub async fn issuer_proxy(
     State(state): State<Arc<IssuerProxyState>>,
     OriginalUri(original_uri): OriginalUri,

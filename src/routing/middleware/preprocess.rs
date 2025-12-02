@@ -38,7 +38,13 @@ pub async fn middleware(
     mut request: Request,
     next: Next,
 ) -> Result<impl IntoResponse, ErrorCause> {
-    let request_type = RequestType::from(request.extensions().get::<MatchedPath>());
+    let request_type = RequestType::from(
+        request
+            .extensions()
+            .get::<MatchedPath>()
+            .map(|x| x.as_str()),
+    );
+
     request.extensions_mut().insert(request_type);
 
     // Try to parse User-Agent header to check if the client is a browser.

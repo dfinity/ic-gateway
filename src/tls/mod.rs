@@ -137,7 +137,7 @@ async fn setup_acme(
     Ok(resolver)
 }
 
-// Prepares the stuff needed for serving TLS
+/// Prepares the stuff needed for serving TLS
 pub async fn setup(
     cli: &Cli,
     tasks: &mut TaskManager,
