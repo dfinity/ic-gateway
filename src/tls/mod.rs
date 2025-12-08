@@ -72,12 +72,13 @@ async fn setup_acme(
 
     let resolver: Arc<dyn ResolvesServerCertRustls> = match challenge {
         Challenge::Alpn => {
-            let opts = acme::alpn::Opts {
-                acme_url: cli.acme.acme_url.clone(),
-                domains: domains.iter().map(|x| x.to_string()).collect::<Vec<_>>(),
-                contact: cli.acme.acme_contact.clone(),
+            let opts = acme::alpn::Opts::new(
+                cli.acme.acme_url.clone(),
+                domains.iter().map(|x| x.to_string()).collect::<Vec<_>>(),
+                cli.acme.acme_contact.clone(),
                 cache_path,
-            };
+                None,
+            );
 
             let acme_alpn = Arc::new(acme::alpn::AcmeAlpn::new(opts));
             tasks.add("acme_alpn", acme_alpn.clone());
