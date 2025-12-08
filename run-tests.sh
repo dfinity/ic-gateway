@@ -32,7 +32,7 @@ log "PocketIC setup completed"
 
 # Get a list of latest IC master hashes that passed "Kickoff".
 # One of them should have ic-boundary binary published.
-readonly IC_COMMITS=$(gh run list --repo dfinity/ic --branch master --workflow "Kickoff" --json headSha,status --jq '.[] | select(.status == "completed") | .headSha')
+readonly IC_COMMITS=$(gh run list --repo dfinity/ic --branch master --workflow "Kickoff" --json headSha,conclusion --jq '.[] | select(.conclusion == "success") | .headSha')
 
 log "Downloading ic-boundary"
 OK=0
