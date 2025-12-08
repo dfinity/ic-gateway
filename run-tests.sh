@@ -30,7 +30,7 @@ chmod +x "${POCKETIC_BIN}" || { log "Failed to make PocketIC executable"; exit 1
 export POCKET_IC_BIN="${POCKETIC_BIN}"
 log "PocketIC setup completed"
 
-# Get a list of latest IC master hashes that passed "CI Main".
+# Get a list of latest IC master hashes that passed "Kickoff".
 # One of them should have ic-boundary binary published.
 readonly IC_COMMITS=$(gh run list --repo dfinity/ic --branch master --workflow "Kickoff" --json headSha,status --jq '.[] | select(.status == "completed") | .headSha')
 
