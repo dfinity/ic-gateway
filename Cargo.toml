@@ -89,7 +89,6 @@ serde_cbor = { version = "0.11.2", optional = true }
 serde_json = "1.0.132"
 sha2 = "0.10.8"
 strum = { version = "0.27.1", features = ["derive"] }
-thiserror = "2.0.3"
 tikv-jemallocator = "0.6.0"
 tikv-jemalloc-ctl = { version = "0.6.0", features = ["stats"] }
 time = { version = "0.3.36", features = ["macros", "serde"] }
@@ -110,7 +109,6 @@ url = "2.5.3"
 # Read https://github.com/uuid-rs/uuid/releases/tag/1.13.0
 uuid = { version = "=1.12.1", features = ["v7"] }
 woothee = "0.13.0"
-x509-parser = "0.17.0"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
