@@ -588,10 +588,10 @@ pub async fn setup_router(
                     )
                     .context("unable to init SEV-SNP")?,
                 )
-                .layer(rate_limiter::layer_global(
+                .layer(ic_bn_lib::http::middleware::rate_limiter::layer_global(
                     50,
                     100,
-                    RateLimitCause::Normal,
+                    crate::routing::error_cause::RateLimitCause::Normal,
                     cli.rate_limit.rate_limit_bypass_token.clone(),
                 )?),
         );
