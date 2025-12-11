@@ -5,17 +5,14 @@ use ic_bn_lib::{
     tasks::TaskManager,
     tls::{
         prepare_server_config,
-        providers::{self, Aggregator, Issuer, issuer, storage},
+        providers::{self, Aggregator, storage},
         resolver,
     },
     utils::health_manager::HealthManager,
 };
 #[cfg(feature = "acme")]
 use ic_bn_lib_common::{traits::dns::Resolves, types::acme::Challenge};
-use ic_bn_lib_common::{
-    traits::{http::Client, tls::ProvidesCertificates},
-    types::tls::TlsOptions,
-};
+use ic_bn_lib_common::{traits::tls::ProvidesCertificates, types::tls::TlsOptions};
 use prometheus::Registry;
 use rustls::server::ServerConfig;
 
@@ -32,33 +29,6 @@ use {
 };
 
 use crate::cli::Cli;
-
-pub fn setup_issuers(
-    cli: &Cli,
-    tasks: &mut TaskManager,
-    http_client: Arc<dyn Client>,
-    registry: &Registry,
-) -> Vec<Arc<Issuer>> {
-    let mut issuers: Vec<Arc<Issuer>> = vec![];
-
-    let issuer_metrics = issuer::Metrics::new(registry);
-    for v in &cli.cert.cert_provider_issuer_url {
-        let issuer = Arc::new(Issuer::new(
-            http_client.clone(),
-            v.clone(),
-            issuer_metrics.clone(),
-        ));
-
-        issuers.push(issuer.clone());
-        tasks.add_interval(
-            &format!("{issuer:?}"),
-            issuer,
-            cli.cert.cert_provider_issuer_poll_interval,
-        );
-    }
-
-    issuers
-}
 
 #[cfg(feature = "acme")]
 async fn setup_acme(

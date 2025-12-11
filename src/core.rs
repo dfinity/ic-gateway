@@ -37,7 +37,7 @@ use crate::{
             route_provider::{RouteProviderWrapper, setup_route_provider},
         },
     },
-    tls::{self, setup_issuers},
+    tls::{self},
 };
 
 pub const SERVICE_NAME: &str = "ic_gateway";
@@ -200,23 +200,6 @@ pub async fn main(
     } else {
         None
     };
-
-    // Setup Certificate Issuers
-    let issuers = setup_issuers(cli, &mut tasks, http_client.clone(), &registry);
-
-    custom_domain_providers.extend(
-        issuers
-            .clone()
-            .into_iter()
-            .map(|x| x as Arc<dyn ProvidesCustomDomains>),
-    );
-
-    certificate_providers.extend(
-        issuers
-            .clone()
-            .into_iter()
-            .map(|x| x as Arc<dyn ProvidesCertificates>),
-    );
 
     // Load generic custom domain providers
     custom_domain_providers.extend(cli.domain.domain_custom_provider.iter().map(|x| {

@@ -24,7 +24,7 @@ use ic_bn_lib::{
     http::{
         cache::{CacheBuilder, KeyExtractorUriRange},
         extract_host,
-        middleware::{rate_limiter, waf::WafLayer},
+        middleware::waf::WafLayer,
         shed::{
             sharded::ShardedLittleLoadShedderLayer,
             system::{SystemInfo, SystemLoadShedderLayer},
@@ -59,10 +59,7 @@ use crate::{
     api::setup_api_router,
     cli::Cli,
     metrics::{self},
-    routing::{
-        error_cause::RateLimitCause,
-        middleware::{canister_match, cors, geoip, headers, preprocess, request_id, validate},
-    },
+    routing::middleware::{canister_match, cors, geoip, headers, preprocess, request_id, validate},
 };
 use domain::{CustomDomainStorage, DomainResolver};
 use middleware::{
@@ -398,7 +395,7 @@ pub async fn setup_router(
     let cors_post = cors_base.clone().allow_methods([Method::POST]);
     let cors_get = cors_base.clone().allow_methods([Method::HEAD, Method::GET]);
 
-    let api_proxy_handler = post(proxy::api_proxy).layer(cors_post.clone());
+    let api_proxy_handler = post(proxy::api_proxy).layer(cors_post);
 
     // IC API proxy routers
     let router_api_v2 = Router::new()
@@ -494,54 +491,6 @@ pub async fn setup_router(
             .with_state(state_handler),
     );
 
-    // Setup certificate issuer proxy endpoint if we have them configured
-    let router_issuer = if !cli.cert.cert_provider_issuer_url.is_empty() {
-        // Init it early to avoid threading races
-        lazy_static::initialize(&proxy::REGEX_REG_ID);
-
-        let state = Arc::new(proxy::IssuerProxyState::new(
-            http_client,
-            cli.cert.cert_provider_issuer_url.clone(),
-        ));
-
-        let deprecated_handler = || async move {
-            (
-                StatusCode::GONE,
-                concat!(
-                    "This endpoint is deprecated, please use the new Custom Domains API.\n",
-                    "See the documentation here: https://internetcomputer.org/docs/building-apps/frontends/custom-domains/using-custom-domains"
-                ),
-            )
-        };
-
-        let router = Router::new()
-            .route(
-                "/registrations/{id}",
-                get(proxy::issuer_proxy)
-                    .put(deprecated_handler)
-                    .delete(deprecated_handler)
-                    .layer(cors_base.clone().allow_methods([
-                        Method::HEAD,
-                        Method::GET,
-                        Method::PUT,
-                        Method::DELETE,
-                    ])),
-            )
-            .route("/registrations", post(deprecated_handler).layer(cors_post))
-            .layer(rate_limiter::layer_by_ip(
-                1,
-                2,
-                RateLimitCause::Normal,
-                cli.rate_limit.rate_limit_bypass_token.clone(),
-            )?)
-            .with_state(state);
-
-        Some(router)
-    } else {
-        warn!("Running without certificate issuer.");
-        None
-    };
-
     let validate_state = ValidateState::new(
         domain_resolver,
         cli.domain.domain_canister_id_from_query_params,
@@ -608,11 +557,6 @@ pub async fn setup_router(
                     return v.oneshot(request).await;
                 }
 
-                // If there are issuers defined and the request came to the base domain -> proxy to them
-                if let Some(v) = router_issuer && ctx.is_base_domain() && path.starts_with("/registrations") {
-                    return v.oneshot(request).await;
-                }
-
                 // Redirect to the dashboard if the request is to the root of the base domain
                 // or to a bare "raw" subdomain w/o canister id.
                 // Do so only if canister id wasn't resolved.
@@ -644,10 +588,10 @@ pub async fn setup_router(
                     )
                     .context("unable to init SEV-SNP")?,
                 )
-                .layer(rate_limiter::layer_global(
+                .layer(ic_bn_lib::http::middleware::rate_limiter::layer_global(
                     50,
                     100,
-                    RateLimitCause::Normal,
+                    crate::routing::error_cause::RateLimitCause::Normal,
                     cli.rate_limit.rate_limit_bypass_token.clone(),
                 )?),
         );
