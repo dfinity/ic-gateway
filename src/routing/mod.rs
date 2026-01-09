@@ -557,6 +557,11 @@ pub async fn setup_router(
                     return v.oneshot(request).await;
                 }
 
+                // Required for bootstrapping of the dynamic routing feature in agent-rs
+                if path.starts_with("/health") && ctx.is_base_domain() {
+                    return router_api.oneshot(request).await;
+                }
+
                 // Redirect to the dashboard if the request is to the root of the base domain
                 // or to a bare "raw" subdomain w/o canister id.
                 // Do so only if canister id wasn't resolved.
