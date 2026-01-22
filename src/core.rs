@@ -150,14 +150,6 @@ pub async fn main(
     ));
 
     // Event sinks
-    #[cfg(feature = "clickhouse")]
-    let clickhouse = if cli.log.clickhouse.log_clickhouse_url.is_some() {
-        Some(Arc::new(
-            metrics::Clickhouse::new(&cli.log.clickhouse).context("unable to init Clickhouse")?,
-        ))
-    } else {
-        None
-    };
     let vector = cli
         .log
         .vector
@@ -264,8 +256,6 @@ pub async fn main(
         vector.clone(),
         waf_layer,
         custom_domains_router,
-        #[cfg(feature = "clickhouse")]
-        clickhouse.clone(),
     )
     .await
     .context("unable to setup Axum router")?;
@@ -345,13 +335,8 @@ pub async fn main(
     warn!("Shutdown signal received, cleaning up");
     tasks.stop().await;
 
-    // Clickhouse/Vector should stop last to ensure that all requests are finished & flushed
+    // Vector should stop last to ensure that all requests are finished & flushed
     if let Some(v) = vector {
-        v.stop().await;
-    }
-
-    #[cfg(feature = "clickhouse")]
-    if let Some(v) = clickhouse {
         v.stop().await;
     }
 
