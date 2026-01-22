@@ -14,7 +14,7 @@ use ic_bn_lib_common::{
     types::CustomDomain,
 };
 use prometheus::{
-    IntCounterVec, IntGauge, Registry, register_int_counter_vec_with_registry,
+    IntCounter, IntGauge, Registry, register_int_counter_with_registry,
     register_int_gauge_with_registry,
 };
 use tokio_util::sync::CancellationToken;
@@ -85,7 +85,7 @@ pub struct CustomDomainStorage {
     snapshot: RwLock<Vec<Option<Vec<CustomDomain>>>>,
     metric_count: IntGauge,
     metric_dupes: IntGauge,
-    metric_failures_per_provider: IntCounterVec,
+    metric_failures: IntCounter,
 }
 
 impl Healthy for CustomDomainStorage {
@@ -117,10 +117,9 @@ impl CustomDomainStorage {
         )
         .unwrap();
 
-        let metric_failures_per_provider = register_int_counter_vec_with_registry!(
-            format!("custom_domains_failures_per_provider_total"),
-            format!("Total number of fetch failures per provider"),
-            &["provider"],
+        let metric_failures = register_int_counter_with_registry!(
+            format!("custom_domains_failures_total"),
+            format!("Total number of fetch failures"),
             registry
         )
         .unwrap();
@@ -131,7 +130,7 @@ impl CustomDomainStorage {
             providers,
             metric_count,
             metric_dupes,
-            metric_failures_per_provider,
+            metric_failures,
         }
     }
 
@@ -141,8 +140,6 @@ impl CustomDomainStorage {
         mut snapshot: Vec<Option<Vec<CustomDomain>>>,
     ) -> Vec<Option<Vec<CustomDomain>>> {
         for (i, p) in self.providers.iter().enumerate() {
-            let provider_label = format!("{:?}", p);
-            
             match p.get_custom_domains().await {
                 Ok(mut v) => {
                     v.sort_by(|a, b| a.name.cmp(&b.name));
@@ -153,9 +150,7 @@ impl CustomDomainStorage {
                     warn!("{self:?}: unable to fetch domains from provider '{p:?}': {e:#}");
                     
                     // Increment counter (total errors)
-                    self.metric_failures_per_provider
-                        .with_label_values(&[&provider_label])
-                        .inc();
+                    self.metric_failures.inc();
                 }
             }
         }
@@ -490,8 +485,7 @@ mod test {
         );
         assert_eq!(
             custom_domain_storage
-                .metric_failures_per_provider
-                .with_label_values(&["TestCustomDomainProviderBroken"])
+                .metric_failures
                 .get(),
             1,
             "broken provider should have 1 failure"
