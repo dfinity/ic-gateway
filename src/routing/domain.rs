@@ -13,7 +13,10 @@ use ic_bn_lib_common::{
     traits::{Healthy, Run, custom_domains::ProvidesCustomDomains},
     types::CustomDomain,
 };
-use prometheus::{IntGauge, Registry, register_int_gauge_with_registry};
+use prometheus::{
+    IntCounter, IntGauge, Registry, register_int_counter_with_registry,
+    register_int_gauge_with_registry,
+};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 
@@ -82,6 +85,7 @@ pub struct CustomDomainStorage {
     snapshot: RwLock<Vec<Option<Vec<CustomDomain>>>>,
     metric_count: IntGauge,
     metric_dupes: IntGauge,
+    metric_failures: IntCounter,
 }
 
 impl Healthy for CustomDomainStorage {
@@ -113,12 +117,20 @@ impl CustomDomainStorage {
         )
         .unwrap();
 
+        let metric_failures = register_int_counter_with_registry!(
+            format!("custom_domains_failures_total"),
+            format!("Total number of fetch failures"),
+            registry
+        )
+        .unwrap();
+
         Self {
             inner: ArcSwapOption::empty(),
             snapshot: RwLock::new(vec![None; providers.len()]),
             providers,
             metric_count,
             metric_dupes,
+            metric_failures,
         }
     }
 
@@ -135,7 +147,10 @@ impl CustomDomainStorage {
                 }
 
                 Err(e) => {
-                    warn!("{self:?}: unable to fetch domains from provider '{p:?}': {e:#}")
+                    warn!("{self:?}: unable to fetch domains from provider '{p:?}': {e:#}");
+                    
+                    // Increment counter (total errors)
+                    self.metric_failures.inc();
                 }
             }
         }
@@ -456,6 +471,25 @@ mod test {
             &Registry::new(),
         );
         custom_domain_storage.refresh().await;
+
+        // Verify metrics are tracked correctly
+        assert_eq!(
+            custom_domain_storage.metric_count.get(),
+            2,
+            "should have 2 domains after deduplication"
+        );
+        assert_eq!(
+            custom_domain_storage.metric_dupes.get(),
+            2,
+            "should have 2 duplicates (foo.bar and foo.baz each appear twice)"
+        );
+        assert_eq!(
+            custom_domain_storage
+                .metric_failures
+                .get(),
+            1,
+            "broken provider should have 1 failure"
+        );
 
         let resolver = DomainResolver::new(
             domains_base.clone(),
