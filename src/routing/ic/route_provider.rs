@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use anyhow::anyhow;
-use candid::Principal;
 use derive_new::new;
 use ic_bn_lib::ic_agent::agent::{
     http_transport::reqwest_transport::reqwest::Client as AgentClient,
@@ -13,7 +12,7 @@ use ic_bn_lib::ic_agent::agent::{
         },
     },
 };
-use ic_bn_lib_common::traits::Healthy;
+use ic_bn_lib_common::{principal, traits::Healthy};
 use tracing::info;
 use url::Url;
 
@@ -74,7 +73,7 @@ pub async fn setup_route_provider(
                 .build()
                 .expect("failed to build the client");
             let checker = HealthChecker::new(reqwest_client.clone(), CHECK_TIMEOUT);
-            let subnet_id = Principal::from_text(MAINNET_ROOT_SUBNET_ID).unwrap();
+            let subnet_id = principal!(MAINNET_ROOT_SUBNET_ID);
             let fetcher = NodesFetcher::new(reqwest_client, subnet_id, None);
             let route_provider =
                 DynamicRouteProviderBuilder::new(snapshot, api_seed_nodes, Arc::new(tmp_client))

@@ -61,6 +61,7 @@ impl DomainCanisterMatcher {
 
 #[cfg(test)]
 mod tests {
+    use ic_bn_lib_common::principal;
     use fqdn::fqdn;
 
     use super::*;
@@ -68,40 +69,40 @@ mod tests {
     #[test]
     fn test_is_system_subnet() {
         assert!(is_system_subnet(
-            Principal::from_text("qoctq-giaaa-aaaaa-aaaea-cai").unwrap(),
+            principal!("qoctq-giaaa-aaaaa-aaaea-cai"),
         )); // nns
         assert!(is_system_subnet(
-            Principal::from_text("rdmx6-jaaaa-aaaaa-aaadq-cai").unwrap()
+            principal!("rdmx6-jaaaa-aaaaa-aaadq-cai")
         )); // identity
         assert!(!is_system_subnet(
-            Principal::from_text("oydqf-haaaa-aaaao-afpsa-cai").unwrap()
+            principal!("oydqf-haaaa-aaaao-afpsa-cai")
         )); // something else
     }
 
     #[test]
     fn test_domain_canister_match() {
         let mut pic = AHashSet::new();
-        pic.insert(Principal::from_text("2dcn6-oqaaa-aaaai-abvoq-cai").unwrap());
+        pic.insert(principal!("2dcn6-oqaaa-aaaai-abvoq-cai"));
 
         let dcm = DomainCanisterMatcher::new(pic, vec![fqdn!("icp0.io")], vec![fqdn!("ic0.app")]);
 
         assert!(dcm.check(
-            Principal::from_text("qoctq-giaaa-aaaaa-aaaea-cai").unwrap(), // nns on system domain
+            principal!("qoctq-giaaa-aaaaa-aaaea-cai"), // nns on system domain
             &fqdn!("ic0.app"),
         ));
 
         assert!(!dcm.check(
-            Principal::from_text("s6hwe-laaaa-aaaab-qaeba-cai").unwrap(), // something else on system domain
+            principal!("s6hwe-laaaa-aaaab-qaeba-cai"), // something else on system domain
             &fqdn!("ic0.app"),
         ));
 
         assert!(dcm.check(
-            Principal::from_text("s6hwe-laaaa-aaaab-qaeba-cai").unwrap(), // something else on app domain
+            principal!("s6hwe-laaaa-aaaab-qaeba-cai"), // something else on app domain
             &fqdn!("icp0.io"),
         ));
 
         assert!(dcm.check(
-            Principal::from_text("2dcn6-oqaaa-aaaai-abvoq-cai").unwrap(), // pre-isolation canister on system domain
+            principal!("2dcn6-oqaaa-aaaai-abvoq-cai"), // pre-isolation canister on system domain
             &fqdn!("ic0.app"),
         ));
     }
