@@ -10,9 +10,6 @@ use serde_json as json;
 use tracing::warn;
 use url::Url;
 
-#[cfg(test)]
-use ic_bn_lib_common::principal;
-
 use super::load_principal_list;
 use crate::routing::middleware::geoip::CountryCode;
 
@@ -147,6 +144,7 @@ impl Denylist {
 
 #[cfg(test)]
 mod tests {
+    use ic_bn_lib_common::principal;
     use super::*;
     use async_trait::async_trait;
 

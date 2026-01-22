@@ -2,9 +2,6 @@ use ahash::AHashSet;
 use candid::Principal;
 use fqdn::{FQDN, Fqdn};
 
-#[cfg(test)]
-use ic_bn_lib_common::principal;
-
 // System subnets routing table
 pub const SYSTEM_SUBNETS: [(Principal, Principal); 5] = [
     (
@@ -64,6 +61,7 @@ impl DomainCanisterMatcher {
 
 #[cfg(test)]
 mod tests {
+    use ic_bn_lib_common::principal;
     use fqdn::fqdn;
 
     use super::*;
