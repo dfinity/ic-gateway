@@ -10,6 +10,9 @@ use serde_json as json;
 use tracing::warn;
 use url::Url;
 
+#[cfg(test)]
+use ic_bn_lib_common::principal;
+
 use super::load_principal_list;
 use crate::routing::middleware::geoip::CountryCode;
 
@@ -187,48 +190,48 @@ mod tests {
 
         let denylist = Denylist::new(
             Some(Url::parse(&server.url_str("/denylist.json")).unwrap()),
-            AHashSet::from([Principal::from_text("g3wsl-eqaaa-aaaan-aaaaa-cai").unwrap()]),
+            AHashSet::from([principal!("g3wsl-eqaaa-aaaan-aaaaa-cai")]),
             client,
         );
         denylist.update().await?;
 
         // blocked in given regions
         assert!(denylist.is_blocked(
-            Principal::from_text("qoctq-giaaa-aaaaa-aaaea-cai").unwrap(),
+            principal!("qoctq-giaaa-aaaaa-aaaea-cai"),
             Some(CountryCode("CH".into()))
         ));
 
         assert!(denylist.is_blocked(
-            Principal::from_text("qoctq-giaaa-aaaaa-aaaea-cai").unwrap(),
+            principal!("qoctq-giaaa-aaaaa-aaaea-cai"),
             Some(CountryCode("US".into()))
         ));
 
         // unblocked in other
         assert!(!denylist.is_blocked(
-            Principal::from_text("qoctq-giaaa-aaaaa-aaaea-cai").unwrap(),
+            principal!("qoctq-giaaa-aaaaa-aaaea-cai"),
             Some(CountryCode("RU".into()))
         ));
 
         // no country code
         assert!(!denylist.is_blocked(
-            Principal::from_text("qoctq-giaaa-aaaaa-aaaea-cai").unwrap(),
+            principal!("qoctq-giaaa-aaaaa-aaaea-cai"),
             None
         ));
 
         // blocked regardless of region
         assert!(denylist.is_blocked(
-            Principal::from_text("s6hwe-laaaa-aaaab-qaeba-cai").unwrap(),
+            principal!("s6hwe-laaaa-aaaab-qaeba-cai"),
             Some(CountryCode("foobar".into()))
         ));
 
         assert!(denylist.is_blocked(
-            Principal::from_text("2dcn6-oqaaa-aaaai-abvoq-cai").unwrap(),
+            principal!("2dcn6-oqaaa-aaaai-abvoq-cai"),
             Some(CountryCode("foobar".into()))
         ));
 
         // allowlisted allowed regardless
         assert!(!denylist.is_blocked(
-            Principal::from_text("g3wsl-eqaaa-aaaan-aaaaa-cai").unwrap(),
+            principal!("g3wsl-eqaaa-aaaan-aaaaa-cai"),
             Some(CountryCode("foo".into()))
         ));
 
