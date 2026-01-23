@@ -9,7 +9,6 @@ default-run = "ic-gateway"
 default = []
 
 sev-snp = ["ic-bn-lib/sev-snp"]
-clickhouse = ["dep:clickhouse"]
 acme = ["ic-bn-lib/acme-dns", "ic-bn-lib/acme-alpn"]
 bench = ["dep:ic-http-certification", "dep:rand_regex", "dep:serde_cbor"]
 tokio_console = ["dep:console-subscriber"]
@@ -25,14 +24,6 @@ axum-extra = "0.10.0"
 bytes = "1.10.0"
 candid = "0.10.10"
 clap = { version = "4.5.20", features = ["derive", "string", "env"] }
-clickhouse = { version = "0.13.1", features = [
-    "lz4",
-    "uuid",
-    "time",
-    "inserter",
-    "rustls-tls-ring",
-    "rustls-tls-webpki-roots",
-], optional = true }
 cloudflare = { version = "0.14.0", default-features = false, features = [
     "rustls-tls",
 ] }

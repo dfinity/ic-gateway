@@ -17,8 +17,6 @@ mod tls;
 
 pub use crate::cli::Cli;
 pub use ic_bn_lib_common::traits::custom_domains::ProvidesCustomDomains;
-#[cfg(feature = "clickhouse")]
-pub use metrics::Clickhouse;
 
 pub use core::main;
 pub use routing::setup_router;

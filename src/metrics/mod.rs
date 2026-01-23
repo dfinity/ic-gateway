@@ -1,5 +1,3 @@
-#[cfg(feature = "clickhouse")]
-pub mod clickhouse;
 pub mod runner;
 
 use std::{
@@ -45,9 +43,6 @@ use crate::routing::{
     middleware::{geoip::CountryCode, request_id::RequestId},
 };
 
-#[cfg(feature = "clickhouse")]
-pub use clickhouse::{Clickhouse, Row};
-
 const KB: f64 = 1024.0;
 
 pub const HTTP_DURATION_BUCKETS: &[f64] = &[0.05, 0.2, 1.0, 2.0];
@@ -90,8 +85,6 @@ pub struct HttpMetrics {
     pub response_size: HistogramVec,
 
     pub vector: Option<Arc<Vector>>,
-    #[cfg(feature = "clickhouse")]
-    pub clickhouse: Option<Arc<Clickhouse>>,
 }
 
 impl HttpMetrics {
@@ -99,7 +92,6 @@ impl HttpMetrics {
         registry: &Registry,
         log_requests: bool,
         vector: Option<Arc<Vector>>,
-        #[cfg(feature = "clickhouse")] clickhouse: Option<Arc<Clickhouse>>,
     ) -> Self {
         const LABELS_HTTP: &[&str] = &[
             "tls",
@@ -115,8 +107,6 @@ impl HttpMetrics {
 
         Self {
             log_requests,
-            #[cfg(feature = "clickhouse")]
-            clickhouse,
             vector,
 
             requests: register_int_counter_vec_with_registry!(
@@ -398,54 +388,6 @@ pub async fn middleware(
                 cache_bypass_reason = cache_bypass_reason_str,
                 upstream,
             );
-        }
-
-        #[cfg(feature = "clickhouse")]
-        if let Some(v) = &state.clickhouse {
-            let resp_meta = resp_meta.clone();
-
-            let row = Row {
-                env: ENV.get().unwrap().as_str(),
-                hostname: HOSTNAME.get().unwrap().as_str(),
-                date: timestamp,
-                request_id: request_id.0,
-                conn_id: conn_info.id,
-                method,
-                http_version,
-                request_type: request_type.clone(),
-                status,
-                domain,
-                host: host.into(),
-                path: path.into(),
-                canister_id: canister_id.clone(),
-                ic_streaming: ic_http_streaming,
-                ic_upgrade: ic_http_upgrade,
-                ic_node_id: resp_meta.node_id,
-                ic_subnet_id: resp_meta.subnet_id,
-                ic_subnet_type: resp_meta.subnet_type,
-                ic_method_name: resp_meta.method_name,
-                ic_sender: resp_meta.sender,
-                ic_canister_id_cbor: resp_meta.canister_id_cbor,
-                ic_error_cause: resp_meta.error_cause,
-                ic_retries: resp_meta.retries.parse().unwrap_or(0),
-                ic_cache_status: resp_meta.cache_status,
-                ic_cache_bypass_reason: resp_meta.cache_bypass_reason,
-                error_cause: error_cause.clone(),
-                tls_version: tls_version.into(),
-                tls_cipher: tls_cipher.into(),
-                req_rcvd: request_size,
-                req_sent: response_size,
-                conn_rcvd,
-                conn_sent,
-                duration: duration.as_secs_f64(),
-                duration_full: duration_full.as_secs_f64(),
-                duration_conn: conn_info.accepted_at.elapsed().as_secs_f64(),
-                cache_status: cache_status_str,
-                cache_bypass_reason: cache_bypass_reason_str,
-                upstream: upstream.into(),
-            };
-
-            v.send(row);
         }
 
         if let Some(v) = &state.vector {

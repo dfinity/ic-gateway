@@ -148,8 +148,6 @@ pub async fn setup_test_router(tasks: &mut TaskManager) -> (Router, Vec<String>)
         Arc::new(route_provider),
         &Registry::new(),
         CancellationToken::new(),
-        #[cfg(feature = "clickhouse")]
-        None,
         None,
         None,
         None,

@@ -69,9 +69,6 @@ use middleware::{
     validate::ValidateState,
 };
 
-#[cfg(feature = "clickhouse")]
-use crate::metrics::Clickhouse;
-
 use self::middleware::denylist;
 
 use {
@@ -215,7 +212,6 @@ pub async fn setup_router(
     vector: Option<Arc<Vector>>,
     waf_layer: Option<WafLayer>,
     custom_domains_router: Option<Router>,
-    #[cfg(feature = "clickhouse")] clickhouse: Option<Arc<Clickhouse>>,
 ) -> Result<Router, Error> {
     // Setup API router
     let router_api = setup_api_router(
@@ -311,8 +307,6 @@ pub async fn setup_router(
         registry,
         cli.log.log_requests,
         vector,
-        #[cfg(feature = "clickhouse")]
-        clickhouse,
     ));
     let metrics_mw = from_fn_with_state(metrics_state, metrics::middleware);
 

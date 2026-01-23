@@ -394,49 +394,13 @@ pub struct Log {
     pub log_tokio_console: bool,
 
     /// Enables logging of HTTP requests to stdout/journald/null.
-    /// This does not affect Clickhouse/Vector logging targets -
+    /// This does not affect Vector logging targets -
     /// if they're enabled they'll log the requests in any case.
     #[clap(env, long)]
     pub log_requests: bool,
 
-    #[cfg(feature = "clickhouse")]
-    #[command(flatten, next_help_heading = "Clickhouse")]
-    pub clickhouse: Clickhouse,
-
     #[command(flatten, next_help_heading = "Vector")]
     pub vector: VectorCli,
-}
-
-#[cfg(feature = "clickhouse")]
-#[derive(Args, Clone)]
-pub struct Clickhouse {
-    /// Setting this enables logging of HTTP requests to Clickhouse DB
-    #[clap(env, long)]
-    pub log_clickhouse_url: Option<Url>,
-
-    /// Clickhouse username
-    #[clap(env, long)]
-    pub log_clickhouse_user: Option<String>,
-
-    /// Clickhouse password
-    #[clap(env, long)]
-    pub log_clickhouse_pass: Option<String>,
-
-    /// Clickhouse database
-    #[clap(env, long)]
-    pub log_clickhouse_db: Option<String>,
-
-    /// Clickhouse table
-    #[clap(env, long)]
-    pub log_clickhouse_table: Option<String>,
-
-    /// Clickhouse batch size (in number of rows)
-    #[clap(env, long, default_value = "250k", value_parser = parse_size_decimal)]
-    pub log_clickhouse_batch: u64,
-
-    /// Clickhouse batch flush interval
-    #[clap(env, long, default_value = "5s", value_parser = parse_duration)]
-    pub log_clickhouse_interval: Duration,
 }
 
 #[derive(Args)]
