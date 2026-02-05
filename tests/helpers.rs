@@ -378,6 +378,7 @@ impl TestEnv {
         info!("pocket-ic server starting ...");
         let mut pic = PocketIcBuilder::new().with_nns_subnet().build_async().await;
         let ic_url = pic
+            //ic-gateway run with ic0.app domain in test. Need to add to pocket-ic as known domain, details in NODE-1844.
             .make_live_with_params(None, None, Some(vec!["ic0.app".to_string()]), None)
             .await;
         info!("pocket-ic server started");
@@ -409,7 +410,11 @@ impl TestEnv {
         let ic_gateway_process = start_ic_gateway(
             &ic_gateway_addr.to_string(),
             ic_gateway_domain,
-            &format!("http://127.0.0.1:{}", ic_url.port_or_known_default().unwrap()),
+            // Use the pocket-ic directly and bypass ic-boundary for now (NODE-1844).
+            &format!(
+                "http://127.0.0.1:{}",
+                ic_url.port_or_known_default().unwrap()
+            ),
             ROOT_KEY_FILE.into(),
             Some(DENYLIST_FILE.into()),
         );
