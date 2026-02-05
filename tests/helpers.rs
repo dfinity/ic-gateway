@@ -25,7 +25,6 @@ use nix::{
 };
 use pocket_ic::{
     PocketIcBuilder,
-    common::rest::HttpsConfig,
     nonblocking::{PocketIc, update_candid_as},
 };
 use reqwest::Response;
@@ -378,12 +377,8 @@ impl TestEnv {
 
         info!("pocket-ic server starting ...");
         let mut pic = PocketIcBuilder::new().with_nns_subnet().build_async().await;
-        let https_config = HttpsConfig {
-            cert_path: "test_data/cert.pem".into(),
-            key_path: "test_data/key.pem".into(),
-        };
         let ic_url = pic
-            .make_live_with_params(None, None, None, Some(https_config))
+            .make_live_with_params(None, None, Some(vec!["ic0.app".to_string()]), None)
             .await;
         info!("pocket-ic server started");
 
@@ -414,7 +409,7 @@ impl TestEnv {
         let ic_gateway_process = start_ic_gateway(
             &ic_gateway_addr.to_string(),
             ic_gateway_domain,
-            &format!("http://127.0.0.1:{ic_boundary_port}"),
+            &format!("http://127.0.0.1:{}", ic_url.port_or_known_default().unwrap()),
             ROOT_KEY_FILE.into(),
             Some(DENYLIST_FILE.into()),
         );
