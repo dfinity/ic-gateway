@@ -88,11 +88,7 @@ pub struct HttpMetrics {
 }
 
 impl HttpMetrics {
-    pub fn new(
-        registry: &Registry,
-        log_requests: bool,
-        vector: Option<Arc<Vector>>,
-    ) -> Self {
+    pub fn new(registry: &Registry, log_requests: bool, vector: Option<Arc<Vector>>) -> Self {
         const LABELS_HTTP: &[&str] = &[
             "tls",
             "method",

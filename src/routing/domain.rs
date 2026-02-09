@@ -148,7 +148,7 @@ impl CustomDomainStorage {
 
                 Err(e) => {
                     warn!("{self:?}: unable to fetch domains from provider '{p:?}': {e:#}");
-                    
+
                     // Increment counter (total errors)
                     self.metric_failures.inc();
                 }
@@ -484,9 +484,7 @@ mod test {
             "should have 2 duplicates (foo.bar and foo.baz each appear twice)"
         );
         assert_eq!(
-            custom_domain_storage
-                .metric_failures
-                .get(),
+            custom_domain_storage.metric_failures.get(),
             1,
             "broken provider should have 1 failure"
         );

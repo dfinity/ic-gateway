@@ -229,6 +229,16 @@ pub async fn main(
         )) as Arc<dyn ProvidesCustomDomains>
     }));
 
+    // Load local file custom domain provider
+    if let Some(path) = &cli.domain.domain_custom_provider_local_file {
+        warn!("Adding local file custom domain provider: {path}");
+
+        custom_domain_providers.push(
+            Arc::new(custom_domains::LocalFileProvider::new(path.into()))
+                as Arc<dyn ProvidesCustomDomains>
+        );
+    }
+
     // Setup WAF
     let waf_layer = if cli.waf.waf_enable {
         let v = WafLayer::new_from_cli(&cli.waf, Some(http_client.clone()))

@@ -61,22 +61,16 @@ impl DomainCanisterMatcher {
 
 #[cfg(test)]
 mod tests {
-    use ic_bn_lib_common::principal;
     use fqdn::fqdn;
+    use ic_bn_lib_common::principal;
 
     use super::*;
 
     #[test]
     fn test_is_system_subnet() {
-        assert!(is_system_subnet(
-            principal!("qoctq-giaaa-aaaaa-aaaea-cai"),
-        )); // nns
-        assert!(is_system_subnet(
-            principal!("rdmx6-jaaaa-aaaaa-aaadq-cai")
-        )); // identity
-        assert!(!is_system_subnet(
-            principal!("oydqf-haaaa-aaaao-afpsa-cai")
-        )); // something else
+        assert!(is_system_subnet(principal!("qoctq-giaaa-aaaaa-aaaea-cai"),)); // nns
+        assert!(is_system_subnet(principal!("rdmx6-jaaaa-aaaaa-aaadq-cai"))); // identity
+        assert!(!is_system_subnet(principal!("oydqf-haaaa-aaaao-afpsa-cai"))); // something else
     }
 
     #[test]
