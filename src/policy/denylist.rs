@@ -144,9 +144,9 @@ impl Denylist {
 
 #[cfg(test)]
 mod tests {
-    use ic_bn_lib_common::principal;
     use super::*;
     use async_trait::async_trait;
+    use ic_bn_lib_common::principal;
 
     #[derive(Debug)]
     struct TestClient(reqwest::Client);
@@ -211,10 +211,7 @@ mod tests {
         ));
 
         // no country code
-        assert!(!denylist.is_blocked(
-            principal!("qoctq-giaaa-aaaaa-aaaea-cai"),
-            None
-        ));
+        assert!(!denylist.is_blocked(principal!("qoctq-giaaa-aaaaa-aaaea-cai"), None));
 
         // blocked regardless of region
         assert!(denylist.is_blocked(
