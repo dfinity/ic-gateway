@@ -268,6 +268,19 @@ pub struct Domain {
     #[clap(env, long, default_value = "30s", value_parser = parse_duration)]
     pub domain_custom_provider_timeout: Duration,
 
+    /// Local file path to use as custom domain provider.
+    ///
+    /// # Example File Format
+    ///
+    /// ```text
+    /// example.com:aaaaa-aa
+    /// test.org:qoctq-giaaa-aaaaa-aaaea-cai
+    /// my-domain.net:ryjl3-tyaaa-aaaaa-aaaba-cai
+    /// another-domain.com:2vxsx-fae
+    /// ```
+    #[clap(env, long)]
+    pub domain_custom_provider_local_file: Option<String>,
+
     /// Whether to try to resolve canister id from URI's query params.
     /// If canister id is present both in hostname and query params - then the hostname takes precedence.
     #[clap(env, long)]
