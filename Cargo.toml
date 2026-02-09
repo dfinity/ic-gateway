@@ -57,7 +57,7 @@ ic-transport-types = "0.45"
 ic-http-gateway = { git = "https://github.com/dfinity/http-gateway", tag = "v0.4.2" }
 itertools = "0.14.0"
 lazy_static = "1.5.0"
-maxminddb = "0.26.0"
+maxminddb = "0.27.0"
 moka = { version = "0.12.8", features = ["sync", "future"] }
 prometheus = "0.14.0"
 rand = { version = "0.8.5", features = ["small_rng"] }
