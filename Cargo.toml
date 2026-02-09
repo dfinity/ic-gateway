@@ -82,7 +82,7 @@ sha2 = "0.10.8"
 strum = { version = "0.27.1", features = ["derive"] }
 tikv-jemallocator = "0.6.0"
 tikv-jemalloc-ctl = { version = "0.6.0", features = ["stats"] }
-time = { version = "0.3.36", features = ["macros", "serde"] }
+time = { version = "0.3.47", features = ["macros", "serde"] }
 tokio = { version = "1.45.0", features = ["full", "tracing"] }
 tokio-util = { version = "0.7.12", features = ["full"] }
 tower = { version = "0.5.1", features = ["limit"] }
