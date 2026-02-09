@@ -246,6 +246,7 @@ pub async fn setup_router(
         cli.domain.domain_api.clone(),
         cli.domain.domain_canister_alias.clone(),
         custom_domain_storage,
+        cli.domain.domain_skip_authority_validation,
     )) as Arc<dyn ResolvesDomain>;
 
     // GeoIP
@@ -489,7 +490,6 @@ pub async fn setup_router(
         domain_resolver,
         cli.domain.domain_canister_id_from_query_params,
         cli.domain.domain_canister_id_from_referer,
-        cli.domain.domain_skip_authority_validation,
     );
 
     // Request type state for alternate error domain configuration
