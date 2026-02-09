@@ -24,6 +24,7 @@ pub struct ValidateState {
     pub resolver: Arc<dyn ResolvesDomain>,
     pub canister_id_from_query_params: bool,
     pub canister_id_from_referer: bool,
+    pub skip_authority_validation: bool,
 }
 
 pub async fn middleware(
@@ -43,12 +44,30 @@ pub async fn middleware(
     });
 
     // Resolve the domain
-    let mut lookup = state
-        .resolver
-        .resolve(&authority)
-        .ok_or(ErrorCause::Client(ClientError::UnknownDomain(
-            authority.clone(),
-        )))?;
+    let mut lookup = match state.resolver.resolve(&authority) {
+        Some(lookup) => lookup,
+        None => {
+            if state.skip_authority_validation {
+                // When skipping authority validation, create a default lookup
+                use crate::routing::domain::{Domain, DomainLookup};
+                DomainLookup {
+                    domain: Domain {
+                        name: authority.clone(),
+                        custom: false,
+                        http: true,
+                        api: true,
+                    },
+                    canister_id: None,
+                    timestamp: 0,
+                    verify: false,
+                }
+            } else {
+                return Err(ErrorCause::Client(ClientError::UnknownDomain(
+                    authority.clone(),
+                )));
+            }
+        }
+    };
 
     // If configured - try to resolve canister id from query params
     if state.canister_id_from_query_params && lookup.canister_id.is_none() {

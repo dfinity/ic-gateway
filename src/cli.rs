@@ -291,6 +291,11 @@ pub struct Domain {
     /// then the resolution precedence is: hostname > query parameters > referer.
     #[clap(env, long)]
     pub domain_canister_id_from_referer: bool,
+
+    /// Whether to skip authority validation.
+    /// If enabled - the authority will not be validated and the request will be processed as-is.
+    #[clap(env, long)]
+    pub domain_skip_authority_validation: bool,
 }
 
 #[derive(Args)]

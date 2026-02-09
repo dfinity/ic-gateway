@@ -489,6 +489,7 @@ pub async fn setup_router(
         domain_resolver,
         cli.domain.domain_canister_id_from_query_params,
         cli.domain.domain_canister_id_from_referer,
+        cli.domain.domain_skip_authority_validation,
     );
 
     // Request type state for alternate error domain configuration
