@@ -238,6 +238,7 @@ pub struct DomainResolver {
     domains_base: Vec<Domain>,
     domains_all: BTreeMap<FQDN, DomainLookup>,
     custom_domains: Arc<dyn ResolvesDomain>,
+    skip_authority_validation: bool,
 }
 
 impl DomainResolver {
@@ -246,6 +247,7 @@ impl DomainResolver {
         domains_api: Vec<FQDN>,
         aliases: Vec<CanisterAlias>,
         custom_domains: Arc<dyn ResolvesDomain>,
+        skip_authority_validation: bool,
     ) -> Self {
         fn domain(f: &Fqdn, http: bool) -> Domain {
             Domain {
@@ -304,6 +306,7 @@ impl DomainResolver {
             domains_all: domains_all.collect::<BTreeMap<_, _>>(),
             domains_base,
             custom_domains,
+            skip_authority_validation,
         }
     }
 
@@ -317,10 +320,19 @@ impl DomainResolver {
 
         // Next we try to lookup dynamic subdomains like <canister>.ic0.app or <canister>.raw.ic0.app
         // Check if the host is a subdomain of any of our base domains.
-        let domain = self
-            .domains_base
-            .iter()
-            .find(|&x| host.is_subdomain_of(&x.name))?;
+        let domain = match self.domains_base.iter().find(|&x| host.is_subdomain_of(&x.name)) {
+            Some(d) => d,
+            None if self.skip_authority_validation => {
+                // When skipping authority validation, treat the host itself as the domain
+                &Domain {
+                    name: host.into(),
+                    custom: false,
+                    http: true,
+                    api: true,
+                }
+            }
+            None => return None,
+        };
 
         // Host can be 1 or 2 levels below base domain only: <id>.<domain> or <id>.raw.<domain>
         // Fail the lookup if it's deeper.
@@ -341,7 +353,7 @@ impl DomainResolver {
         // Do not allow cases like <id>.foo.ic0.app where
         // the base subdomain is not raw or <id>.
         // TODO discuss
-        let canister_id = if depth == 1 || raw {
+        let canister_id = if depth <= 1 || raw {
             Principal::from_text(label).ok()
         } else {
             None
@@ -494,6 +506,7 @@ mod test {
             domains_api,
             aliases.clone(),
             Arc::new(custom_domain_storage),
+            false, // skip_authority_validation
         );
 
         // Check aliases
@@ -684,6 +697,71 @@ mod test {
 
         // Something that's not there
         assert_eq!(resolver.resolve(&fqdn!("blah.blah")), None);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_skip_authority_validation() -> Result<(), Error> {
+        let domains_base = vec![fqdn!("ic0.app")];
+        let domains_api = vec![];
+        let aliases = vec![];
+        
+        let registry_1 = Registry::new_custom(Some("test_skip_1".into()), None).unwrap();
+        let custom_domain_storage_1 = CustomDomainStorage::new(
+            vec![],
+            &registry_1,
+        );
+
+        // Test with skip_authority_validation = false
+        let resolver_strict = DomainResolver::new(
+            domains_base.clone(),
+            domains_api.clone(),
+            aliases.clone(),
+            Arc::new(custom_domain_storage_1),
+            false,
+        );
+
+        // Should fail to resolve a standalone canister ID without base domain
+        assert_eq!(
+            resolver_strict.resolve(&fqdn!("gwp4o-eaaaa-aaaaa-aaaap-2ai")),
+            None
+        );
+
+        let registry_2 = Registry::new_custom(Some("test_skip_2".into()), None).unwrap();
+        let custom_domain_storage_2 = CustomDomainStorage::new(
+            vec![],
+            &registry_2,
+        );
+
+        // Test with skip_authority_validation = true
+        let resolver_skip = DomainResolver::new(
+            domains_base.clone(),
+            domains_api.clone(),
+            aliases.clone(),
+            Arc::new(custom_domain_storage_2),
+            true,
+        );
+
+        // Should resolve a standalone canister ID
+        let result = resolver_skip.resolve(&fqdn!("gwp4o-eaaaa-aaaaa-aaaap-2ai"));
+        assert!(result.is_some());
+        let lookup = result.unwrap();
+        assert_eq!(lookup.domain.name, fqdn!("gwp4o-eaaaa-aaaaa-aaaap-2ai"));
+        assert_eq!(
+            lookup.canister_id,
+            Some(Principal::from_text("gwp4o-eaaaa-aaaaa-aaaap-2ai").unwrap())
+        );
+
+        // Should still work with normal subdomain patterns
+        let result = resolver_skip.resolve(&fqdn!("aaaaa-aa.ic0.app"));
+        assert!(result.is_some());
+        let lookup = result.unwrap();
+        assert_eq!(lookup.domain.name, fqdn!("ic0.app"));
+        assert_eq!(
+            lookup.canister_id,
+            Some(Principal::from_text("aaaaa-aa").unwrap())
+        );
 
         Ok(())
     }
