@@ -7,7 +7,6 @@ use std::os::unix::net::UnixDatagram;
 use tracing::{Event, Level, Subscriber};
 use tracing_serde::AsSerde;
 use tracing_subscriber::{
-    filter::LevelFilter,
     fmt::layer,
     layer::{Context as TracingContext, Layer, SubscriberExt},
     registry::{LookupSpan, Registry},

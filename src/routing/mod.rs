@@ -52,8 +52,7 @@ use strum::Display;
 use tokio_util::sync::CancellationToken;
 use tower::{ServiceBuilder, ServiceExt, limit::ConcurrencyLimitLayer, util::MapResponseLayer};
 use tracing::warn;
-use tracing_core::LevelFilter;
-use tracing_subscriber::reload::Handle;
+use tracing_subscriber::{reload::Handle, EnvFilter};
 
 use crate::{
     api::setup_api_router,
@@ -201,7 +200,7 @@ impl Deref for RemoteAddr {
 pub async fn setup_router(
     cli: &Cli,
     custom_domain_providers: Vec<Arc<dyn ProvidesCustomDomains>>,
-    log_handle: Handle<LevelFilter, tracing_subscriber::registry::Registry>,
+    log_handle: Handle<EnvFilter, tracing_subscriber::registry::Registry>,
     tasks: &mut TaskManager,
     health_manager: Arc<HealthManager>,
     http_client: Arc<dyn Client>,

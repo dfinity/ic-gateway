@@ -14,15 +14,14 @@ use ic_bn_lib::http::middleware::waf::{self, WafLayer};
 use ic_bn_lib_common::traits::Healthy;
 use tokio_util::sync::CancellationToken;
 use tracing::Level;
-use tracing_core::LevelFilter;
-use tracing_subscriber::{Registry, reload::Handle};
+use tracing_subscriber::{Registry, reload::Handle, EnvFilter};
 
 use crate::{cli::Cli, routing::middleware::cors};
 
 #[derive(Debug, new)]
 pub struct ApiState {
     token: Option<String>,
-    log_handle: Arc<Handle<LevelFilter, Registry>>,
+    log_handle: Arc<Handle<EnvFilter, Registry>>,
     shutdown_token: CancellationToken,
 }
 
@@ -66,8 +65,9 @@ pub async fn log_handler(
         )
             .into_response();
     };
-    let level_filter = LevelFilter::from_level(log_level);
-    let _ = state.log_handle.modify(|f| *f = level_filter);
+    // Maintain hickory_proto::dnssec=error filter when changing log level
+    let env_filter = EnvFilter::new(format!("{},hickory_proto::dnssec=error", log_level));
+    let _ = state.log_handle.modify(|f| *f = env_filter);
 
     "Ok\n".into_response()
 }
@@ -90,7 +90,7 @@ pub async fn health_handler(State(state): State<Arc<dyn Healthy>>) -> impl IntoR
 /// Creates an Axum router for the API
 pub fn setup_api_router(
     cli: &Cli,
-    log_handle: Handle<LevelFilter, Registry>,
+    log_handle: Handle<EnvFilter, Registry>,
     healthy: Arc<dyn Healthy>,
     shutdown_token: CancellationToken,
     waf_layer: Option<WafLayer>,
