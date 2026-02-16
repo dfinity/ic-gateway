@@ -12,6 +12,7 @@ use tracing_subscriber::{
     layer::{Context as TracingContext, Layer, SubscriberExt},
     registry::{LookupSpan, Registry},
     reload::{self, Handle},
+    EnvFilter,
 };
 
 use crate::cli::Log;
@@ -111,9 +112,10 @@ where
 }
 
 // Sets up logging
-pub fn setup_logging(cli: &Log) -> Result<Handle<LevelFilter, Registry>, Error> {
-    let level_filter = LevelFilter::from_level(cli.log_level);
-    let (level_filter, reload_handle) = reload::Layer::new(level_filter);
+pub fn setup_logging(cli: &Log) -> Result<Handle<EnvFilter, Registry>, Error> {
+    // Create an EnvFilter with the base log level and suppress hickory_proto DNSSEC warnings
+    let env_filter = EnvFilter::new(format!("{},hickory_proto::dnssec=error", cli.log_level));
+    let (env_filter, reload_handle) = reload::Layer::new(env_filter);
 
     let journald_layer = if cli.log_journald {
         Some(
@@ -160,7 +162,7 @@ pub fn setup_logging(cli: &Log) -> Result<Handle<LevelFilter, Registry>, Error> 
     let subscriber = subscriber.with(tokio_console_layer);
 
     let subscriber = subscriber
-        .with(level_filter)
+        .with(env_filter)
         .with(journald_layer)
         .with(stdout_layer)
         .with(null_layer);
