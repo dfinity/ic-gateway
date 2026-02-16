@@ -135,7 +135,7 @@ mod test {
         let args: Vec<&str> = vec!["", "--api-token", "deadbeef"];
         let cli = Cli::parse_from(args);
 
-        let (_, reload_handle) = reload::Layer::new(LevelFilter::WARN);
+        let (_, reload_handle) = reload::Layer::new(EnvFilter::new("warn,hickory_proto::dnssec=error"));
         let healthy = Arc::new(HealthManager::default());
         let router =
             setup_api_router(&cli, reload_handle, healthy, CancellationToken::new(), None).unwrap();
