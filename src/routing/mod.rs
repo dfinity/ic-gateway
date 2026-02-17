@@ -246,6 +246,7 @@ pub async fn setup_router(
         cli.domain.domain_api.clone(),
         cli.domain.domain_canister_alias.clone(),
         custom_domain_storage,
+        cli.domain.domain_skip_authority_validation,
     )) as Arc<dyn ResolvesDomain>;
 
     // GeoIP
