@@ -234,7 +234,7 @@ pub async fn main(
 
         custom_domain_providers.push(
             Arc::new(custom_domains::LocalFileProvider::new(path.into()))
-                as Arc<dyn ProvidesCustomDomains>
+                as Arc<dyn ProvidesCustomDomains>,
         );
     }
 
