@@ -30,9 +30,9 @@ use prometheus::Registry;
 use rand::{Rng, SeedableRng};
 use serde_cbor::to_vec;
 use tokio_util::sync::CancellationToken;
-use tracing_subscriber::{reload, EnvFilter};
+use tracing_subscriber::{EnvFilter, reload};
 
-use crate::{Cli, routing::setup_router};
+use crate::{Cli, log, routing::setup_router};
 
 #[derive(Debug)]
 pub struct FakeDomainProvider(pub Vec<CustomDomain>);
@@ -134,7 +134,10 @@ pub async fn setup_test_router(tasks: &mut TaskManager) -> (Router, Vec<String>)
     let route_provider = RoundRobinRouteProvider::new(vec!["http://foo"]).unwrap();
 
     let health_manager = Arc::new(HealthManager::default());
-    let (_, reload_handle) = reload::Layer::new(EnvFilter::new("warn,hickory_proto::dnssec=error"));
+    let (_, reload_handle) = reload::Layer::new(EnvFilter::new(format!(
+        "warn,{}",
+        log::HICKORY_DNSSEC_ERROR_FILTER
+    )));
 
     let router = setup_router(
         &cli,

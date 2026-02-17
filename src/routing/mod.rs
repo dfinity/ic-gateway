@@ -52,7 +52,7 @@ use strum::Display;
 use tokio_util::sync::CancellationToken;
 use tower::{ServiceBuilder, ServiceExt, limit::ConcurrencyLimitLayer, util::MapResponseLayer};
 use tracing::warn;
-use tracing_subscriber::{reload::Handle, EnvFilter};
+use tracing_subscriber::{EnvFilter, reload::Handle};
 
 use crate::{
     api::setup_api_router,

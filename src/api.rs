@@ -14,7 +14,7 @@ use ic_bn_lib::http::middleware::waf::{self, WafLayer};
 use ic_bn_lib_common::traits::Healthy;
 use tokio_util::sync::CancellationToken;
 use tracing::Level;
-use tracing_subscriber::{Registry, reload::Handle, EnvFilter};
+use tracing_subscriber::{EnvFilter, Registry, reload::Handle};
 
 use crate::{cli::Cli, routing::middleware::cors};
 
@@ -66,7 +66,11 @@ pub async fn log_handler(
             .into_response();
     };
     // Maintain hickory_proto::dnssec=error filter when changing log level
-    let env_filter = EnvFilter::new(format!("{},hickory_proto::dnssec=error", log_level));
+    let env_filter = EnvFilter::new(format!(
+        "{},{}",
+        log_level,
+        crate::log::HICKORY_DNSSEC_ERROR_FILTER
+    ));
     let _ = state.log_handle.modify(|f| *f = env_filter);
 
     "Ok\n".into_response()
@@ -135,7 +139,10 @@ mod test {
         let args: Vec<&str> = vec!["", "--api-token", "deadbeef"];
         let cli = Cli::parse_from(args);
 
-        let (_, reload_handle) = reload::Layer::new(EnvFilter::new("warn,hickory_proto::dnssec=error"));
+        let (_, reload_handle) = reload::Layer::new(EnvFilter::new(format!(
+            "warn,{}",
+            crate::log::HICKORY_DNSSEC_ERROR_FILTER
+        )));
         let healthy = Arc::new(HealthManager::default());
         let router =
             setup_api_router(&cli, reload_handle, healthy, CancellationToken::new(), None).unwrap();

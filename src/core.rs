@@ -24,7 +24,7 @@ use itertools::Itertools;
 use prometheus::Registry;
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
-use tracing_subscriber::{reload::Handle, EnvFilter};
+use tracing_subscriber::{EnvFilter, reload::Handle};
 
 use crate::{
     cli::Cli,
