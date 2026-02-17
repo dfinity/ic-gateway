@@ -320,7 +320,11 @@ impl DomainResolver {
 
         // Next we try to lookup dynamic subdomains like <canister>.ic0.app or <canister>.raw.ic0.app
         // Check if the host is a subdomain of any of our base domains.
-        let domain = match self.domains_base.iter().find(|&x| host.is_subdomain_of(&x.name)) {
+        let domain = match self
+            .domains_base
+            .iter()
+            .find(|&x| host.is_subdomain_of(&x.name))
+        {
             Some(d) => d,
             None if self.skip_authority_validation => {
                 // When skipping authority validation, treat the host itself as the domain
@@ -706,12 +710,9 @@ mod test {
         let domains_base = vec![fqdn!("ic0.app")];
         let domains_api = vec![];
         let aliases = vec![];
-        
+
         let registry_1 = Registry::new_custom(Some("test_skip_1".into()), None).unwrap();
-        let custom_domain_storage_1 = CustomDomainStorage::new(
-            vec![],
-            &registry_1,
-        );
+        let custom_domain_storage_1 = CustomDomainStorage::new(vec![], &registry_1);
 
         // Test with skip_authority_validation = false
         let resolver_strict = DomainResolver::new(
@@ -729,10 +730,7 @@ mod test {
         );
 
         let registry_2 = Registry::new_custom(Some("test_skip_2".into()), None).unwrap();
-        let custom_domain_storage_2 = CustomDomainStorage::new(
-            vec![],
-            &registry_2,
-        );
+        let custom_domain_storage_2 = CustomDomainStorage::new(vec![], &registry_2);
 
         // Test with skip_authority_validation = true
         let resolver_skip = DomainResolver::new(

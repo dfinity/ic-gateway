@@ -293,7 +293,9 @@ pub struct Domain {
     pub domain_canister_id_from_referer: bool,
 
     /// Whether to skip authority validation.
-    /// If enabled - the authority will not be validated and the request will be processed as-is.
+    /// If enabled, the authority will not be validated by checking that the request belongs to one of configured domains.
+    /// Instead, the request will be processed as-is.
+    /// This flag should only be used for testing purposes.
     #[clap(env, long)]
     pub domain_skip_authority_validation: bool,
 }
