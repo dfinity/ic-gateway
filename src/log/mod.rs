@@ -7,7 +7,7 @@ use std::os::unix::net::UnixDatagram;
 use tracing::{Event, Level, Subscriber};
 use tracing_serde::AsSerde;
 use tracing_subscriber::{
-    filter::LevelFilter,
+    EnvFilter,
     fmt::layer,
     layer::{Context as TracingContext, Layer, SubscriberExt},
     registry::{LookupSpan, Registry},
@@ -19,6 +19,9 @@ use crate::cli::Log;
 // 1k is an average request log message which is a vast majority of log entries
 const LOG_ENTRY_SIZE: usize = 1024;
 const JOURNALD_PATH: &str = "/run/systemd/journal/socket";
+
+/// EnvFilter suffix to suppress hickory_proto DNSSEC warnings (use with a level, e.g. `"warn,{this}"`).
+pub const LOG_LEVEL_OVERRIDES: &str = "hickory_proto::dnssec=error";
 
 // Journald protocol helper functions, stolen from tracing-journald crate
 fn put_value(buf: &mut Vec<u8>, value: &[u8]) {
@@ -111,9 +114,10 @@ where
 }
 
 // Sets up logging
-pub fn setup_logging(cli: &Log) -> Result<Handle<LevelFilter, Registry>, Error> {
-    let level_filter = LevelFilter::from_level(cli.log_level);
-    let (level_filter, reload_handle) = reload::Layer::new(level_filter);
+pub fn setup_logging(cli: &Log) -> Result<Handle<EnvFilter, Registry>, Error> {
+    // Create an EnvFilter with the base log level and suppress hickory_proto DNSSEC warnings
+    let env_filter = EnvFilter::new(format!("{},{}", cli.log_level, LOG_LEVEL_OVERRIDES));
+    let (env_filter, reload_handle) = reload::Layer::new(env_filter);
 
     let journald_layer = if cli.log_journald {
         Some(
@@ -160,7 +164,7 @@ pub fn setup_logging(cli: &Log) -> Result<Handle<LevelFilter, Registry>, Error> 
     let subscriber = subscriber.with(tokio_console_layer);
 
     let subscriber = subscriber
-        .with(level_filter)
+        .with(env_filter)
         .with(journald_layer)
         .with(stdout_layer)
         .with(null_layer);

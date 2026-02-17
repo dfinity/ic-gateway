@@ -24,8 +24,7 @@ use itertools::Itertools;
 use prometheus::Registry;
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
-use tracing_core::LevelFilter;
-use tracing_subscriber::reload::Handle;
+use tracing_subscriber::{EnvFilter, reload::Handle};
 
 use crate::{
     cli::Cli,
@@ -50,7 +49,7 @@ pub static HOSTNAME: OnceLock<String> = OnceLock::new();
 #[allow(clippy::cognitive_complexity)]
 pub async fn main(
     cli: &Cli,
-    log_handle: Handle<LevelFilter, tracing_subscriber::Registry>,
+    log_handle: Handle<EnvFilter, tracing_subscriber::Registry>,
 ) -> Result<(), Error> {
     ENV.set(cli.misc.env.clone()).unwrap();
     HOSTNAME.set(cli.misc.hostname.clone()).unwrap();

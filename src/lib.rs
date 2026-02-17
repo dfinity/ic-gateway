@@ -8,6 +8,7 @@
 mod api;
 mod cli;
 mod core;
+pub mod log;
 pub mod metrics;
 mod policy;
 pub mod routing;
