@@ -136,7 +136,7 @@ pub async fn setup_test_router(tasks: &mut TaskManager) -> (Router, Vec<String>)
     let health_manager = Arc::new(HealthManager::default());
     let (_, reload_handle) = reload::Layer::new(EnvFilter::new(format!(
         "warn,{}",
-        log::HICKORY_DNSSEC_ERROR_FILTER
+        log::LOG_LEVEL_OVERRIDES
     )));
 
     let router = setup_router(

@@ -69,7 +69,7 @@ pub async fn log_handler(
     let env_filter = EnvFilter::new(format!(
         "{},{}",
         log_level,
-        crate::log::HICKORY_DNSSEC_ERROR_FILTER
+        crate::log::LOG_LEVEL_OVERRIDES
     ));
     let _ = state.log_handle.modify(|f| *f = env_filter);
 
@@ -141,7 +141,7 @@ mod test {
 
         let (_, reload_handle) = reload::Layer::new(EnvFilter::new(format!(
             "warn,{}",
-            crate::log::HICKORY_DNSSEC_ERROR_FILTER
+            crate::log::LOG_LEVEL_OVERRIDES
         )));
         let healthy = Arc::new(HealthManager::default());
         let router =
