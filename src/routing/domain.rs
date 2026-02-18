@@ -734,9 +734,9 @@ mod test {
 
         // Test with skip_authority_validation = true
         let resolver_skip = DomainResolver::new(
-            domains_base.clone(),
-            domains_api.clone(),
-            aliases.clone(),
+            domains_base,
+            domains_api,
+            aliases,
             Arc::new(custom_domain_storage_2),
             true,
         );
