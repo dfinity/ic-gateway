@@ -30,8 +30,12 @@ pub struct RouteProviderWrapper(Arc<dyn RouteProvider>);
 
 impl Healthy for RouteProviderWrapper {
     fn healthy(&self) -> bool {
-        // We're healthy if there's at least one healthy Boundary Node
-        self.0.routes_stats().healthy.unwrap_or_default() > 0
+        // Healthy if there is at least one healthy API BN (for LatencyBased routing),
+        // or if no health data is available (defaulting to healthy for RoundRobin routing).
+        self.0
+            .routes_stats()
+            .healthy
+            .map_or(true, |healthy_nodes| healthy_nodes > 0)
     }
 }
 
