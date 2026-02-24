@@ -30,8 +30,8 @@ pub struct RouteProviderWrapper(Arc<dyn RouteProvider>);
 
 impl Healthy for RouteProviderWrapper {
     fn healthy(&self) -> bool {
-        // Healthy if there is at least one healthy API BN (for LatencyBased routing),
-        // or if no health data is available (defaulting to healthy for RoundRobin routing).
+        // Returns true for route providers that support health checks if at least one node is healthy,
+        // otherwise for providers that don't support health checks (e.g., RoundRobinRouteProvider) it just returns true.
         self.0
             .routes_stats()
             .healthy
