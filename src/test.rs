@@ -32,7 +32,7 @@ use serde_cbor::to_vec;
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::{EnvFilter, reload};
 
-use crate::{Cli, log, routing::setup_router};
+use crate::{Cli, log, routing::{ic::subnets_info::SubnetsInfo, setup_router}};
 
 #[derive(Debug)]
 pub struct FakeDomainProvider(pub Vec<CustomDomain>);
@@ -153,6 +153,7 @@ pub async fn setup_test_router(tasks: &mut TaskManager) -> (Router, Vec<String>)
         None,
         None,
         None,
+        Arc::new(arc_swap::ArcSwap::from_pointee(SubnetsInfo::default())),
     )
     .await
     .unwrap();

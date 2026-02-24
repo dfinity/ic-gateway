@@ -7,6 +7,7 @@ pub mod proxy;
 use std::{net::IpAddr, ops::Deref, str::FromStr, sync::Arc, time::Duration};
 
 use anyhow::{Context, Error};
+use arc_swap::ArcSwap;
 use axum::{
     Extension, Router,
     extract::Request,
@@ -58,6 +59,7 @@ use crate::{
     api::setup_api_router,
     cli::Cli,
     metrics::{self},
+    routing::ic::subnets_info::SubnetsInfo,
     routing::middleware::{canister_match, cors, geoip, headers, preprocess, request_id, validate},
 };
 use domain::{CustomDomainStorage, DomainResolver};
@@ -211,6 +213,7 @@ pub async fn setup_router(
     vector: Option<Arc<Vector>>,
     waf_layer: Option<WafLayer>,
     custom_domains_router: Option<Router>,
+    subnets_info: Arc<ArcSwap<SubnetsInfo>>,
 ) -> Result<Router, Error> {
     // Setup API router
     let router_api = setup_api_router(
@@ -294,7 +297,7 @@ pub async fn setup_router(
         (!cli.domain.domain_app.is_empty())
             .then(|| -> Result<_, Error> {
                 Ok(from_fn_with_state(
-                    canister_match::CanisterMatcherState::new(cli)?,
+                    canister_match::CanisterMatcherState::new(cli, subnets_info.clone())?,
                     canister_match::middleware,
                 ))
             })

@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use ahash::AHashSet;
 use anyhow::{Context, Error};
+use arc_swap::ArcSwap;
 use axum::{
     extract::{Extension, Request, State},
     middleware::Next,
@@ -11,14 +12,21 @@ use axum::{
 use crate::{
     cli::Cli,
     policy::{domain_canister::DomainCanisterMatcher, load_principal_list},
+    routing::ic::subnets_info::SubnetsInfo,
     routing::{CanisterId, ErrorCause, RequestCtx, error_cause::ClientError},
 };
 
 #[derive(Clone)]
-pub struct CanisterMatcherState(Arc<DomainCanisterMatcher>);
+pub struct CanisterMatcherState {
+    matcher: Arc<DomainCanisterMatcher>,
+    subnets_info: Arc<ArcSwap<SubnetsInfo>>,
+}
 
 impl CanisterMatcherState {
-    pub fn new(cli: &Cli) -> Result<Self, Error> {
+    pub fn new(
+        cli: &Cli,
+        subnets_info: Arc<ArcSwap<SubnetsInfo>>,
+    ) -> Result<Self, Error> {
         let pre_isolation_canisters =
             if let Some(v) = cli.policy.policy_pre_isolation_canisters.as_ref() {
                 load_principal_list(v).context("unable to load pre-isolation canisters")?
@@ -30,9 +38,13 @@ impl CanisterMatcherState {
             pre_isolation_canisters,
             cli.domain.domain_app.clone(),
             cli.domain.domain_system.clone(),
+            cli.domain.domain_engine.clone(),
         );
 
-        Ok(Self(Arc::new(matcher)))
+        Ok(Self {
+            matcher: Arc::new(matcher),
+            subnets_info,
+        })
     }
 }
 
@@ -46,7 +58,11 @@ pub async fn middleware(
 
     if let Some(v) = canister_id {
         // Do not run for custom domains
-        if !ctx.domain.custom && !state.0.check(v.0, &ctx.authority) {
+        if !ctx.domain.custom
+            && !state
+                .matcher
+                .check(v.0, &ctx.authority, &state.subnets_info.load())
+        {
             return Err(ErrorCause::Client(ClientError::DomainCanisterMismatch(v.0)));
         }
     }

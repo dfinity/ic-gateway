@@ -2,36 +2,7 @@ use ahash::AHashSet;
 use candid::Principal;
 use fqdn::{FQDN, Fqdn};
 
-// System subnets routing table
-pub const SYSTEM_SUBNETS: [(Principal, Principal); 5] = [
-    (
-        Principal::from_slice(&[0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01]),
-        Principal::from_slice(&[0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06, 0x01, 0x01]),
-    ),
-    (
-        Principal::from_slice(&[0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0x01, 0x01]),
-        Principal::from_slice(&[0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0x01, 0x01]),
-    ),
-    (
-        Principal::from_slice(&[0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x01, 0x01]),
-        Principal::from_slice(&[0x00, 0x00, 0x00, 0x00, 0x00, 0x0f, 0xff, 0xff, 0x01, 0x01]),
-    ),
-    (
-        Principal::from_slice(&[0x00, 0x00, 0x00, 0x00, 0x01, 0xa0, 0x00, 0x00, 0x01, 0x01]),
-        Principal::from_slice(&[0x00, 0x00, 0x00, 0x00, 0x01, 0xaf, 0xff, 0xff, 0x01, 0x01]),
-    ),
-    (
-        Principal::from_slice(&[0x00, 0x00, 0x00, 0x00, 0x02, 0x10, 0x00, 0x00, 0x01, 0x01]),
-        Principal::from_slice(&[0x00, 0x00, 0x00, 0x00, 0x02, 0x1f, 0xff, 0xff, 0x01, 0x01]),
-    ),
-];
-
-/// Checks if given canister id belongs to a system subnet
-pub fn is_system_subnet(canister_id: Principal) -> bool {
-    SYSTEM_SUBNETS
-        .iter()
-        .any(|x| canister_id >= x.0 && canister_id <= x.1)
-}
+use crate::routing::ic::subnets_info::{SubnetType, SubnetsInfo};
 
 /// Things needed to verify domain-canister match
 #[derive(derive_new::new)]
@@ -39,20 +10,22 @@ pub struct DomainCanisterMatcher {
     pre_isolation_canisters: AHashSet<Principal>,
     domains_app: Vec<FQDN>,
     domains_system: Vec<FQDN>,
+    domains_engine: Vec<FQDN>,
 }
 
 impl DomainCanisterMatcher {
-    /// Check if given canister id and host match from policy perspective
-    pub fn check(&self, canister_id: Principal, host: &Fqdn) -> bool {
+    /// Check if given canister id and host match from policy perspective.
+    /// `subnets_info` is the current NNS snapshot, loaded by the caller.
+    pub fn check(&self, canister_id: Principal, host: &Fqdn, subnets_info: &SubnetsInfo) -> bool {
         // These are always allowed
         if self.pre_isolation_canisters.contains(&canister_id) {
             return true;
         }
 
-        let domains = if is_system_subnet(canister_id) {
-            &self.domains_system
-        } else {
-            &self.domains_app
+        let domains = match subnets_info.subnet_type(canister_id) {
+            Some(SubnetType::System) => &self.domains_system,
+            Some(SubnetType::CloudEngine) => &self.domains_engine,
+            _ => &self.domains_app,
         };
 
         domains.iter().any(|x| host.is_subdomain_of(x))
@@ -61,43 +34,103 @@ impl DomainCanisterMatcher {
 
 #[cfg(test)]
 mod tests {
+    use ahash::AHashMap;
     use fqdn::fqdn;
     use ic_bn_lib_common::principal;
 
     use super::*;
+    use crate::routing::ic::subnets_info::SubnetType;
 
-    #[test]
-    fn test_is_system_subnet() {
-        assert!(is_system_subnet(principal!("qoctq-giaaa-aaaaa-aaaea-cai"),)); // nns
-        assert!(is_system_subnet(principal!("rdmx6-jaaaa-aaaaa-aaadq-cai"))); // identity
-        assert!(!is_system_subnet(principal!("oydqf-haaaa-aaaao-afpsa-cai"))); // something else
+    // Principals used as subnet IDs in the test snapshot
+    const SUBNET_SYSTEM: &str = "tdb26-jop6k-aogll-7ltgs-eruif-6kk7m-qpktf-gdiqx-mxtrf-vb5e6-eqe";
+    const SUBNET_ENGINE: &str = "nl6hn-ja4yw-wvmpy-3z2jx-ymc34-pisx3-3cp5z-3oj4a-qzzny-jbsv3-4qe";
+
+    // Canisters that fall inside the ranges defined below
+    const CANISTER_SYSTEM: &str = "qoctq-giaaa-aaaaa-aaaea-cai"; // NNS
+    const CANISTER_ENGINE: &str = "s6hwe-laaaa-aaaab-qaeba-cai";
+    const CANISTER_APP: &str = "oydqf-haaaa-aaaao-afpsa-cai";
+    const CANISTER_PIC: &str = "2dcn6-oqaaa-aaaai-abvoq-cai"; // pre-isolation
+
+    fn test_snapshot() -> SubnetsInfo {
+        let subnet_system = principal!(SUBNET_SYSTEM);
+        let subnet_engine = principal!(SUBNET_ENGINE);
+
+        let system_canister = principal!(CANISTER_SYSTEM);
+        let engine_canister = principal!(CANISTER_ENGINE);
+
+        let ranges = vec![
+            (system_canister, system_canister, subnet_system),
+            (engine_canister, engine_canister, subnet_engine),
+        ];
+
+        let mut types = AHashMap::new();
+        types.insert(subnet_system, SubnetType::System);
+        types.insert(subnet_engine, SubnetType::CloudEngine);
+
+        SubnetsInfo::new(ranges, types)
+    }
+
+    fn matcher() -> DomainCanisterMatcher {
+        let mut pic = AHashSet::new();
+        pic.insert(principal!(CANISTER_PIC));
+
+        DomainCanisterMatcher::new(
+            pic,
+            vec![fqdn!("icp0.io")],    // app
+            vec![fqdn!("ic0.app")],    // system
+            vec![fqdn!("engine.io")],  // engine
+        )
     }
 
     #[test]
-    fn test_domain_canister_match() {
-        let mut pic = AHashSet::new();
-        pic.insert(principal!("2dcn6-oqaaa-aaaai-abvoq-cai"));
+    fn system_canister_allowed_on_system_domain() {
+        let info = test_snapshot();
+        assert!(matcher().check(principal!(CANISTER_SYSTEM), &fqdn!("ic0.app"), &info));
+    }
 
-        let dcm = DomainCanisterMatcher::new(pic, vec![fqdn!("icp0.io")], vec![fqdn!("ic0.app")]);
+    #[test]
+    fn system_canister_rejected_on_app_domain() {
+        let info = test_snapshot();
+        assert!(!matcher().check(principal!(CANISTER_SYSTEM), &fqdn!("icp0.io"), &info));
+    }
 
-        assert!(dcm.check(
-            principal!("qoctq-giaaa-aaaaa-aaaea-cai"), // nns on system domain
-            &fqdn!("ic0.app"),
-        ));
+    #[test]
+    fn engine_canister_allowed_on_engine_domain() {
+        let info = test_snapshot();
+        assert!(matcher().check(principal!(CANISTER_ENGINE), &fqdn!("engine.io"), &info));
+    }
 
-        assert!(!dcm.check(
-            principal!("s6hwe-laaaa-aaaab-qaeba-cai"), // something else on system domain
-            &fqdn!("ic0.app"),
-        ));
+    #[test]
+    fn engine_canister_rejected_on_app_domain() {
+        let info = test_snapshot();
+        assert!(!matcher().check(principal!(CANISTER_ENGINE), &fqdn!("icp0.io"), &info));
+    }
 
-        assert!(dcm.check(
-            principal!("s6hwe-laaaa-aaaab-qaeba-cai"), // something else on app domain
-            &fqdn!("icp0.io"),
-        ));
+    #[test]
+    fn app_canister_allowed_on_app_domain() {
+        let info = test_snapshot();
+        assert!(matcher().check(principal!(CANISTER_APP), &fqdn!("icp0.io"), &info));
+    }
 
-        assert!(dcm.check(
-            principal!("2dcn6-oqaaa-aaaai-abvoq-cai"), // pre-isolation canister on system domain
-            &fqdn!("ic0.app"),
-        ));
+    #[test]
+    fn app_canister_rejected_on_system_domain() {
+        let info = test_snapshot();
+        assert!(!matcher().check(principal!(CANISTER_APP), &fqdn!("ic0.app"), &info));
+    }
+
+    #[test]
+    fn pre_isolation_canister_allowed_on_any_domain() {
+        let info = test_snapshot();
+        assert!(matcher().check(principal!(CANISTER_PIC), &fqdn!("ic0.app"), &info));
+        assert!(matcher().check(principal!(CANISTER_PIC), &fqdn!("icp0.io"), &info));
+        assert!(matcher().check(principal!(CANISTER_PIC), &fqdn!("engine.io"), &info));
+    }
+
+    #[test]
+    fn empty_snapshot_falls_through_to_app_domain() {
+        let info = SubnetsInfo::default();
+        // With no snapshot, subnet type is unknown → app domain for everything
+        assert!(matcher().check(principal!(CANISTER_APP), &fqdn!("icp0.io"), &info));
+        assert!(!matcher().check(principal!(CANISTER_APP), &fqdn!("ic0.app"), &info));
     }
 }
