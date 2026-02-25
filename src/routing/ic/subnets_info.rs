@@ -117,8 +117,9 @@ impl SubnetsInfoFetcher {
             _ => return Ok(vec![]),
         };
 
-        // Each top-level path component is a subnet ID; deduplicate because
-        // list_paths() returns one entry per leaf.
+        // list_paths() returns one entry per leaf, so the same subnet ID
+        // appears multiple times (once for each of its sub-keys: "type",
+        // "public_key", "node/...", etc.).  The AHashSet deduplicates them.
         let subnet_ids: AHashSet<Principal> = subnet_tree
             .list_paths()
             .iter()
