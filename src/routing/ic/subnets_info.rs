@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use ahash::{AHashMap, AHashSet};
-use anyhow::{Context, Error, anyhow};
+use anyhow::{Context, Error};
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use candid::Principal;
@@ -82,10 +82,9 @@ impl SubnetsInfo {
 /// Fetches the full NNS routing table and subnet types, storing the result in
 /// a shared [`SubnetsInfo`] updated on each run.
 ///
-/// Three NNS `read_state` round trips are performed per update cycle:
-/// 1. Read `/subnet` to discover all subnet IDs.
-/// 2. Read `/canister_ranges` and `/subnet/<id>/type` in parallel for all
-///    discovered subnets.
+/// NNS `read_state` round trips performed per update cycle:
+/// 1. Read `/subnet` to discover all subnet IDs and their types.
+/// 2. Read `/canister_ranges/<id>` once per subnet (sequential).
 pub struct SubnetsInfoFetcher {
     agent: Arc<Agent>,
     root_subnet_id: Principal,
@@ -101,8 +100,11 @@ impl SubnetsInfoFetcher {
         }
     }
 
-    /// Reads the `/subnet` subtree and returns the list of all known subnet IDs.
-    async fn fetch_subnet_ids(&self) -> Result<Vec<Principal>, Error> {
+    /// Reads the `/subnet` subtree and returns all known subnet IDs together
+    /// with their types.
+    async fn fetch_subnets(
+        &self,
+    ) -> Result<(Vec<Principal>, AHashMap<Principal, SubnetType>), Error> {
         let cert = self
             .agent
             .read_subnet_state_raw(
@@ -114,7 +116,7 @@ impl SubnetsInfoFetcher {
 
         let subnet_tree = match cert.tree.lookup_subtree([b"subnet".as_ref()]) {
             SubtreeLookupResult::Found(t) => t,
-            _ => return Ok(vec![]),
+            _ => return Ok((vec![], AHashMap::new())),
         };
 
         // list_paths() returns one entry per leaf, so the same subnet ID
@@ -127,40 +129,64 @@ impl SubnetsInfoFetcher {
             .map(|p| Principal::from_slice(p[0].as_bytes()))
             .collect();
 
-        Ok(subnet_ids.into_iter().collect())
+        let mut subnet_types: AHashMap<Principal, SubnetType> = AHashMap::new();
+        for &subnet_id in &subnet_ids {
+            let subnet_type = match cert.tree.lookup_path([
+                b"subnet".as_ref(),
+                subnet_id.as_slice(),
+                b"type",
+            ]) {
+                LookupResult::Found(type_bytes) => match SubnetType::from_bytes(type_bytes) {
+                    Some(t) => t,
+                    None => {
+                        warn!(
+                            "Unknown subnet type {:?} for subnet {subnet_id}",
+                            std::str::from_utf8(type_bytes).unwrap_or("<invalid utf8>")
+                        );
+                        continue;
+                    }
+                },
+                _ => continue,
+            };
+            subnet_types.insert(subnet_id, subnet_type);
+        }
+
+        Ok((subnet_ids.into_iter().collect(), subnet_types))
     }
 
-    /// Reads `/canister_ranges` from the NNS state tree and decodes all
-    /// CBOR-encoded range chunks for the given subnet IDs into a sorted
-    /// routing table.
+    /// Reads `/canister_ranges/<subnet_id>` from the NNS state tree for each
+    /// subnet and decodes all CBOR-encoded range chunks into a sorted routing
+    /// table.
     async fn fetch_canister_ranges(
         &self,
         subnet_ids: &[Principal],
     ) -> Result<Vec<(Principal, Principal, Principal)>, Error> {
         // The subtree structure is:
-        //   canister_ranges/<subnet_id_bytes>/<chunk_start_bytes> = <cbor blob>
-        let cert = self
-            .agent
-            .read_subnet_state_raw(
-                vec![vec!["canister_ranges".into()]],
-                self.root_subnet_id,
-            )
-            .await
-            .context("failed to read /canister_ranges from NNS")?;
-
-        let ranges_tree = match cert.tree.lookup_subtree([b"canister_ranges".as_ref()]) {
-            SubtreeLookupResult::Found(t) => t,
-            _ => return Err(anyhow!("/canister_ranges not found in NNS state tree")),
-        };
-
+        //   canister_ranges/<subnet_id>/<chunk_start_bytes> = <cbor blob>
         let mut canister_ranges: Vec<(Principal, Principal, Principal)> = Vec::new();
 
         for &subnet_id in subnet_ids {
-            let subnet_ranges_tree =
-                match ranges_tree.lookup_subtree([subnet_id.as_slice()]) {
-                    SubtreeLookupResult::Found(t) => t,
-                    _ => continue,
-                };
+            let cert = self
+                .agent
+                .read_subnet_state_raw(
+                    vec![vec![
+                        "canister_ranges".into(),
+                        Label::from_bytes(subnet_id.as_slice()),
+                    ]],
+                    self.root_subnet_id,
+                )
+                .await
+                .with_context(|| {
+                    format!("failed to read canister_ranges for subnet {subnet_id}")
+                })?;
+
+            let subnet_ranges_tree = match cert
+                .tree
+                .lookup_subtree([b"canister_ranges".as_ref(), subnet_id.as_slice()])
+            {
+                SubtreeLookupResult::Found(t) => t,
+                _ => continue,
+            };
 
             for chunk_path in subnet_ranges_tree.list_paths() {
                 if chunk_path.is_empty() {
@@ -191,63 +217,14 @@ impl SubnetsInfoFetcher {
         Ok(canister_ranges)
     }
 
-    /// Batch-requests `/subnet/<id>/type` for each of the given subnet IDs and
-    /// returns a map from subnet ID to its type.
-    async fn fetch_subnet_types(
-        &self,
-        subnet_ids: &[Principal],
-    ) -> Result<AHashMap<Principal, SubnetType>, Error> {
-        let type_paths: Vec<Vec<Label<Vec<u8>>>> = subnet_ids
-            .iter()
-            .map(|id| {
-                vec!["subnet".into(), Label::from_bytes(id.as_slice()), "type".into()]
-            })
-            .collect();
-
-        let cert = self
-            .agent
-            .read_subnet_state_raw(type_paths, self.root_subnet_id)
-            .await
-            .context("failed to read subnet types from NNS")?;
-
-        let mut subnet_types: AHashMap<Principal, SubnetType> = AHashMap::new();
-
-        for &subnet_id in subnet_ids {
-            let subnet_type = match cert.tree.lookup_path([
-                b"subnet".as_ref(),
-                subnet_id.as_slice(),
-                b"type",
-            ]) {
-                LookupResult::Found(type_bytes) => match SubnetType::from_bytes(type_bytes) {
-                    Some(t) => t,
-                    None => {
-                        warn!(
-                            "Unknown subnet type {:?} for subnet {subnet_id}",
-                            std::str::from_utf8(type_bytes).unwrap_or("<invalid utf8>")
-                        );
-                        continue;
-                    }
-                },
-                _ => continue,
-            };
-
-            subnet_types.insert(subnet_id, subnet_type);
-        }
-
-        Ok(subnet_types)
-    }
-
     async fn fetch(&self) -> Result<SubnetsInfo, Error> {
-        let subnet_ids = self.fetch_subnet_ids().await?;
+        let (subnet_ids, subnet_types) = self.fetch_subnets().await?;
 
         if subnet_ids.is_empty() {
             return Ok(SubnetsInfo::default());
         }
 
-        let (canister_ranges, subnet_types) = tokio::try_join!(
-            self.fetch_canister_ranges(&subnet_ids),
-            self.fetch_subnet_types(&subnet_ids),
-        )?;
+        let canister_ranges = self.fetch_canister_ranges(&subnet_ids).await?;
 
         Ok(SubnetsInfo {
             canister_ranges,
