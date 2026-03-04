@@ -154,9 +154,10 @@ impl SubnetsInfoFetcher {
     ) -> Result<Vec<(Principal, Principal, Principal)>, Error> {
         // The subtree structure is:
         //   canister_ranges/<subnet_id>/<chunk_start_bytes> = <cbor blob>
-        let mut canister_ranges: Vec<(Principal, Principal, Principal)> = Vec::new();
-
-        for &subnet_id in subnet_ids {
+        //
+        // Each subnet requires an independent read_state round trip, so all
+        // requests are issued concurrently.
+        let futures = subnet_ids.iter().map(|&subnet_id| async move {
             let cert = self
                 .agent
                 .read_subnet_state_raw(
@@ -171,12 +172,14 @@ impl SubnetsInfoFetcher {
                     format!("failed to read canister_ranges for subnet {subnet_id}")
                 })?;
 
+            let mut ranges: Vec<(Principal, Principal, Principal)> = Vec::new();
+
             let subnet_ranges_tree = match cert
                 .tree
                 .lookup_subtree([b"canister_ranges".as_ref(), subnet_id.as_slice()])
             {
                 SubtreeLookupResult::Found(t) => t,
-                _ => continue,
+                _ => return Ok(ranges),
             };
 
             for chunk_path in subnet_ranges_tree.list_paths() {
@@ -190,8 +193,7 @@ impl SubnetsInfoFetcher {
                     // where tagged<t> = #6.55799(t) (self-describing CBOR tag).
                     // serde_cbor 0.11 unwraps tag 55799 transparently.
                     match serde_cbor::from_slice::<Vec<[Principal; 2]>>(chunk_bytes) {
-                        Ok(ranges) => canister_ranges
-                            .extend(ranges.into_iter().map(|[lo, hi]| (lo, hi, subnet_id))),
+                        Ok(r) => ranges.extend(r.into_iter().map(|[lo, hi]| (lo, hi, subnet_id))),
                         Err(e) => {
                             warn!(
                                 "Failed to decode canister ranges for subnet {subnet_id}: {e:#}"
@@ -200,9 +202,12 @@ impl SubnetsInfoFetcher {
                     }
                 }
             }
-        }
 
-        Ok(canister_ranges)
+            Ok::<_, Error>(ranges)
+        });
+
+        let results = futures::future::try_join_all(futures).await?;
+        Ok(results.into_iter().flatten().collect())
     }
 
     async fn fetch(&self) -> Result<SubnetsInfo, Error> {
