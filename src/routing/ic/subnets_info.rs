@@ -63,11 +63,10 @@ impl SubnetsInfo {
     }
 }
 
-#[cfg(test)]
 impl SubnetsInfo {
-    /// Constructs a snapshot from raw data for use in tests.
-    /// `canister_ranges` need not be pre-sorted.
-    pub fn new(
+    /// Constructs a snapshot, sorting `canister_ranges` by `lo` to uphold the
+    /// binary-search invariant required by [`Self::subnet_type`].
+    pub(crate) fn new(
         mut canister_ranges: Vec<(Principal, Principal, Principal)>,
         subnet_types: AHashMap<Principal, SubnetType>,
     ) -> Self {
@@ -203,9 +202,6 @@ impl SubnetsInfoFetcher {
             }
         }
 
-        // Sort by range start so subnet_type() can binary-search.
-        canister_ranges.sort_unstable_by_key(|(lo, _, _)| *lo);
-
         Ok(canister_ranges)
     }
 
@@ -218,10 +214,7 @@ impl SubnetsInfoFetcher {
 
         let canister_ranges = self.fetch_canister_ranges(&subnet_ids).await?;
 
-        Ok(SubnetsInfo {
-            canister_ranges,
-            subnet_types,
-        })
+        Ok(SubnetsInfo::new(canister_ranges, subnet_types))
     }
 }
 
@@ -246,7 +239,7 @@ mod tests {
     use httptest::{Expectation, Server, matchers::*, responders::*};
     use ic_transport_types::ReadStateResponse;
     use std::time::Duration;
-    
+
     const SUBNET_BIN: &[u8] = include_bytes!("testdata/subnet.bin");
     const NNS_RANGES_BIN: &[u8] = include_bytes!("testdata/nns_canister_ranges.bin");
 
