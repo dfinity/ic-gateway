@@ -34,9 +34,10 @@ use tracing_subscriber::{EnvFilter, reload};
 
 use crate::{Cli, log, routing::{ic::subnets_info::SubnetsInfo, setup_router}};
 
-/// The NNS (root) subnet ID on the IC mainnet.
+/// The NNS (root) subnet ID for the test fixtures in src/routing/ic/testdata/.
+/// Captured from a testnet (system subnet) where subnet type info is populated.
 pub const NNS_SUBNET_ID: &str =
-    "tdb26-jop6k-aogll-7ltgs-eruif-6kk7m-qpktf-gdiqx-mxtrf-vb5e6-eqe";
+    "x4o6u-54cx4-m6ajt-n3rvt-ztxgq-22nxu-gmzgo-dp6d7-wea57-fvmrf-wqe";
 
 #[derive(Debug)]
 pub struct FakeDomainProvider(pub Vec<CustomDomain>);

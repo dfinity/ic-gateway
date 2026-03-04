@@ -259,15 +259,33 @@ mod tests {
 
     /// Creates a `SubnetsInfoFetcher` backed by a real `Agent` that talks to
     /// the given mock `Server`.  Uses a very large ingress-expiry window so
-    /// that captured mainnet certificates (which carry old timestamps) still
+    /// that captured testnet certificates (which carry old timestamps) still
     /// pass the agent's timestamp check — the same technique used by
     /// `make_untimed_agent` in ic-agent's own test suite.
+    ///
+    /// The root key is set to the testnet root key that was current when the
+    /// fixture files in `testdata/` were captured.
     fn make_fetcher(server: &Server, root_subnet_id: Principal) -> SubnetsInfoFetcher {
+        // Root key of the testnet from which subnet.bin / nns_canister_ranges.bin
+        // were captured (fetched from /api/v2/status at capture time).
+        #[rustfmt::skip]
+        const TESTNET_ROOT_KEY: &[u8] = &[
+            48, 129, 130, 48, 29, 6, 13, 43, 6, 1, 4, 1, 130, 220, 124, 5, 3, 1, 2, 1, 6, 12,
+            43, 6, 1, 4, 1, 130, 220, 124, 5, 3, 2, 1, 3, 97, 0, 176, 207, 13, 8, 204, 235, 27,
+            102, 173, 239, 110, 64, 30, 3, 118, 88, 252, 154, 235, 152, 65, 85, 142, 220, 6, 27,
+            187, 18, 28, 122, 166, 170, 54, 15, 217, 50, 88, 15, 242, 65, 195, 189, 145, 19, 123,
+            129, 240, 219, 8, 250, 205, 255, 205, 179, 252, 42, 9, 37, 36, 206, 123, 56, 77, 251,
+            122, 115, 94, 211, 117, 195, 16, 152, 177, 0, 140, 70, 87, 188, 100, 187, 157, 183,
+            184, 56, 154, 204, 62, 15, 209, 95, 10, 219, 33, 32, 70, 45,
+        ];
+
         let agent = Agent::builder()
             .with_url(server.url_str("/"))
             .with_ingress_expiry(Duration::from_secs(u32::MAX as u64))
             .build()
             .expect("failed to build agent");
+
+        agent.set_root_key(TESTNET_ROOT_KEY.to_vec());
 
         SubnetsInfoFetcher::new(Arc::new(agent), root_subnet_id)
     }
@@ -314,12 +332,15 @@ mod tests {
         let fetcher = make_fetcher(&server, root_id);
         let (ids, types) = fetcher.fetch_subnets().await.unwrap();
 
-        for (id, _t) in &types {
-            assert!(
-                ids.contains(id),
-                "type entry for {id} has no matching subnet ID"
-            );
+        assert!(!types.is_empty(), "subnet types must be populated in testnet fixtures");
+        for id in &ids {
+            assert!(types.contains_key(id), "subnet {id} has no type entry");
         }
+        assert_eq!(
+            types.get(&root_id).copied(),
+            Some(SubnetType::System),
+            "NNS subnet must have type 'system'"
+        );
     }
 
     #[tokio::test]
