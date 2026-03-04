@@ -25,7 +25,9 @@ impl DomainCanisterMatcher {
         let domains = match subnets_info.subnet_type(canister_id) {
             Some(SubnetType::System) => &self.domains_system,
             Some(SubnetType::CloudEngine) => &self.domains_engine,
-            _ => &self.domains_app,
+            Some(SubnetType::Application) | Some(SubnetType::VerifiedApplication) | None => {
+                &self.domains_app
+            }
         };
 
         domains.iter().any(|x| host.is_subdomain_of(x))
@@ -41,8 +43,10 @@ mod tests {
     use super::*;
     use crate::routing::ic::subnets_info::SubnetType;
 
+    use crate::test::NNS_SUBNET_ID;
+
     // Principals used as subnet IDs in the test snapshot
-    const SUBNET_SYSTEM: &str = "tdb26-jop6k-aogll-7ltgs-eruif-6kk7m-qpktf-gdiqx-mxtrf-vb5e6-eqe";
+    const SUBNET_SYSTEM: &str = NNS_SUBNET_ID;
     const SUBNET_ENGINE: &str = "nl6hn-ja4yw-wvmpy-3z2jx-ymc34-pisx3-3cp5z-3oj4a-qzzny-jbsv3-4qe";
 
     // Canisters that fall inside the ranges defined below

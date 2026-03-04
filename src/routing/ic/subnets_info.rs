@@ -100,17 +100,12 @@ impl SubnetsInfoFetcher {
         }
     }
 
-    /// Reads the `/subnet` subtree and returns all known subnet IDs together
-    /// with their types.
     async fn fetch_subnets(
         &self,
     ) -> Result<(Vec<Principal>, AHashMap<Principal, SubnetType>), Error> {
         let cert = self
             .agent
-            .read_subnet_state_raw(
-                vec![vec!["subnet".into()]],
-                self.root_subnet_id,
-            )
+            .read_subnet_state_raw(vec![vec!["subnet".into()]], self.root_subnet_id)
             .await
             .context("failed to read /subnet from NNS")?;
 
@@ -119,9 +114,9 @@ impl SubnetsInfoFetcher {
             _ => return Ok((vec![], AHashMap::new())),
         };
 
-        // list_paths() returns one entry per leaf, so the same subnet ID
-        // appears multiple times (once for each of its sub-keys: "type",
-        // "public_key", "node/...", etc.).  The AHashSet deduplicates them.
+        // list_paths() returns one entry per leaf, so the same subnet ID appears
+        // multiple times (once per sub-key: "type", "public_key", "node/...",
+        // etc.).  The AHashSet deduplicates them.
         let subnet_ids: AHashSet<Principal> = subnet_tree
             .list_paths()
             .iter()
@@ -141,7 +136,7 @@ impl SubnetsInfoFetcher {
                     None => {
                         warn!(
                             "Unknown subnet type {:?} for subnet {subnet_id}",
-                            std::str::from_utf8(type_bytes).unwrap_or("<invalid utf8>")
+                            String::from_utf8_lossy(type_bytes)
                         );
                         continue;
                     }
@@ -154,9 +149,6 @@ impl SubnetsInfoFetcher {
         Ok((subnet_ids.into_iter().collect(), subnet_types))
     }
 
-    /// Reads `/canister_ranges/<subnet_id>` from the NNS state tree for each
-    /// subnet and decodes all CBOR-encoded range chunks into a sorted routing
-    /// table.
     async fn fetch_canister_ranges(
         &self,
         subnet_ids: &[Principal],
@@ -244,5 +236,119 @@ impl Run for SubnetsInfoFetcher {
         );
         self.info.store(Arc::new(subnets_info));
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test::NNS_SUBNET_ID;
+    use httptest::{Expectation, Server, matchers::*, responders::*};
+    use ic_transport_types::ReadStateResponse;
+    use std::time::Duration;
+    
+    const SUBNET_BIN: &[u8] = include_bytes!("testdata/subnet.bin");
+    const NNS_RANGES_BIN: &[u8] = include_bytes!("testdata/nns_canister_ranges.bin");
+
+    /// Wraps raw certificate bytes (as saved by `--save-certs`) into the
+    /// CBOR-encoded `ReadStateResponse` body that the IC HTTP API returns.
+    fn read_state_response(cert_bytes: &[u8]) -> Vec<u8> {
+        let resp = ReadStateResponse {
+            certificate: cert_bytes.to_vec(),
+        };
+        serde_cbor::to_vec(&resp).expect("failed to encode ReadStateResponse")
+    }
+
+    /// Creates a `SubnetsInfoFetcher` backed by a real `Agent` that talks to
+    /// the given mock `Server`.  Uses a very large ingress-expiry window so
+    /// that captured mainnet certificates (which carry old timestamps) still
+    /// pass the agent's timestamp check — the same technique used by
+    /// `make_untimed_agent` in ic-agent's own test suite.
+    fn make_fetcher(server: &Server, root_subnet_id: Principal) -> SubnetsInfoFetcher {
+        let agent = Agent::builder()
+            .with_url(server.url_str("/"))
+            .with_ingress_expiry(Duration::from_secs(u32::MAX as u64))
+            .build()
+            .expect("failed to build agent");
+
+        SubnetsInfoFetcher::new(Arc::new(agent), root_subnet_id)
+    }
+
+    #[tokio::test]
+    async fn fetch_subnets_returns_all_subnet_ids() {
+        let root_id = Principal::from_text(NNS_SUBNET_ID).unwrap();
+        let path = format!("/api/v3/subnet/{NNS_SUBNET_ID}/read_state");
+
+        let server = Server::run();
+        server.expect(
+            Expectation::matching(request::method_path("POST", path))
+                .respond_with(
+                    status_code(200)
+                        .append_header("Content-Type", "application/cbor")
+                        .body(read_state_response(SUBNET_BIN)),
+                ),
+        );
+
+        let fetcher = make_fetcher(&server, root_id);
+        let (ids, _types) = fetcher.fetch_subnets().await.unwrap();
+
+        assert!(
+            ids.contains(&root_id),
+            "NNS subnet missing from id list"
+        );
+    }
+
+    #[tokio::test]
+    async fn fetch_subnets_types_are_consistent() {
+        let root_id = Principal::from_text(NNS_SUBNET_ID).unwrap();
+        let path = format!("/api/v3/subnet/{NNS_SUBNET_ID}/read_state");
+
+        let server = Server::run();
+        server.expect(
+            Expectation::matching(request::method_path("POST", path))
+                .respond_with(
+                    status_code(200)
+                        .append_header("Content-Type", "application/cbor")
+                        .body(read_state_response(SUBNET_BIN)),
+                ),
+        );
+
+        let fetcher = make_fetcher(&server, root_id);
+        let (ids, types) = fetcher.fetch_subnets().await.unwrap();
+
+        for (id, _t) in &types {
+            assert!(
+                ids.contains(id),
+                "type entry for {id} has no matching subnet ID"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn fetch_canister_ranges_nns_subnet() {
+        let root_id = Principal::from_text(NNS_SUBNET_ID).unwrap();
+        let path = format!("/api/v3/subnet/{NNS_SUBNET_ID}/read_state");
+
+        let server = Server::run();
+        server.expect(
+            Expectation::matching(request::method_path("POST", path))
+                .respond_with(
+                    status_code(200)
+                        .append_header("Content-Type", "application/cbor")
+                        .body(read_state_response(NNS_RANGES_BIN)),
+                ),
+        );
+
+        let fetcher = make_fetcher(&server, root_id);
+        let ranges = fetcher.fetch_canister_ranges(&[root_id]).await.unwrap();
+
+        assert!(!ranges.is_empty(), "NNS subnet must have at least one canister range");
+        for (lo, hi, sid) in &ranges {
+            assert!(lo <= hi, "lo > hi in NNS canister range");
+            assert_eq!(sid, &root_id, "subnet_id mismatch in range entry");
+        }
+        for w in ranges.windows(2) {
+            assert!(w[0].0 <= w[1].0, "ranges not sorted by lo");
+        }
     }
 }
