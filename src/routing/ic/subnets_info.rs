@@ -172,36 +172,35 @@ impl SubnetsInfoFetcher {
                     format!("failed to read canister_ranges for subnet {subnet_id}")
                 })?;
 
-            let mut ranges: Vec<(Principal, Principal, Principal)> = Vec::new();
-
             let subnet_ranges_tree = match cert
                 .tree
                 .lookup_subtree([b"canister_ranges".as_ref(), subnet_id.as_slice()])
             {
                 SubtreeLookupResult::Found(t) => t,
-                _ => return Ok(ranges),
+                _ => return Ok(vec![]),
             };
 
-            for chunk_path in subnet_ranges_tree.list_paths() {
-                if chunk_path.is_empty() {
-                    continue;
-                }
-                if let LookupResult::Found(chunk_bytes) =
-                    subnet_ranges_tree.lookup_path([chunk_path[0].as_bytes()])
-                {
-                    // The shard is CBOR-encoded as: tagged<[*[principal principal]]>
-                    // where tagged<t> = #6.55799(t) (self-describing CBOR tag).
-                    // serde_cbor 0.11 unwraps tag 55799 transparently.
-                    match serde_cbor::from_slice::<Vec<[Principal; 2]>>(chunk_bytes) {
-                        Ok(r) => ranges.extend(r.into_iter().map(|[lo, hi]| (lo, hi, subnet_id))),
-                        Err(e) => {
-                            warn!(
-                                "Failed to decode canister ranges for subnet {subnet_id}: {e:#}"
-                            );
+            // The shard is CBOR-encoded as: tagged<[*[principal principal]]>
+            // where tagged<t> = #6.55799(t) (self-describing CBOR tag).
+            // serde_cbor 0.11 unwraps tag 55799 transparently.
+            let ranges = subnet_ranges_tree
+                .list_paths()
+                .into_iter()
+                .filter(|p| !p.is_empty())
+                .filter_map(|chunk_path| {
+                    match subnet_ranges_tree.lookup_path([chunk_path[0].as_bytes()]) {
+                        LookupResult::Found(chunk_bytes) => {
+                            serde_cbor::from_slice::<Vec<[Principal; 2]>>(chunk_bytes)
+                                .inspect_err(|e| warn!(
+                                    "Failed to decode canister ranges for subnet {subnet_id}: {e:#}"
+                                ))
+                                .ok()
                         }
+                        _ => None,
                     }
-                }
-            }
+                })
+                .flat_map(|pairs| pairs.into_iter().map(|[lo, hi]| (lo, hi, subnet_id)))
+                .collect::<Vec<_>>();
 
             Ok::<_, Error>(ranges)
         });
@@ -244,6 +243,15 @@ mod tests {
     use httptest::{Expectation, Server, matchers::*, responders::*};
     use ic_transport_types::ReadStateResponse;
     use std::time::Duration;
+
+    // To regenerate:
+    //   cargo run --bin gen-testdata -- \
+    //     --nns-url http://[nns-node-ipv6]:8080 \
+    //     --root-subnet-id <root-subnet-principal> \
+    //     --save-certs src/routing/ic/testdata
+    //
+    // REMEMBER to set the root key to the testnet root key that was current when the
+    // fixture files in `testdata/` were captured.
 
     const SUBNET_BIN: &[u8] = include_bytes!("testdata/subnet.bin");
     const NNS_RANGES_BIN: &[u8] = include_bytes!("testdata/nns_canister_ranges.bin");
