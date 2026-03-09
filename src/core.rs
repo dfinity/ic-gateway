@@ -14,6 +14,7 @@ use ic_bn_lib::{
     vector::client::Vector,
 };
 use ic_bn_lib_common::{
+    principal,
     traits::{custom_domains::ProvidesCustomDomains, tls::ProvidesCertificates},
     types::{
         dns::Options as DnsOptions,
@@ -252,8 +253,7 @@ pub async fn main(
         .await
         .context("unable to create agent for subnets info fetcher")?;
 
-    let root_subnet_id = candid::Principal::from_text(MAINNET_ROOT_SUBNET_ID)
-        .expect("MAINNET_ROOT_SUBNET_ID is valid");
+    let root_subnet_id = principal!(MAINNET_ROOT_SUBNET_ID);
 
     let fetcher = Arc::new(SubnetsInfoFetcher::new(Arc::new(agent), root_subnet_id));
     let subnets_info = fetcher.info.clone();

@@ -126,7 +126,7 @@ impl SubnetsInfoFetcher {
 
     async fn fetch_subnets(
         &self,
-    ) -> Result<(Vec<Principal>, AHashMap<Principal, SubnetType>), Error> {
+    ) -> Result<AHashMap<Principal, SubnetType>, Error> {
         let cert = self
             .agent
             .read_subnet_state_raw(vec![vec!["subnet".into()]], self.root_subnet_id)
@@ -135,7 +135,7 @@ impl SubnetsInfoFetcher {
 
         let subnet_tree = match cert.tree.lookup_subtree([b"subnet".as_ref()]) {
             SubtreeLookupResult::Found(t) => t,
-            _ => return Ok((vec![], AHashMap::new())),
+            _ => return Ok(AHashMap::new()),
         };
 
         // list_paths() returns one entry per leaf, so the same subnet ID appears
@@ -152,10 +152,10 @@ impl SubnetsInfoFetcher {
             })
             .collect();
 
-        let mut subnet_types: AHashMap<Principal, SubnetType> = AHashMap::new();
-        for &subnet_id in &subnet_ids {
-            let subnet_type =
-                match cert
+        let subnet_types = subnet_ids
+            .into_iter()
+            .map(|subnet_id| {
+                let subnet_type = match cert
                     .tree
                     .lookup_path([b"subnet".as_ref(), subnet_id.as_slice(), b"type"])
                 {
@@ -169,12 +169,16 @@ impl SubnetsInfoFetcher {
                         }
                         t
                     }
-                    _ => continue,
+                    _ => {
+                        warn!("Missing type for subnet {subnet_id} in NNS tree");
+                        SubnetType::Unknown
+                    }
                 };
-            subnet_types.insert(subnet_id, subnet_type);
-        }
+                (subnet_id, subnet_type)
+            })
+            .collect();
 
-        Ok((subnet_ids.into_iter().collect(), subnet_types))
+        Ok(subnet_types)
     }
 
     async fn fetch_canister_ranges(
@@ -239,12 +243,13 @@ impl SubnetsInfoFetcher {
     }
 
     async fn fetch(&self) -> Result<SubnetsInfo, Error> {
-        let (subnet_ids, subnet_types) = self.fetch_subnets().await?;
+        let subnet_types = self.fetch_subnets().await?;
 
-        if subnet_ids.is_empty() {
+        if subnet_types.is_empty() {
             return Ok(SubnetsInfo::default());
         }
 
+        let subnet_ids: Vec<Principal> = subnet_types.keys().copied().collect();
         let canister_ranges = self.fetch_canister_ranges(&subnet_ids).await?;
         let subnets_info = SubnetsInfo::new(canister_ranges, subnet_types);
 
@@ -271,6 +276,7 @@ mod tests {
     use super::*;
     use crate::test::NNS_SUBNET_ID;
     use httptest::{Expectation, Server, matchers::*, responders::*};
+    use ic_bn_lib_common::principal;
     use ic_transport_types::ReadStateResponse;
     use std::time::Duration;
 
@@ -330,7 +336,7 @@ mod tests {
 
     #[tokio::test]
     async fn fetch_subnets_returns_all_subnet_ids() {
-        let root_id = Principal::from_text(NNS_SUBNET_ID).unwrap();
+        let root_id = principal!(NNS_SUBNET_ID);
         let path = format!("/api/v3/subnet/{NNS_SUBNET_ID}/read_state");
 
         let server = Server::run();
@@ -343,14 +349,14 @@ mod tests {
         );
 
         let fetcher = make_fetcher(&server, root_id);
-        let (ids, _types) = fetcher.fetch_subnets().await.unwrap();
+        let types = fetcher.fetch_subnets().await.unwrap();
 
-        assert!(ids.contains(&root_id), "NNS subnet missing from id list");
+        assert!(types.contains_key(&root_id), "NNS subnet missing from id list");
     }
 
     #[tokio::test]
     async fn fetch_subnets_types_are_consistent() {
-        let root_id = Principal::from_text(NNS_SUBNET_ID).unwrap();
+        let root_id = principal!(NNS_SUBNET_ID);
         let path = format!("/api/v3/subnet/{NNS_SUBNET_ID}/read_state");
 
         let server = Server::run();
@@ -363,15 +369,12 @@ mod tests {
         );
 
         let fetcher = make_fetcher(&server, root_id);
-        let (ids, types) = fetcher.fetch_subnets().await.unwrap();
+        let types = fetcher.fetch_subnets().await.unwrap();
 
         assert!(
             !types.is_empty(),
             "subnet types must be populated in testnet fixtures"
         );
-        for id in &ids {
-            assert!(types.contains_key(id), "subnet {id} has no type entry");
-        }
         assert_eq!(
             types.get(&root_id).copied(),
             Some(SubnetType::System),
@@ -381,7 +384,7 @@ mod tests {
 
     #[tokio::test]
     async fn fetch_canister_ranges_nns_subnet() {
-        let root_id = Principal::from_text(NNS_SUBNET_ID).unwrap();
+        let root_id = principal!(NNS_SUBNET_ID);
         let path = format!("/api/v3/subnet/{NNS_SUBNET_ID}/read_state");
 
         let server = Server::run();
