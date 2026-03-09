@@ -33,9 +33,10 @@ impl DomainCanisterMatcher {
         let domains = match subnets_info.subnet_type(canister_id) {
             Some(SubnetType::System) => &self.domains_system,
             Some(SubnetType::CloudEngine) => &self.domains_engine,
-            Some(SubnetType::Application) | Some(SubnetType::VerifiedApplication) | None => {
-                &self.domains_app
-            }
+            Some(SubnetType::Application)
+            | Some(SubnetType::VerifiedApplication)
+            | Some(SubnetType::Unknown)
+            | None => &self.domains_app,
         };
 
         domains.iter().any(|x| host.is_subdomain_of(x))
@@ -68,12 +69,17 @@ mod tests {
         let subnet_system = principal!(SUBNET_SYSTEM);
         let subnet_engine = principal!(SUBNET_ENGINE);
 
-        let system_canister = principal!(CANISTER_SYSTEM);
-        let engine_canister = principal!(CANISTER_ENGINE);
-
         let ranges = vec![
-            (system_canister, system_canister, subnet_system),
-            (engine_canister, engine_canister, subnet_engine),
+            (
+                principal!(CANISTER_SYSTEM),
+                principal!(CANISTER_SYSTEM),
+                subnet_system,
+            ),
+            (
+                principal!(CANISTER_ENGINE),
+                principal!(CANISTER_ENGINE),
+                subnet_engine,
+            ),
         ];
 
         let mut types = AHashMap::new();
@@ -140,6 +146,7 @@ mod tests {
         // canisters must still use the engine domain.
         let mut pic = AHashSet::new();
         pic.insert(principal!(CANISTER_ENGINE));
+        // Reuse test_snapshot() — CANISTER_ENGINE already maps to CloudEngine there.
         let m = DomainCanisterMatcher::new(
             pic,
             vec![fqdn!("icp0.io")],

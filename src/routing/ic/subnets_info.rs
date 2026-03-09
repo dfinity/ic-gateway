@@ -20,18 +20,28 @@ pub enum SubnetType {
     System,
     VerifiedApplication,
     CloudEngine,
+    Unknown,
 }
 
-impl SubnetType {
-    fn from_bytes(bytes: &[u8]) -> Option<Self> {
+impl From<&[u8]> for SubnetType {
+    fn from(bytes: &[u8]) -> Self {
         match bytes {
-            b"application" => Some(Self::Application),
-            b"system" => Some(Self::System),
-            b"verified_application" => Some(Self::VerifiedApplication),
-            b"cloud_engine" => Some(Self::CloudEngine),
-            _ => None,
+            b"application" => Self::Application,
+            b"system" => Self::System,
+            b"verified_application" => Self::VerifiedApplication,
+            b"cloud_engine" => Self::CloudEngine,
+            _ => Self::Unknown,
         }
     }
+}
+
+/// A single NNS routing entry: a contiguous canister-ID range assigned to a
+/// specific subnet, with the subnet's type embedded to avoid a secondary lookup.
+#[derive(Clone, Copy)]
+struct CanisterRange {
+    range_start: Principal,
+    range_end: Principal,
+    subnet_type: SubnetType,
 }
 
 /// Snapshot of the NNS routing table and subnet types.
@@ -39,42 +49,57 @@ impl SubnetType {
 /// Populated from the NNS state tree by [`SubnetsInfoFetcher`].
 #[derive(Default)]
 pub struct SubnetsInfo {
-    /// Sorted by `lo` for binary-search lookups.
-    /// Each entry is `(lo, hi, subnet_id)`.
-    canister_ranges: Vec<(Principal, Principal, Principal)>,
-    /// Maps each subnet ID to its type.
-    subnet_types: AHashMap<Principal, SubnetType>,
+    /// Sorted by `range_start` for binary-search lookups.
+    ranges: Vec<CanisterRange>,
 }
 
 impl SubnetsInfo {
     /// Returns the type of the subnet that owns `canister_id`, or `None` if
     /// the canister is not covered by any known range.
     pub fn subnet_type(&self, canister_id: Principal) -> Option<SubnetType> {
-        let pos = self
-            .canister_ranges
-            .partition_point(|(lo, _, _)| *lo <= canister_id);
-        if pos > 0 {
-            let (lo, hi, subnet_id) = &self.canister_ranges[pos - 1];
-            if canister_id >= *lo && canister_id <= *hi {
-                return self.subnet_types.get(subnet_id).copied();
-            }
+        let idx = match self
+            .ranges
+            .binary_search_by_key(&canister_id, |r| r.range_start)
+        {
+            Ok(i) => i,            // exact match on range_start
+            Err(0) => return None, // before all ranges
+            Err(i) => i - 1,       // candidate is the range just below the insertion point
+        };
+        let r = &self.ranges[idx];
+        if canister_id <= r.range_end {
+            Some(r.subnet_type)
+        } else {
+            None
         }
-        None
     }
 }
 
 impl SubnetsInfo {
-    /// Constructs a snapshot, sorting `canister_ranges` by `lo` to uphold the
+    /// Constructs a snapshot from raw range tuples and a subnet-type map,
+    /// joining them by subnet ID so that each range entry carries its type
+    /// directly. Ranges whose subnet has no known type are silently dropped.
+    /// The resulting list is sorted by `range_start` to uphold the
     /// binary-search invariant required by [`Self::subnet_type`].
     pub(crate) fn new(
-        mut canister_ranges: Vec<(Principal, Principal, Principal)>,
+        canister_ranges: Vec<(Principal, Principal, Principal)>,
         subnet_types: AHashMap<Principal, SubnetType>,
     ) -> Self {
-        canister_ranges.sort_unstable_by_key(|(lo, _, _)| *lo);
-        Self {
-            canister_ranges,
-            subnet_types,
-        }
+        let mut ranges: Vec<CanisterRange> = canister_ranges
+            .into_iter()
+            .map(|(lo, hi, subnet_id)| {
+                let subnet_type = subnet_types
+                    .get(&subnet_id)
+                    .copied()
+                    .unwrap_or(SubnetType::Unknown);
+                CanisterRange {
+                    range_start: lo,
+                    range_end: hi,
+                    subnet_type,
+                }
+            })
+            .collect();
+        ranges.sort_unstable_by_key(|r| r.range_start);
+        Self { ranges }
     }
 }
 
@@ -120,7 +145,11 @@ impl SubnetsInfoFetcher {
             .list_paths()
             .iter()
             .filter(|p| !p.is_empty())
-            .map(|p| Principal::from_slice(p[0].as_bytes()))
+            .filter_map(|p| {
+                Principal::try_from_slice(p[0].as_bytes())
+                    .inspect_err(|e| warn!("Skipping malformed subnet ID in NNS tree: {e}"))
+                    .ok()
+            })
             .collect();
 
         let mut subnet_types: AHashMap<Principal, SubnetType> = AHashMap::new();
@@ -130,16 +159,16 @@ impl SubnetsInfoFetcher {
                     .tree
                     .lookup_path([b"subnet".as_ref(), subnet_id.as_slice(), b"type"])
                 {
-                    LookupResult::Found(type_bytes) => match SubnetType::from_bytes(type_bytes) {
-                        Some(t) => t,
-                        None => {
+                    LookupResult::Found(type_bytes) => {
+                        let t = SubnetType::from(type_bytes);
+                        if t == SubnetType::Unknown {
                             warn!(
                                 "Unknown subnet type {:?} for subnet {subnet_id}",
                                 String::from_utf8_lossy(type_bytes)
                             );
-                            continue;
                         }
-                    },
+                        t
+                    }
                     _ => continue,
                 };
             subnet_types.insert(subnet_id, subnet_type);
@@ -217,21 +246,22 @@ impl SubnetsInfoFetcher {
         }
 
         let canister_ranges = self.fetch_canister_ranges(&subnet_ids).await?;
+        let subnets_info = SubnetsInfo::new(canister_ranges, subnet_types);
 
-        Ok(SubnetsInfo::new(canister_ranges, subnet_types))
+        info!(
+            subnets = subnet_ids.len(),
+            ranges = subnets_info.ranges.len(),
+            "Subnet info updated"
+        );
+
+        Ok(subnets_info)
     }
 }
 
 #[async_trait]
 impl Run for SubnetsInfoFetcher {
     async fn run(&self, _token: CancellationToken) -> Result<(), Error> {
-        let subnets_info = self.fetch().await?;
-        info!(
-            subnets = subnets_info.subnet_types.len(),
-            ranges = subnets_info.canister_ranges.len(),
-            "Subnet info updated"
-        );
-        self.info.store(Arc::new(subnets_info));
+        self.info.store(Arc::new(self.fetch().await?));
         Ok(())
     }
 }
