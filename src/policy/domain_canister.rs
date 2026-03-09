@@ -1,4 +1,7 @@
+use std::sync::Arc;
+
 use ahash::AHashSet;
+use arc_swap::ArcSwap;
 use candid::Principal;
 use fqdn::{FQDN, Fqdn};
 
@@ -11,14 +14,19 @@ pub struct DomainCanisterMatcher {
     domains_app: Vec<FQDN>,
     domains_system: Vec<FQDN>,
     domains_engine: Vec<FQDN>,
+    subnets_info: Arc<ArcSwap<SubnetsInfo>>,
 }
 
 impl DomainCanisterMatcher {
     /// Check if given canister id and host match from policy perspective.
-    /// `subnets_info` is the current NNS snapshot, loaded by the caller.
-    pub fn check(&self, canister_id: Principal, host: &Fqdn, subnets_info: &SubnetsInfo) -> bool {
-        // These are always allowed
-        if self.pre_isolation_canisters.contains(&canister_id) {
+    pub fn check(&self, canister_id: Principal, host: &Fqdn) -> bool {
+        let subnets_info = self.subnets_info.load();
+
+        // Pre-isolation canisters are exempt from domain checks, unless they are
+        // on a CloudEngine subnet, where the normal domain policy still applies.
+        if self.pre_isolation_canisters.contains(&canister_id)
+            && subnets_info.subnet_type(canister_id) != Some(SubnetType::CloudEngine)
+        {
             return true;
         }
 
@@ -37,6 +45,7 @@ impl DomainCanisterMatcher {
 #[cfg(test)]
 mod tests {
     use ahash::AHashMap;
+    use arc_swap::ArcSwap;
     use fqdn::fqdn;
     use ic_bn_lib_common::principal;
 
@@ -55,7 +64,7 @@ mod tests {
     const CANISTER_APP: &str = "oydqf-haaaa-aaaao-afpsa-cai";
     const CANISTER_PIC: &str = "2dcn6-oqaaa-aaaai-abvoq-cai"; // pre-isolation
 
-    fn test_snapshot() -> SubnetsInfo {
+    fn test_snapshot() -> Arc<ArcSwap<SubnetsInfo>> {
         let subnet_system = principal!(SUBNET_SYSTEM);
         let subnet_engine = principal!(SUBNET_ENGINE);
 
@@ -71,7 +80,7 @@ mod tests {
         types.insert(subnet_system, SubnetType::System);
         types.insert(subnet_engine, SubnetType::CloudEngine);
 
-        SubnetsInfo::new(ranges, types)
+        Arc::new(ArcSwap::from_pointee(SubnetsInfo::new(ranges, types)))
     }
 
     fn matcher() -> DomainCanisterMatcher {
@@ -80,61 +89,83 @@ mod tests {
 
         DomainCanisterMatcher::new(
             pic,
-            vec![fqdn!("icp0.io")],    // app
-            vec![fqdn!("ic0.app")],    // system
-            vec![fqdn!("engine.io")],  // engine
+            vec![fqdn!("icp0.io")],   // app
+            vec![fqdn!("ic0.app")],   // system
+            vec![fqdn!("engine.io")], // engine
+            test_snapshot(),
         )
     }
 
     #[test]
     fn system_canister_allowed_on_system_domain() {
-        let info = test_snapshot();
-        assert!(matcher().check(principal!(CANISTER_SYSTEM), &fqdn!("ic0.app"), &info));
+        assert!(matcher().check(principal!(CANISTER_SYSTEM), &fqdn!("ic0.app")));
     }
 
     #[test]
     fn system_canister_rejected_on_app_domain() {
-        let info = test_snapshot();
-        assert!(!matcher().check(principal!(CANISTER_SYSTEM), &fqdn!("icp0.io"), &info));
+        assert!(!matcher().check(principal!(CANISTER_SYSTEM), &fqdn!("icp0.io")));
     }
 
     #[test]
     fn engine_canister_allowed_on_engine_domain() {
-        let info = test_snapshot();
-        assert!(matcher().check(principal!(CANISTER_ENGINE), &fqdn!("engine.io"), &info));
+        assert!(matcher().check(principal!(CANISTER_ENGINE), &fqdn!("engine.io")));
     }
 
     #[test]
     fn engine_canister_rejected_on_app_domain() {
-        let info = test_snapshot();
-        assert!(!matcher().check(principal!(CANISTER_ENGINE), &fqdn!("icp0.io"), &info));
+        assert!(!matcher().check(principal!(CANISTER_ENGINE), &fqdn!("icp0.io")));
     }
 
     #[test]
     fn app_canister_allowed_on_app_domain() {
-        let info = test_snapshot();
-        assert!(matcher().check(principal!(CANISTER_APP), &fqdn!("icp0.io"), &info));
+        assert!(matcher().check(principal!(CANISTER_APP), &fqdn!("icp0.io")));
     }
 
     #[test]
     fn app_canister_rejected_on_system_domain() {
-        let info = test_snapshot();
-        assert!(!matcher().check(principal!(CANISTER_APP), &fqdn!("ic0.app"), &info));
+        assert!(!matcher().check(principal!(CANISTER_APP), &fqdn!("ic0.app")));
     }
 
     #[test]
-    fn pre_isolation_canister_allowed_on_any_domain() {
-        let info = test_snapshot();
-        assert!(matcher().check(principal!(CANISTER_PIC), &fqdn!("ic0.app"), &info));
-        assert!(matcher().check(principal!(CANISTER_PIC), &fqdn!("icp0.io"), &info));
-        assert!(matcher().check(principal!(CANISTER_PIC), &fqdn!("engine.io"), &info));
+    fn pre_isolation_canister_allowed_on_non_engine_subnet_domains() {
+        // CANISTER_PIC is not on a CloudEngine subnet, so it bypasses domain checks
+        assert!(matcher().check(principal!(CANISTER_PIC), &fqdn!("ic0.app")));
+        assert!(matcher().check(principal!(CANISTER_PIC), &fqdn!("icp0.io")));
+        assert!(matcher().check(principal!(CANISTER_PIC), &fqdn!("engine.io")));
+    }
+
+    #[test]
+    fn pre_isolation_canister_on_engine_subnet_subject_to_domain_policy() {
+        // Even if CANISTER_ENGINE is in the pre-isolation set, CloudEngine subnet
+        // canisters must still use the engine domain.
+        let mut pic = AHashSet::new();
+        pic.insert(principal!(CANISTER_ENGINE));
+        let m = DomainCanisterMatcher::new(
+            pic,
+            vec![fqdn!("icp0.io")],
+            vec![fqdn!("ic0.app")],
+            vec![fqdn!("engine.io")],
+            test_snapshot(),
+        );
+        assert!(m.check(principal!(CANISTER_ENGINE), &fqdn!("engine.io")));
+        assert!(!m.check(principal!(CANISTER_ENGINE), &fqdn!("icp0.io")));
+        assert!(!m.check(principal!(CANISTER_ENGINE), &fqdn!("ic0.app")));
     }
 
     #[test]
     fn empty_snapshot_falls_through_to_app_domain() {
-        let info = SubnetsInfo::default();
+        let empty = Arc::new(ArcSwap::from_pointee(SubnetsInfo::default()));
+        let mut pic = AHashSet::new();
+        pic.insert(principal!(CANISTER_PIC));
+        let m = DomainCanisterMatcher::new(
+            pic,
+            vec![fqdn!("icp0.io")],
+            vec![fqdn!("ic0.app")],
+            vec![fqdn!("engine.io")],
+            empty,
+        );
         // With no snapshot, subnet type is unknown → app domain for everything
-        assert!(matcher().check(principal!(CANISTER_APP), &fqdn!("icp0.io"), &info));
-        assert!(!matcher().check(principal!(CANISTER_APP), &fqdn!("ic0.app"), &info));
+        assert!(m.check(principal!(CANISTER_APP), &fqdn!("icp0.io")));
+        assert!(!m.check(principal!(CANISTER_APP), &fqdn!("ic0.app")));
     }
 }

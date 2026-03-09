@@ -125,23 +125,23 @@ impl SubnetsInfoFetcher {
 
         let mut subnet_types: AHashMap<Principal, SubnetType> = AHashMap::new();
         for &subnet_id in &subnet_ids {
-            let subnet_type = match cert.tree.lookup_path([
-                b"subnet".as_ref(),
-                subnet_id.as_slice(),
-                b"type",
-            ]) {
-                LookupResult::Found(type_bytes) => match SubnetType::from_bytes(type_bytes) {
-                    Some(t) => t,
-                    None => {
-                        warn!(
-                            "Unknown subnet type {:?} for subnet {subnet_id}",
-                            String::from_utf8_lossy(type_bytes)
-                        );
-                        continue;
-                    }
-                },
-                _ => continue,
-            };
+            let subnet_type =
+                match cert
+                    .tree
+                    .lookup_path([b"subnet".as_ref(), subnet_id.as_slice(), b"type"])
+                {
+                    LookupResult::Found(type_bytes) => match SubnetType::from_bytes(type_bytes) {
+                        Some(t) => t,
+                        None => {
+                            warn!(
+                                "Unknown subnet type {:?} for subnet {subnet_id}",
+                                String::from_utf8_lossy(type_bytes)
+                            );
+                            continue;
+                        }
+                    },
+                    _ => continue,
+                };
             subnet_types.insert(subnet_id, subnet_type);
         }
 
@@ -189,13 +189,13 @@ impl SubnetsInfoFetcher {
                 .filter(|p| !p.is_empty())
                 .filter_map(|chunk_path| {
                     match subnet_ranges_tree.lookup_path([chunk_path[0].as_bytes()]) {
-                        LookupResult::Found(chunk_bytes) => {
-                            serde_cbor::from_slice::<Vec<[Principal; 2]>>(chunk_bytes)
-                                .inspect_err(|e| warn!(
-                                    "Failed to decode canister ranges for subnet {subnet_id}: {e:#}"
-                                ))
-                                .ok()
-                        }
+                        LookupResult::Found(chunk_bytes) => serde_cbor::from_slice::<
+                            Vec<[Principal; 2]>,
+                        >(chunk_bytes)
+                        .inspect_err(|e| {
+                            warn!("Failed to decode canister ranges for subnet {subnet_id}: {e:#}")
+                        })
+                        .ok(),
                         _ => None,
                     }
                 })
@@ -305,21 +305,17 @@ mod tests {
 
         let server = Server::run();
         server.expect(
-            Expectation::matching(request::method_path("POST", path))
-                .respond_with(
-                    status_code(200)
-                        .append_header("Content-Type", "application/cbor")
-                        .body(read_state_response(SUBNET_BIN)),
-                ),
+            Expectation::matching(request::method_path("POST", path)).respond_with(
+                status_code(200)
+                    .append_header("Content-Type", "application/cbor")
+                    .body(read_state_response(SUBNET_BIN)),
+            ),
         );
 
         let fetcher = make_fetcher(&server, root_id);
         let (ids, _types) = fetcher.fetch_subnets().await.unwrap();
 
-        assert!(
-            ids.contains(&root_id),
-            "NNS subnet missing from id list"
-        );
+        assert!(ids.contains(&root_id), "NNS subnet missing from id list");
     }
 
     #[tokio::test]
@@ -329,18 +325,20 @@ mod tests {
 
         let server = Server::run();
         server.expect(
-            Expectation::matching(request::method_path("POST", path))
-                .respond_with(
-                    status_code(200)
-                        .append_header("Content-Type", "application/cbor")
-                        .body(read_state_response(SUBNET_BIN)),
-                ),
+            Expectation::matching(request::method_path("POST", path)).respond_with(
+                status_code(200)
+                    .append_header("Content-Type", "application/cbor")
+                    .body(read_state_response(SUBNET_BIN)),
+            ),
         );
 
         let fetcher = make_fetcher(&server, root_id);
         let (ids, types) = fetcher.fetch_subnets().await.unwrap();
 
-        assert!(!types.is_empty(), "subnet types must be populated in testnet fixtures");
+        assert!(
+            !types.is_empty(),
+            "subnet types must be populated in testnet fixtures"
+        );
         for id in &ids {
             assert!(types.contains_key(id), "subnet {id} has no type entry");
         }
@@ -358,18 +356,20 @@ mod tests {
 
         let server = Server::run();
         server.expect(
-            Expectation::matching(request::method_path("POST", path))
-                .respond_with(
-                    status_code(200)
-                        .append_header("Content-Type", "application/cbor")
-                        .body(read_state_response(NNS_RANGES_BIN)),
-                ),
+            Expectation::matching(request::method_path("POST", path)).respond_with(
+                status_code(200)
+                    .append_header("Content-Type", "application/cbor")
+                    .body(read_state_response(NNS_RANGES_BIN)),
+            ),
         );
 
         let fetcher = make_fetcher(&server, root_id);
         let ranges = fetcher.fetch_canister_ranges(&[root_id]).await.unwrap();
 
-        assert!(!ranges.is_empty(), "NNS subnet must have at least one canister range");
+        assert!(
+            !ranges.is_empty(),
+            "NNS subnet must have at least one canister range"
+        );
         for (lo, hi, sid) in &ranges {
             assert!(lo <= hi, "lo > hi in NNS canister range");
             assert_eq!(sid, &root_id, "subnet_id mismatch in range entry");
