@@ -239,9 +239,8 @@ pub struct Domain {
     #[clap(env, long, requires = "domain_system", value_delimiter = ',')]
     pub domain_app: Vec<FQDN>,
 
-    /// List of domains that we serve engine (verified_application) subnets from.
-    /// When set, canisters on cloud-engine subnets are routed here instead of
-    /// the app domain. Requires --domain-app.
+    /// List of domains that we serve engine subnets from.
+    /// When set, canisters on cloud-engine subnets are routed here.
     #[clap(env, long, requires = "domain_app", value_delimiter = ',')]
     pub domain_engine: Vec<FQDN>,
 

@@ -57,16 +57,17 @@ impl SubnetsInfo {
     /// Returns the type of the subnet that owns `canister_id`, or `None` if
     /// the canister is not covered by any known range.
     pub fn subnet_type(&self, canister_id: Principal) -> Option<SubnetType> {
+        let id = canister_id.as_slice();
         let idx = match self
             .ranges
-            .binary_search_by_key(&canister_id, |r| r.range_start)
+            .binary_search_by(|r| r.range_start.as_slice().cmp(id))
         {
             Ok(i) => i,            // exact match on range_start
             Err(0) => return None, // before all ranges
             Err(i) => i - 1,       // candidate is the range just below the insertion point
         };
         let r = &self.ranges[idx];
-        if canister_id <= r.range_end {
+        if id <= r.range_end.as_slice() {
             Some(r.subnet_type)
         } else {
             None
@@ -98,7 +99,7 @@ impl SubnetsInfo {
                 }
             })
             .collect();
-        ranges.sort_unstable_by_key(|r| r.range_start);
+        ranges.sort_unstable_by(|a, b| a.range_start.as_slice().cmp(b.range_start.as_slice()));
         Self { ranges }
     }
 }
@@ -124,9 +125,7 @@ impl SubnetsInfoFetcher {
         }
     }
 
-    async fn fetch_subnets(
-        &self,
-    ) -> Result<AHashMap<Principal, SubnetType>, Error> {
+    async fn fetch_subnets(&self) -> Result<AHashMap<Principal, SubnetType>, Error> {
         let cert = self
             .agent
             .read_subnet_state_raw(vec![vec!["subnet".into()]], self.root_subnet_id)
@@ -155,25 +154,26 @@ impl SubnetsInfoFetcher {
         let subnet_types = subnet_ids
             .into_iter()
             .map(|subnet_id| {
-                let subnet_type = match cert
-                    .tree
-                    .lookup_path([b"subnet".as_ref(), subnet_id.as_slice(), b"type"])
-                {
-                    LookupResult::Found(type_bytes) => {
-                        let t = SubnetType::from(type_bytes);
-                        if t == SubnetType::Unknown {
-                            warn!(
-                                "Unknown subnet type {:?} for subnet {subnet_id}",
-                                String::from_utf8_lossy(type_bytes)
-                            );
+                let subnet_type =
+                    match cert
+                        .tree
+                        .lookup_path([b"subnet".as_ref(), subnet_id.as_slice(), b"type"])
+                    {
+                        LookupResult::Found(type_bytes) => {
+                            let t = SubnetType::from(type_bytes);
+                            if t == SubnetType::Unknown {
+                                warn!(
+                                    "Unknown subnet type {:?} for subnet {subnet_id}",
+                                    String::from_utf8_lossy(type_bytes)
+                                );
+                            }
+                            t
                         }
-                        t
-                    }
-                    _ => {
-                        warn!("Missing type for subnet {subnet_id} in NNS tree");
-                        SubnetType::Unknown
-                    }
-                };
+                        _ => {
+                            warn!("Missing type for subnet {subnet_id} in NNS tree");
+                            SubnetType::Unknown
+                        }
+                    };
                 (subnet_id, subnet_type)
             })
             .collect();
@@ -351,7 +351,10 @@ mod tests {
         let fetcher = make_fetcher(&server, root_id);
         let types = fetcher.fetch_subnets().await.unwrap();
 
-        assert!(types.contains_key(&root_id), "NNS subnet missing from id list");
+        assert!(
+            types.contains_key(&root_id),
+            "NNS subnet missing from id list"
+        );
     }
 
     #[tokio::test]
