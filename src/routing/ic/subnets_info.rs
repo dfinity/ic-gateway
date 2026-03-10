@@ -1,14 +1,8 @@
-use std::{
-    fmt,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-};
+use std::{fmt, sync::Arc};
 
 use ahash::{AHashMap, AHashSet};
 use anyhow::{Context, Error};
-use arc_swap::ArcSwap;
+use arc_swap::ArcSwapOption;
 use async_trait::async_trait;
 use candid::Principal;
 use ic_bn_lib::ic_agent::{
@@ -17,7 +11,6 @@ use ic_bn_lib::ic_agent::{
 };
 use ic_bn_lib_common::traits::{Healthy, Run};
 use tokio_util::sync::CancellationToken;
-use tracing::{info, warn};
 
 /// The type of an IC subnet as reported in the NNS state tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,14 +40,13 @@ impl From<&[u8]> for SubnetType {
 struct CanisterRange {
     range_start: Principal,
     range_end: Principal,
-    subnet_id: Principal,
+    _subnet_id: Principal,
     subnet_type: SubnetType,
 }
 
 /// Snapshot of the NNS routing table and subnet types.
 ///
 /// Populated from the NNS state tree by [`SubnetsInfoFetcher`].
-#[derive(Default)]
 pub struct SubnetsInfo {
     /// Sorted by `range_start` for binary-search lookups.
     ranges: Vec<CanisterRange>,
@@ -75,12 +67,6 @@ impl SubnetsInfo {
         };
         let r = &self.ranges[idx];
         if id <= r.range_end.as_slice() {
-            info!(
-                ic_canister_id = %canister_id,
-                ic_subnet_id = %r.subnet_id,
-                ic_subnet_type = ?r.subnet_type,
-                "Canister resolved to subnet",
-            );
             Some(r.subnet_type)
         } else {
             None
@@ -108,7 +94,7 @@ impl SubnetsInfo {
                 CanisterRange {
                     range_start: lo,
                     range_end: hi,
-                    subnet_id,
+                    _subnet_id: subnet_id,
                     subnet_type,
                 }
             })
@@ -127,11 +113,9 @@ impl SubnetsInfo {
 pub struct SubnetsInfoFetcher {
     agent: Arc<Agent>,
     root_subnet_id: Principal,
-    pub info: Arc<ArcSwap<SubnetsInfo>>,
-    /// Set to `true` only when the last `fetch()` completed with no warnings —
-    /// every subnet ID parsed, every type was recognised, and every canister
-    /// range chunk decoded successfully.
-    fetch_success: AtomicBool,
+    /// `None` until the first fully-clean fetch completes; holds the last
+    /// fully-clean snapshot thereafter.
+    pub info: Arc<ArcSwapOption<SubnetsInfo>>,
 }
 
 impl fmt::Debug for SubnetsInfoFetcher {
@@ -142,7 +126,7 @@ impl fmt::Debug for SubnetsInfoFetcher {
 
 impl Healthy for SubnetsInfoFetcher {
     fn healthy(&self) -> bool {
-        self.fetch_success.load(Ordering::Relaxed)
+        self.info.load().is_some()
     }
 }
 
@@ -151,22 +135,26 @@ impl SubnetsInfoFetcher {
         Self {
             agent,
             root_subnet_id,
-            info: Arc::new(ArcSwap::from_pointee(SubnetsInfo::default())),
-            fetch_success: AtomicBool::new(false),
+            info: Arc::new(ArcSwapOption::empty()),
         }
     }
 
+    /// Returns the subnet-type map and a `clean` flag.  `clean` is `false`
+    /// if any subnet ID was malformed or any type was missing/unknown.
     async fn fetch_subnets(&self) -> Result<AHashMap<Principal, SubnetType>, Error> {
         let cert = self
             .agent
             .read_subnet_state_raw(vec![vec!["subnet".into()]], self.root_subnet_id)
             .await
-            .context("failed to read /subnet from NNS")
-            .inspect_err(|_| self.fetch_success.store(false, Ordering::Relaxed))?;
+            .context("failed to read /subnet from NNS")?;
 
         let subnet_tree = match cert.tree.lookup_subtree([b"subnet".as_ref()]) {
             SubtreeLookupResult::Found(t) => t,
-            _ => return Ok(AHashMap::new()),
+            _ => {
+                return Err(anyhow::anyhow!(
+                    "/subnet subtree not found in NNS state tree"
+                ));
+            }
         };
 
         // list_paths() returns one entry per leaf, so the same subnet ID appears
@@ -176,20 +164,13 @@ impl SubnetsInfoFetcher {
             .list_paths()
             .iter()
             .filter(|p| !p.is_empty())
-            .filter_map(|p| {
+            .map(|p| {
                 Principal::try_from_slice(p[0].as_bytes())
-                    .inspect_err(|e| {
-                        self.fetch_success.store(false, Ordering::Relaxed);
-                        warn!(
-                            component = "SubnetsInfoFetcher",
-                            "Skipping malformed subnet ID in NNS tree: {e}"
-                        )
-                    })
-                    .ok()
+                    .context("malformed subnet ID in NNS tree")
             })
-            .collect();
+            .collect::<Result<_, _>>()?;
 
-        let subnet_types = subnet_ids
+        subnet_ids
             .into_iter()
             .map(|subnet_id| {
                 let subnet_type =
@@ -200,29 +181,22 @@ impl SubnetsInfoFetcher {
                         LookupResult::Found(type_bytes) => {
                             let t = SubnetType::from(type_bytes);
                             if t == SubnetType::Unknown {
-                                self.fetch_success.store(false, Ordering::Relaxed);
-                                warn!(
-                                    component = "SubnetsInfoFetcher",
-                                    "Unknown subnet type {:?} for subnet {subnet_id}",
+                                return Err(anyhow::anyhow!(
+                                    "unknown subnet type {:?} for subnet {subnet_id}",
                                     String::from_utf8_lossy(type_bytes)
-                                );
+                                ));
                             }
                             t
                         }
                         _ => {
-                            self.fetch_success.store(false, Ordering::Relaxed);
-                            warn!(
-                                component = "SubnetsInfoFetcher",
-                                "Missing type for subnet {subnet_id} in NNS tree"
-                            );
-                            SubnetType::Unknown
+                            return Err(anyhow::anyhow!(
+                                "missing type for subnet {subnet_id} in NNS tree"
+                            ));
                         }
                     };
-                (subnet_id, subnet_type)
+                Ok((subnet_id, subnet_type))
             })
-            .collect();
-
-        Ok(subnet_types)
+            .collect()
     }
 
     async fn fetch_canister_ranges(
@@ -245,15 +219,20 @@ impl SubnetsInfoFetcher {
                     self.root_subnet_id,
                 )
                 .await
-                .with_context(|| format!("failed to read canister_ranges for subnet {subnet_id}"))
-                .inspect_err(|_| self.fetch_success.store(false, Ordering::Relaxed))?;
+                .with_context(|| {
+                    format!("failed to read canister_ranges for subnet {subnet_id}")
+                })?;
 
             let subnet_ranges_tree = match cert
                 .tree
                 .lookup_subtree([b"canister_ranges".as_ref(), subnet_id.as_slice()])
             {
                 SubtreeLookupResult::Found(t) => t,
-                _ => return Ok(vec![]),
+                _ => {
+                    return Err(anyhow::anyhow!(
+                        "canister_ranges subtree not found in NNS state tree for subnet {subnet_id}"
+                    ));
+                }
             };
 
             // The shard is CBOR-encoded as: tagged<[*[principal principal]]>
@@ -263,23 +242,21 @@ impl SubnetsInfoFetcher {
                 .list_paths()
                 .into_iter()
                 .filter(|p| !p.is_empty())
-                .filter_map(|chunk_path| {
+                .map(|chunk_path| {
                     match subnet_ranges_tree.lookup_path([chunk_path[0].as_bytes()]) {
                         LookupResult::Found(chunk_bytes) => serde_cbor::from_slice::<
                             Vec<[Principal; 2]>,
                         >(chunk_bytes)
-                        .inspect_err(|e| {
-                            self.fetch_success.store(false, Ordering::Relaxed);
-                            warn!(
-                                component = "SubnetsInfoFetcher",
-                                "Failed to decode canister ranges for subnet {subnet_id}: {e:#}"
-                            )
-                        })
-                        .ok(),
-                        _ => None,
+                        .with_context(|| {
+                            format!("failed to decode canister ranges for subnet {subnet_id}")
+                        }),
+                        _ => Ok(vec![]),
                     }
                 })
-                .flat_map(|pairs| pairs.into_iter().map(|[lo, hi]| (lo, hi, subnet_id)))
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .flatten()
+                .map(|[lo, hi]| (lo, hi, subnet_id))
                 .collect::<Vec<_>>();
 
             Ok::<_, Error>(ranges)
@@ -289,36 +266,27 @@ impl SubnetsInfoFetcher {
         Ok(results.into_iter().flatten().collect())
     }
 
-    async fn fetch(&self) -> Result<SubnetsInfo, Error> {
-        // Optimistically mark success; sub-functions write false on any warning.
-        self.fetch_success.store(true, Ordering::Relaxed);
-
+    /// Fetches a fresh snapshot and stores it only when every step succeeds.
+    /// Any error leaves the existing snapshot untouched so stale-but-valid
+    /// data continues to be served until the next successful cycle.
+    async fn fetch(&self) -> Result<(), Error> {
         let subnet_types = self.fetch_subnets().await?;
-
-        if subnet_types.is_empty() {
-            self.fetch_success.store(false, Ordering::Relaxed);
-            return Ok(SubnetsInfo::default());
-        }
-
         let subnet_ids: Vec<Principal> = subnet_types.keys().copied().collect();
         let canister_ranges = self.fetch_canister_ranges(&subnet_ids).await?;
-        let subnets_info = SubnetsInfo::new(canister_ranges, subnet_types);
 
-        info!(
-            subnets = subnet_ids.len(),
-            ranges = subnets_info.ranges.len(),
-            "Subnet info updated"
-        );
+        self.info.store(Some(Arc::new(SubnetsInfo::new(
+            canister_ranges,
+            subnet_types,
+        ))));
 
-        Ok(subnets_info)
+        Ok(())
     }
 }
 
 #[async_trait]
 impl Run for SubnetsInfoFetcher {
     async fn run(&self, _token: CancellationToken) -> Result<(), Error> {
-        self.info.store(Arc::new(self.fetch().await?));
-        Ok(())
+        self.fetch().await
     }
 }
 
@@ -464,5 +432,48 @@ mod tests {
         for w in ranges.windows(2) {
             assert!(w[0].0 <= w[1].0, "ranges not sorted by lo");
         }
+    }
+
+    #[tokio::test]
+    async fn fetch_error_leaves_info_as_none() {
+        let root_id = principal!(NNS_SUBNET_ID);
+        let path = format!("/api/v3/subnet/{NNS_SUBNET_ID}/read_state");
+
+        let server = Server::run();
+        server.expect(
+            Expectation::matching(request::method_path("POST", path))
+                .respond_with(status_code(500)),
+        );
+
+        let fetcher = make_fetcher(&server, root_id);
+        assert!(fetcher.fetch().await.is_err());
+        assert!(
+            fetcher.info.load().is_none(),
+            "info must stay None when fetch fails"
+        );
+    }
+
+    #[tokio::test]
+    async fn fetch_error_preserves_previous_snapshot() {
+        let root_id = principal!(NNS_SUBNET_ID);
+        let path = format!("/api/v3/subnet/{NNS_SUBNET_ID}/read_state");
+
+        let server = Server::run();
+        server.expect(
+            Expectation::matching(request::method_path("POST", path))
+                .respond_with(status_code(500)),
+        );
+
+        let fetcher = make_fetcher(&server, root_id);
+
+        // Seed a known snapshot directly, simulating a previously successful fetch.
+        let seed = SubnetsInfo::new(vec![], AHashMap::new());
+        fetcher.info.store(Some(Arc::new(seed)));
+
+        assert!(fetcher.fetch().await.is_err(), "fetch must fail");
+        assert!(
+            fetcher.info.load().is_some(),
+            "info must still be Some after a failed fetch"
+        );
     }
 }

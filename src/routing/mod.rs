@@ -7,7 +7,7 @@ pub mod proxy;
 use std::{net::IpAddr, ops::Deref, str::FromStr, sync::Arc, time::Duration};
 
 use anyhow::{Context, Error};
-use arc_swap::ArcSwap;
+use arc_swap::ArcSwapOption;
 use axum::{
     Extension, Router,
     extract::Request,
@@ -213,7 +213,7 @@ pub async fn setup_router(
     vector: Option<Arc<Vector>>,
     waf_layer: Option<WafLayer>,
     custom_domains_router: Option<Router>,
-    subnets_info: Arc<ArcSwap<SubnetsInfo>>,
+    subnets_info: Arc<ArcSwapOption<SubnetsInfo>>,
 ) -> Result<Router, Error> {
     // Setup API router
     let router_api = setup_api_router(
