@@ -258,6 +258,7 @@ pub async fn main(
     let fetcher = Arc::new(SubnetsInfoFetcher::new(Arc::new(agent), root_subnet_id));
     let subnets_info = fetcher.info.clone();
 
+    health_manager.add(fetcher.clone());
     tasks.add_interval(
         "subnets_info_fetcher",
         fetcher,
