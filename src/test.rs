@@ -39,7 +39,8 @@ use crate::{
 
 /// The NNS (root) subnet ID for the test fixtures in src/routing/ic/testdata/.
 /// Captured from a testnet (system subnet) where subnet type info is populated.
-pub const NNS_SUBNET_ID: &str = "x4o6u-54cx4-m6ajt-n3rvt-ztxgq-22nxu-gmzgo-dp6d7-wea57-fvmrf-wqe";
+pub const TEST_ROOT_SUBNET_ID: &str =
+    "x4o6u-54cx4-m6ajt-n3rvt-ztxgq-22nxu-gmzgo-dp6d7-wea57-fvmrf-wqe";
 
 #[derive(Debug)]
 pub struct FakeDomainProvider(pub Vec<CustomDomain>);

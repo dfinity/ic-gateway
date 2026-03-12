@@ -55,10 +55,10 @@ mod tests {
     use super::*;
     use crate::routing::ic::subnets_info::SubnetType;
 
-    use crate::test::NNS_SUBNET_ID;
+    use crate::test::TEST_ROOT_SUBNET_ID;
 
     // Principals used as subnet IDs in the test snapshot
-    const SUBNET_SYSTEM: &str = NNS_SUBNET_ID;
+    const SUBNET_SYSTEM: &str = TEST_ROOT_SUBNET_ID;
     const SUBNET_ENGINE: &str = "nl6hn-ja4yw-wvmpy-3z2jx-ymc34-pisx3-3cp5z-3oj4a-qzzny-jbsv3-4qe";
 
     // Canisters that fall inside the ranges defined below

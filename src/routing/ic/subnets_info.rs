@@ -139,8 +139,7 @@ impl SubnetsInfoFetcher {
         }
     }
 
-    /// Returns the subnet-type map and a `clean` flag.  `clean` is `false`
-    /// if any subnet ID was malformed or any type was missing/unknown.
+    /// Returns the subnet-type map.
     async fn fetch_subnets(&self) -> Result<AHashMap<Principal, SubnetType>, Error> {
         let cert = self
             .agent
@@ -293,7 +292,7 @@ impl Run for SubnetsInfoFetcher {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test::NNS_SUBNET_ID;
+    use crate::test::TEST_ROOT_SUBNET_ID;
     use httptest::{Expectation, Server, matchers::*, responders::*};
     use ic_bn_lib_common::principal;
     use ic_transport_types::ReadStateResponse;
@@ -355,8 +354,8 @@ mod tests {
 
     #[tokio::test]
     async fn fetch_subnets_returns_all_subnet_ids() {
-        let root_id = principal!(NNS_SUBNET_ID);
-        let path = format!("/api/v3/subnet/{NNS_SUBNET_ID}/read_state");
+        let root_id = principal!(TEST_ROOT_SUBNET_ID);
+        let path = format!("/api/v3/subnet/{TEST_ROOT_SUBNET_ID}/read_state");
 
         let server = Server::run();
         server.expect(
@@ -378,8 +377,8 @@ mod tests {
 
     #[tokio::test]
     async fn fetch_subnets_types_are_consistent() {
-        let root_id = principal!(NNS_SUBNET_ID);
-        let path = format!("/api/v3/subnet/{NNS_SUBNET_ID}/read_state");
+        let root_id = principal!(TEST_ROOT_SUBNET_ID);
+        let path = format!("/api/v3/subnet/{TEST_ROOT_SUBNET_ID}/read_state");
 
         let server = Server::run();
         server.expect(
@@ -406,8 +405,8 @@ mod tests {
 
     #[tokio::test]
     async fn fetch_canister_ranges_nns_subnet() {
-        let root_id = principal!(NNS_SUBNET_ID);
-        let path = format!("/api/v3/subnet/{NNS_SUBNET_ID}/read_state");
+        let root_id = principal!(TEST_ROOT_SUBNET_ID);
+        let path = format!("/api/v3/subnet/{TEST_ROOT_SUBNET_ID}/read_state");
 
         let server = Server::run();
         server.expect(
@@ -436,8 +435,8 @@ mod tests {
 
     #[tokio::test]
     async fn fetch_error_leaves_info_as_none() {
-        let root_id = principal!(NNS_SUBNET_ID);
-        let path = format!("/api/v3/subnet/{NNS_SUBNET_ID}/read_state");
+        let root_id = principal!(TEST_ROOT_SUBNET_ID);
+        let path = format!("/api/v3/subnet/{TEST_ROOT_SUBNET_ID}/read_state");
 
         let server = Server::run();
         server.expect(
@@ -455,8 +454,8 @@ mod tests {
 
     #[tokio::test]
     async fn fetch_error_preserves_previous_snapshot() {
-        let root_id = principal!(NNS_SUBNET_ID);
-        let path = format!("/api/v3/subnet/{NNS_SUBNET_ID}/read_state");
+        let root_id = principal!(TEST_ROOT_SUBNET_ID);
+        let path = format!("/api/v3/subnet/{TEST_ROOT_SUBNET_ID}/read_state");
 
         let server = Server::run();
         server.expect(
