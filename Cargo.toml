@@ -10,7 +10,7 @@ default = []
 
 sev-snp = ["ic-bn-lib/sev-snp"]
 acme = ["ic-bn-lib/acme-dns", "ic-bn-lib/acme-alpn"]
-bench = ["dep:ic-http-certification", "dep:rand_regex", "dep:serde_cbor"]
+bench = ["dep:ic-http-certification", "dep:rand_regex"]
 tokio_console = ["dep:console-subscriber"]
 debug = []
 
@@ -76,7 +76,7 @@ rustls = { version = "0.23.18", default-features = false, features = [
     "brotli",
 ] }
 serde = "1.0.214"
-serde_cbor = { version = "0.11.2", optional = true }
+serde_cbor = "0.11.2"
 serde_json = "1.0.132"
 sha2 = "0.10.8"
 strum = { version = "0.27.1", features = ["derive"] }
@@ -155,3 +155,7 @@ path = "tools/create_acme_account.rs"
 [[bin]]
 name = "cloudflare-check"
 path = "tools/cloudflare_check.rs"
+
+[[bin]]
+name = "gen-testdata"
+path = "tools/gen_testdata.rs"

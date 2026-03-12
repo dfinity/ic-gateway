@@ -32,7 +32,15 @@ use serde_cbor::to_vec;
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::{EnvFilter, reload};
 
-use crate::{Cli, log, routing::setup_router};
+use crate::{
+    Cli, log,
+    routing::{ic::subnets_info::SubnetsInfo, setup_router},
+};
+
+/// The NNS (root) subnet ID for the test fixtures in src/routing/ic/testdata/.
+/// Captured from a testnet (system subnet) where subnet type info is populated.
+pub const TEST_ROOT_SUBNET_ID: &str =
+    "x4o6u-54cx4-m6ajt-n3rvt-ztxgq-22nxu-gmzgo-dp6d7-wea57-fvmrf-wqe";
 
 #[derive(Debug)]
 pub struct FakeDomainProvider(pub Vec<CustomDomain>);
@@ -134,10 +142,8 @@ pub async fn setup_test_router(tasks: &mut TaskManager) -> (Router, Vec<String>)
     let route_provider = RoundRobinRouteProvider::new(vec!["http://foo"]).unwrap();
 
     let health_manager = Arc::new(HealthManager::default());
-    let (_, reload_handle) = reload::Layer::new(EnvFilter::new(format!(
-        "warn,{}",
-        log::LOG_LEVEL_OVERRIDES
-    )));
+    let (_, reload_handle) =
+        reload::Layer::new(EnvFilter::new(format!("warn,{}", log::LOG_LEVEL_OVERRIDES)));
 
     let router = setup_router(
         &cli,
@@ -153,6 +159,7 @@ pub async fn setup_test_router(tasks: &mut TaskManager) -> (Router, Vec<String>)
         None,
         None,
         None,
+        Arc::new(arc_swap::ArcSwapOption::<SubnetsInfo>::empty()),
     )
     .await
     .unwrap();
