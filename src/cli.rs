@@ -239,7 +239,7 @@ pub struct Domain {
     #[clap(env, long, requires = "domain_system", value_delimiter = ',')]
     pub domain_app: Vec<FQDN>,
 
-    /// List of domains allowed to access canisters on cloud-engine subnets.
+    /// List of domains that serve cloud engines only
     #[clap(env, long, requires = "domain_app", value_delimiter = ',')]
     pub domain_engine: Vec<FQDN>,
 
