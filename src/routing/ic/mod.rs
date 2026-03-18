@@ -25,7 +25,7 @@ use ic_bn_lib::{
     },
 };
 use ic_bn_lib_common::traits::http::ClientHttp;
-use ic_http_gateway::{
+use ic_http_gateway_protocol::{
     HttpGatewayClient, HttpGatewayClientBuilder, HttpGatewayResponse, HttpGatewayResponseMetadata,
 };
 use tracing::warn;

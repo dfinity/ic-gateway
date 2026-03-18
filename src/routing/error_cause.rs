@@ -11,7 +11,7 @@ use ic_bn_lib::{
     ic_agent::AgentError,
 };
 use ic_bn_lib_common::types::http::Error as HttpError;
-use ic_http_gateway::HttpGatewayError;
+use ic_http_gateway_protocol::HttpGatewayError;
 use ic_transport_types::RejectCode;
 use serde::{Deserialize, Serialize};
 use serde_json::to_string_pretty;
