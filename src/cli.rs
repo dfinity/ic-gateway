@@ -239,6 +239,14 @@ pub struct Domain {
     #[clap(env, long, requires = "domain_system", value_delimiter = ',')]
     pub domain_app: Vec<FQDN>,
 
+    /// List of domains that serve cloud engines only
+    #[clap(env, long, requires = "domain_app", value_delimiter = ',')]
+    pub domain_engine: Vec<FQDN>,
+
+    /// How frequently to poll the NNS for subnet routing table and type information
+    #[clap(env, long, default_value = "5m", value_parser = parse_duration)]
+    pub subnets_info_poll_interval: Duration,
+
     /// List of canister aliases in format '<alias>:<canister_id>'
     #[clap(env, long, value_delimiter = ',')]
     pub domain_canister_alias: Vec<CanisterAlias>,

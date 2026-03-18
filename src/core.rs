@@ -14,6 +14,7 @@ use ic_bn_lib::{
     vector::client::Vector,
 };
 use ic_bn_lib_common::{
+    principal,
     traits::{custom_domains::ProvidesCustomDomains, tls::ProvidesCertificates},
     types::{
         dns::Options as DnsOptions,
@@ -29,10 +30,13 @@ use tracing_subscriber::{EnvFilter, reload::Handle};
 use crate::{
     cli::Cli,
     metrics,
+    routing::ic::subnets_info::SubnetsInfoFetcher,
     routing::{
         self,
         ic::{
             create_agent,
+            http_service::AgentHttpService,
+            nodes_fetcher::MAINNET_ROOT_SUBNET_ID,
             route_provider::{RouteProviderWrapper, setup_route_provider},
         },
     },
@@ -238,6 +242,29 @@ pub async fn main(
         );
     }
 
+    // Subnet info: periodically fetch the full NNS routing table and subnet
+    // types.  Required for both system-subnet and engine-subnet routing
+    // decisions in DomainCanisterMatcher.
+    let http_service = Arc::new(AgentHttpService::new(
+        http_client_hyper.clone(),
+        cli.ic.ic_request_retry_interval,
+    ));
+    let agent = create_agent(cli, http_service, route_provider.clone())
+        .await
+        .context("unable to create agent for subnets info fetcher")?;
+
+    let root_subnet_id = principal!(MAINNET_ROOT_SUBNET_ID);
+
+    let fetcher = Arc::new(SubnetsInfoFetcher::new(Arc::new(agent), root_subnet_id));
+    let subnets_info = fetcher.info.clone();
+
+    health_manager.add(fetcher.clone());
+    tasks.add_interval(
+        "subnets_info_fetcher",
+        fetcher,
+        cli.domain.subnets_info_poll_interval,
+    );
+
     // Setup WAF
     let waf_layer = if cli.waf.waf_enable {
         let v = WafLayer::new_from_cli(&cli.waf, Some(http_client.clone()))
@@ -265,6 +292,7 @@ pub async fn main(
         vector.clone(),
         waf_layer,
         custom_domains_router,
+        subnets_info,
     )
     .await
     .context("unable to setup Axum router")?;

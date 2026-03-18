@@ -6,6 +6,7 @@ pub mod health_check;
 pub mod http_service;
 pub mod nodes_fetcher;
 pub mod route_provider;
+pub mod subnets_info;
 
 use std::{fs, sync::Arc};
 
