@@ -301,7 +301,9 @@ impl Run for SubnetsInfoFetcher {
             match self.fetch().await {
                 Ok(()) => return Ok(()),
                 Err(e) => {
-                    warn!("SubnetsInfoFetcher: initial fetch failed, retrying in {AGGRESSIVE_RETRY_INTERVAL:?}: {e:#}");
+                    warn!(
+                        "SubnetsInfoFetcher: initial fetch failed, retrying in {AGGRESSIVE_RETRY_INTERVAL:?}: {e:#}"
+                    );
                 }
             }
 
