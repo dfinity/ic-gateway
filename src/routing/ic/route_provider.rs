@@ -14,7 +14,7 @@ use ic_bn_lib::ic_agent::agent::{
 };
 use ic_bn_lib_common::{principal, traits::Healthy};
 use tokio::time::{sleep, timeout};
-use tracing::info;
+use tracing::{info, warn};
 use url::Url;
 
 use crate::{
@@ -98,13 +98,16 @@ pub async fn setup_route_provider(
     };
 
     let wrapper = RouteProviderWrapper::new(route_provider.clone());
-    timeout(Duration::from_secs(120), async {
+    if timeout(Duration::from_secs(120), async {
         while !wrapper.healthy() {
             sleep(Duration::from_secs(1)).await;
         }
     })
     .await
-    .map_err(|_| anyhow!("Route provider did not become healthy within 2 minutes"))?;
+    .is_err()
+    {
+        warn!("Route provider did not become healthy within 2 minutes, continuing anyway");
+    }
 
     Ok(route_provider)
 }
