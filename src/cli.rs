@@ -244,7 +244,7 @@ pub struct Domain {
     pub domain_engine: Vec<FQDN>,
 
     /// How frequently to poll the NNS for subnet routing table and type information
-    #[clap(env, long, default_value = "5m", value_parser = parse_duration)]
+    #[clap(env, long, default_value = "1m", value_parser = parse_duration)]
     pub subnets_info_poll_interval: Duration,
 
     /// List of canister aliases in format '<alias>:<canister_id>'
