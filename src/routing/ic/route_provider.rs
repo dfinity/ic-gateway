@@ -100,7 +100,7 @@ pub async fn setup_route_provider(
     let wrapper = RouteProviderWrapper::new(route_provider.clone());
     timeout(Duration::from_secs(120), async {
         while !wrapper.healthy() {
-            sleep(Duration::from_millis(100)).await;
+            sleep(Duration::from_secs(1)).await;
         }
     })
     .await
