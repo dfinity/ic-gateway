@@ -1,4 +1,4 @@
-use std::{fmt, sync::Arc};
+use std::{fmt, sync::Arc, time::Duration};
 
 use ahash::{AHashMap, AHashSet};
 use anyhow::{Context, Error};
@@ -11,6 +11,11 @@ use ic_bn_lib::ic_agent::{
 };
 use ic_bn_lib_common::traits::{Healthy, Run};
 use tokio_util::sync::CancellationToken;
+use tracing::warn;
+
+/// Retry interval used when no snapshot has been fetched yet and we are in the
+/// aggressive boot-strap loop.
+const AGGRESSIVE_RETRY_INTERVAL: Duration = Duration::from_secs(5);
 
 /// The type of an IC subnet as reported in the NNS state tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -284,8 +289,27 @@ impl SubnetsInfoFetcher {
 
 #[async_trait]
 impl Run for SubnetsInfoFetcher {
-    async fn run(&self, _token: CancellationToken) -> Result<(), Error> {
-        self.fetch().await
+    async fn run(&self, token: CancellationToken) -> Result<(), Error> {
+        // If we already have a snapshot the normal polling cadence is sufficient.
+        if self.info.load().is_some() {
+            return self.fetch().await;
+        }
+
+        // No snapshot yet: retry aggressively until the first successful fetch
+        // or until the shutdown token fires.
+        loop {
+            match self.fetch().await {
+                Ok(()) => return Ok(()),
+                Err(e) => {
+                    warn!("SubnetsInfoFetcher: initial fetch failed, retrying in {AGGRESSIVE_RETRY_INTERVAL:?}: {e:#}");
+                }
+            }
+
+            tokio::select! {
+                () = token.cancelled() => return Ok(()),
+                () = tokio::time::sleep(AGGRESSIVE_RETRY_INTERVAL) => {}
+            }
+        }
     }
 }
 
