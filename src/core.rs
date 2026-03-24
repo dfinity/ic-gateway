@@ -36,7 +36,7 @@ use crate::{
         ic::{
             create_agent,
             http_service::AgentHttpService,
-            nodes_fetcher::MAINNET_ROOT_SUBNET_ID,
+            MAINNET_ROOT_SUBNET_ID,
             route_provider::{RouteProviderWrapper, setup_route_provider},
         },
     },

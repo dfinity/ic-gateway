@@ -2,11 +2,12 @@
 #![allow(clippy::borrow_interior_mutable_const)]
 
 pub mod handler;
-pub mod health_check;
 pub mod http_service;
-pub mod nodes_fetcher;
 pub mod route_provider;
 pub mod subnets_info;
+
+pub const MAINNET_ROOT_SUBNET_ID: &str =
+    "tdb26-jop6k-aogll-7ltgs-eruif-6kk7m-qpktf-gdiqx-mxtrf-vb5e6-eqe";
 
 use std::{fs, sync::Arc};
 
