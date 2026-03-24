@@ -2,28 +2,16 @@ use std::{sync::Arc, time::Duration};
 
 use anyhow::anyhow;
 use derive_new::new;
-use ic_bn_lib::ic_agent::agent::{
-    http_transport::reqwest_transport::reqwest::Client as AgentClient,
-    route_provider::{
-        RoundRobinRouteProvider, RouteProvider,
-        dynamic_routing::{
-            dynamic_route_provider::DynamicRouteProviderBuilder, node::Node,
-            snapshot::latency_based_routing::LatencyRoutingSnapshot,
-        },
-    },
+use ic_bn_lib::ic_agent::agent::route_provider::{
+    RoundRobinRouteProvider, RouteProvider,
+    dynamic_routing::{dynamic_route_provider::DynamicRouteProviderBuilder, node::Node},
 };
-use ic_bn_lib_common::{principal, traits::Healthy};
+use ic_bn_lib_common::traits::Healthy;
 use tokio::time::{sleep, timeout};
 use tracing::{info, warn};
 use url::Url;
 
-use crate::{
-    Cli,
-    routing::ic::{
-        health_check::{CHECK_TIMEOUT, HealthChecker},
-        nodes_fetcher::{MAINNET_ROOT_SUBNET_ID, NodesFetcher},
-    },
-};
+use crate::Cli;
 
 /// Provides Healthy trait for the RouteProvider
 #[derive(new, Debug)]
@@ -63,29 +51,16 @@ pub async fn setup_route_provider(
         }
 
         let route_provider = {
-            let snapshot =
-                cli.ic
-                    .ic_use_k_top_api_nodes
-                    .map_or_else(LatencyRoutingSnapshot::new, |k| {
-                        info!(
-                            "Using up to k_top={k} API Nodes with best score for dynamic routing"
-                        );
-                        LatencyRoutingSnapshot::new().set_k_top_nodes(k)
-                    });
+            if let Some(k) = cli.ic.ic_use_k_top_api_nodes {
+                info!("Using up to k_top={k} API Nodes with best score for dynamic routing");
+            }
 
-            // This temporary client is only needed for the instantiation. It is later overridden by the checker/fetcher accepting the reqwest_client.
-            let tmp_client = AgentClient::builder()
-                .build()
-                .expect("failed to build the client");
-            let checker = HealthChecker::new(reqwest_client.clone(), CHECK_TIMEOUT);
-            let subnet_id = principal!(MAINNET_ROOT_SUBNET_ID);
-            let fetcher = NodesFetcher::new(reqwest_client, subnet_id, None);
-            let route_provider =
-                DynamicRouteProviderBuilder::new(snapshot, api_seed_nodes, Arc::new(tmp_client))
-                    .with_checker(Arc::new(checker))
-                    .with_fetcher(Arc::new(fetcher))
-                    .build()
-                    .await;
+            let route_provider = DynamicRouteProviderBuilder::new(
+                api_seed_nodes,
+                Arc::new(reqwest_client),
+                cli.ic.ic_use_k_top_api_nodes,
+            )
+            .build();
 
             Arc::new(route_provider)
         };
