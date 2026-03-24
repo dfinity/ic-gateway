@@ -28,13 +28,18 @@ pub enum SubnetType {
     Unknown,
 }
 
-fn map_subnet_type(t: Option<&AgentSubnetType>) -> SubnetType {
+fn map_subnet_type(subnet_id: Principal, t: Option<&AgentSubnetType>) -> Result<SubnetType, Error> {
     match t {
-        Some(AgentSubnetType::Application) => SubnetType::Application,
-        Some(AgentSubnetType::System) => SubnetType::System,
-        Some(AgentSubnetType::VerifiedApplication) => SubnetType::VerifiedApplication,
-        Some(AgentSubnetType::CloudEngine) => SubnetType::CloudEngine,
-        Some(AgentSubnetType::Unknown(_)) | None => SubnetType::Unknown,
+        Some(AgentSubnetType::Application) => Ok(SubnetType::Application),
+        Some(AgentSubnetType::System) => Ok(SubnetType::System),
+        Some(AgentSubnetType::VerifiedApplication) => Ok(SubnetType::VerifiedApplication),
+        Some(AgentSubnetType::CloudEngine) => Ok(SubnetType::CloudEngine),
+        Some(AgentSubnetType::Unknown(s)) => Err(anyhow::anyhow!(
+            "unknown subnet type {s:?} for subnet {subnet_id}"
+        )),
+        None => Err(anyhow::anyhow!(
+            "missing type for subnet {subnet_id}"
+        )),
     }
 }
 
@@ -195,7 +200,7 @@ impl SubnetsInfoFetcher {
                 .map(|r| (*r.start(), *r.end(), subnet_id))
                 .collect();
 
-            Ok::<_, Error>((subnet_id, ranges, map_subnet_type(subnet.subnet_type())))
+            Ok::<_, Error>((subnet_id, ranges, map_subnet_type(subnet_id, subnet.subnet_type())?))
         });
 
         let mut canister_ranges = Vec::new();
