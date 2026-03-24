@@ -182,10 +182,8 @@ impl SubnetsInfoFetcher {
         Ok(subnet_ids.into_iter().collect())
     }
 
-    /// Fetches a fresh snapshot and stores it only when every step succeeds.
-    /// Any error leaves the existing snapshot untouched so stale-but-valid
-    /// data continues to be served until the next successful cycle.
-    async fn fetch(&self) -> Result<(), Error> {
+    /// Fetches a fresh snapshot of the full routing table.
+    async fn fetch(&self) -> Result<SubnetsInfo, Error> {
         let subnet_ids = self.fetch_subnet_ids().await?;
 
         let futures = subnet_ids.iter().map(|&subnet_id| async move {
@@ -210,12 +208,7 @@ impl SubnetsInfoFetcher {
             subnet_types.insert(subnet_id, subnet_type);
         }
 
-        self.info.store(Some(Arc::new(SubnetsInfo::new(
-            canister_ranges,
-            subnet_types,
-        ))));
-
-        Ok(())
+        Ok(SubnetsInfo::new(canister_ranges, subnet_types))
     }
 }
 
@@ -224,14 +217,19 @@ impl Run for SubnetsInfoFetcher {
     async fn run(&self, token: CancellationToken) -> Result<(), Error> {
         // If we already have a snapshot the normal polling cadence is sufficient.
         if self.info.load().is_some() {
-            return self.fetch().await;
+            let info = self.fetch().await?;
+            self.info.store(Some(Arc::new(info)));
+            return Ok(());
         }
 
         // No snapshot yet: retry aggressively until the first successful fetch
         // or until the shutdown token fires.
         loop {
             match self.fetch().await {
-                Ok(()) => return Ok(()),
+                Ok(info) => {
+                    self.info.store(Some(Arc::new(info)));
+                    return Ok(());
+                }
                 Err(e) => {
                     warn!(
                         "SubnetsInfoFetcher: initial fetch failed, retrying in {AGGRESSIVE_RETRY_INTERVAL:?}: {e:#}"
