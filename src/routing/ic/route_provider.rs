@@ -4,22 +4,14 @@ use anyhow::anyhow;
 use derive_new::new;
 use ic_bn_lib::ic_agent::agent::route_provider::{
     RoundRobinRouteProvider, RouteProvider,
-    dynamic_routing::{
-        dynamic_route_provider::DynamicRouteProviderBuilder, node::Node,
-    },
+    dynamic_routing::{dynamic_route_provider::DynamicRouteProviderBuilder, node::Node},
 };
-use ic_bn_lib_common::{principal, traits::Healthy};
+use ic_bn_lib_common::traits::Healthy;
 use tokio::time::{sleep, timeout};
 use tracing::{info, warn};
 use url::Url;
 
-use crate::{
-    Cli,
-    routing::ic::{
-        health_check::{CHECK_TIMEOUT, HealthChecker},
-        nodes_fetcher::{MAINNET_ROOT_SUBNET_ID, NodesFetcher},
-    },
-};
+use crate::Cli;
 
 /// Provides Healthy trait for the RouteProvider
 #[derive(new, Debug)]
@@ -60,22 +52,15 @@ pub async fn setup_route_provider(
 
         let route_provider = {
             if let Some(k) = cli.ic.ic_use_k_top_api_nodes {
-                info!(
-                    "Using up to k_top={k} API Nodes with best score for dynamic routing"
-                );
+                info!("Using up to k_top={k} API Nodes with best score for dynamic routing");
             }
 
-            let checker = HealthChecker::new(reqwest_client.clone(), CHECK_TIMEOUT);
-            let subnet_id = principal!(MAINNET_ROOT_SUBNET_ID);
-            let fetcher = NodesFetcher::new(reqwest_client, subnet_id, None);
-            let route_provider =
-                DynamicRouteProviderBuilder::from_components(
-                    api_seed_nodes,
-                    Arc::new(fetcher),
-                    Arc::new(checker),
-                    cli.ic.ic_use_k_top_api_nodes,
-                )
-                .build();
+            let route_provider = DynamicRouteProviderBuilder::new(
+                api_seed_nodes,
+                Arc::new(reqwest_client),
+                cli.ic.ic_use_k_top_api_nodes,
+            )
+            .build();
 
             Arc::new(route_provider)
         };

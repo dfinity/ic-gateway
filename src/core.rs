@@ -34,9 +34,8 @@ use crate::{
     routing::{
         self,
         ic::{
-            create_agent,
+            MAINNET_ROOT_SUBNET_ID, create_agent,
             http_service::AgentHttpService,
-            nodes_fetcher::MAINNET_ROOT_SUBNET_ID,
             route_provider::{RouteProviderWrapper, setup_route_provider},
         },
     },
