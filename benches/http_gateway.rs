@@ -24,7 +24,7 @@ use ic_bn_lib::{
 };
 use ic_bn_lib_common::{principal, types::http::ConnInfo};
 use ic_http_certification::HttpRequest;
-use ic_http_gateway::{CanisterRequest, HttpGatewayClientBuilder};
+use ic_http_gateway_protocol::{CanisterRequest, HttpGatewayClientBuilder};
 use uuid::Uuid;
 
 use ic_gateway::{
