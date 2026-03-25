@@ -155,7 +155,3 @@ path = "tools/create_acme_account.rs"
 [[bin]]
 name = "cloudflare-check"
 path = "tools/cloudflare_check.rs"
-
-[[bin]]
-name = "gen-testdata"
-path = "tools/gen_testdata.rs"
