@@ -3099,7 +3099,7 @@ dependencies = [
  "ic-custom-domains-backend",
  "ic-custom-domains-base",
  "ic-http-certification 3.1.0",
- "ic-http-gateway",
+ "ic-http-gateway-protocol",
  "ic-transport-types 0.47.0",
  "itertools 0.14.0",
  "lazy_static",
@@ -3167,14 +3167,6 @@ dependencies = [
  "serde_cbor",
  "thiserror 1.0.69",
  "urlencoding",
-]
-
-[[package]]
-name = "ic-http-gateway"
-version = "0.0.0-git"
-source = "git+https://github.com/dfinity/ic-http-gateway-protocol?tag=v0.5.1#ec1a288ec9f02cd3a398be429a30399844bca2e4"
-dependencies = [
- "ic-http-gateway-protocol",
 ]
 
 [[package]]

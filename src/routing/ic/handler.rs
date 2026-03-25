@@ -9,7 +9,7 @@ use bytes::Bytes;
 use http::{HeaderValue, StatusCode, header::HOST};
 use ic_bn_lib::http::{body::buffer_body, headers::X_REQUEST_ID};
 use ic_bn_lib_common::types::http::{ConnInfo, Error as HttpError};
-use ic_http_gateway::{CanisterRequest, HttpGatewayClient, HttpGatewayRequestArgs};
+use ic_http_gateway_protocol::{CanisterRequest, HttpGatewayClient, HttpGatewayRequestArgs};
 
 use crate::routing::{
     CanisterId, RequestCtx,

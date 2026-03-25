@@ -54,7 +54,7 @@ ic-custom-domains-backend = "0.1"
 ic-custom-domains-base = "0.1"
 ic-http-certification = { version = "3.1.0", optional = true }
 ic-transport-types = "0.47"
-ic-http-gateway = { git = "https://github.com/dfinity/ic-http-gateway-protocol", tag = "v0.5.1" }
+ic-http-gateway-protocol = { package = "ic-http-gateway-protocol", git = "https://github.com/dfinity/ic-http-gateway-protocol", tag = "v0.5.1" }
 itertools = "0.14.0"
 lazy_static = "1.5.0"
 maxminddb = "0.27.0"
