@@ -1,32 +1,6 @@
 use candid::{CandidType, Deserialize, Int, Nat, Principal};
 
 #[derive(CandidType, Deserialize, Clone, Debug)]
-pub struct Whoami {
-    pub id: String,
-    pub account_cycle_balance: Option<AccountCycleBalances>,
-    pub am_gateway: bool,
-    pub am_admin: bool,
-    pub cashier_principal: Principal,
-    pub am_anonymous: bool,
-    pub caller_principal: Principal,
-}
-
-#[derive(CandidType, Deserialize, Clone, Debug)]
-pub struct AccountCycleBalances {
-    pub total: Int,
-    pub cycles_prepaid: Int,
-    pub cycles_promo: Int,
-    pub debt_target: DebtTarget,
-    pub cycles_ledger: Int,
-}
-
-#[derive(CandidType, Deserialize, Clone, Debug)]
-pub enum DebtTarget {
-    Prepaid,
-    Ledger,
-}
-
-#[derive(CandidType, Deserialize, Clone, Debug)]
 pub enum Factor {
     G,
     K,

@@ -86,24 +86,16 @@ impl fmt::Debug for CashierConnector {
 
 impl CashierConnector {
     pub async fn new(client: Arc<CashierClient>, gateway_name: Option<String>) -> Result<Self, Error> {
-        let whoami = client.whoami().await?;
-        if !whoami.am_gateway {
-            anyhow::bail!(
-                "caller {} is not a registered gateway on cashier {}",
-                whoami.caller_principal,
-                whoami.cashier_principal,
-            );
-        }
-
+        let principal = client.principal()?;
         let pricelist = client.pricelist_v1().await?;
         let gateway_id = GatewayId {
-            principal: whoami.caller_principal,
+            principal,
             name: gateway_name,
         };
 
         warn!(
             gateway = %gateway_id.principal,
-            cashier = %whoami.cashier_principal,
+            cashier = %client.canister_id(),
             "CashierConnector initialized"
         );
 

@@ -3,14 +3,12 @@ use std::sync::Arc;
 use anyhow::{Context, Error};
 use candid::{Decode, Principal};
 use ic_bn_lib::ic_agent::Agent;
-use tracing::warn;
 
 use super::types::*;
 
 /// Client for calling the cashier canister using the gateway's existing Agent.
 ///
-/// Provides the same 4 methods that the object-storage gateway needs:
-/// - `whoami` (query) — verify the caller is a registered gateway
+/// Provides 3 methods:
 /// - `pricelist_v1` (query) — load pricing for cost calculation
 /// - `budget_get_v1` (query) — check per-owner credit/budget
 /// - `storage_usage_set_batch_v1` (update) — report usage counters
@@ -28,22 +26,11 @@ impl CashierClient {
         &self.canister_id
     }
 
-    /// Query: returns information about the caller (gateway registration check).
-    pub async fn whoami(&self) -> Result<Whoami, Error> {
-        let encoded_args =
-            candid::encode_args(()).context("failed to encode whoami args")?;
-
-        let response_bytes = self
-            .agent
-            .query(&self.canister_id, "whoami")
-            .with_arg(encoded_args)
-            .call()
-            .await
-            .context("whoami query failed")?;
-
-        let response =
-            Decode!(&response_bytes, Whoami).context("failed to decode whoami response")?;
-        Ok(response)
+    /// Returns the principal of the agent's identity.
+    pub fn principal(&self) -> Result<Principal, Error> {
+        self.agent
+            .get_principal()
+            .map_err(|e| anyhow::anyhow!("failed to get agent principal: {e}"))
     }
 
     /// Query: returns the pricing for storage operations.
@@ -106,21 +93,4 @@ impl CashierClient {
         Ok(response)
     }
 
-    /// Health check: calls whoami and verifies this agent is registered as a gateway.
-    pub async fn health_check(&self) -> Result<(), Error> {
-        let me = self.whoami().await?;
-        if !me.am_gateway {
-            anyhow::bail!(
-                "caller {} is not registered as a gateway on cashier {}",
-                me.caller_principal,
-                me.cashier_principal
-            );
-        }
-        warn!(
-            caller = %me.caller_principal,
-            cashier = %me.cashier_principal,
-            "Cashier health check passed: registered as gateway"
-        );
-        Ok(())
-    }
 }
