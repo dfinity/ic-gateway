@@ -34,19 +34,10 @@ const BODY_READ_TIMEOUT: Duration = Duration::from_secs(60);
 // Header constants
 // ---------------------------------------------------------------------------
 
-const CORS_ORIGIN: header::HeaderValue = hval!("*");
-const CORS_METHODS: header::HeaderValue = hval!("GET, PUT, HEAD, DELETE, OPTIONS");
-const CORS_HEADERS_VAL: header::HeaderValue = hval!("Content-Type");
 const CONTENT_TYPE_OCTET: header::HeaderValue = hval!("application/octet-stream");
 const CONTENT_TYPE_JSON: header::HeaderValue = hval!("application/json");
 const CONTENT_TYPE_TEXT: header::HeaderValue = hval!("text/plain");
 const ACCEPT_RANGES_BYTES: header::HeaderValue = hval!("bytes");
-
-fn cors_headers(headers: &mut HeaderMap) {
-    headers.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, CORS_ORIGIN);
-    headers.insert(header::ACCESS_CONTROL_ALLOW_METHODS, CORS_METHODS);
-    headers.insert(header::ACCESS_CONTROL_ALLOW_HEADERS, CORS_HEADERS_VAL);
-}
 
 // ---------------------------------------------------------------------------
 // Query param structs
@@ -175,11 +166,8 @@ impl ByteRange {
 }
 
 fn range_not_satisfiable(total: u64) -> Response {
-    let mut headers = HeaderMap::new();
-    cors_headers(&mut headers);
     (
         StatusCode::RANGE_NOT_SATISFIABLE,
-        headers,
         format!("range not satisfiable; available length: {total}"),
     )
         .into_response()
@@ -306,7 +294,7 @@ pub async fn head_blob(
     let meta = load_blob_metadata(&state.bucket, &owner, &q.blob_hash).await?;
 
     let mut headers = HeaderMap::new();
-    cors_headers(&mut headers);
+
     headers.insert(header::CONTENT_LENGTH, meta.num_blob_bytes.into());
     headers.insert(header::ACCEPT_RANGES, ACCEPT_RANGES_BYTES);
 
@@ -387,7 +375,7 @@ pub async fn get_blob(
         };
 
         let mut headers = HeaderMap::new();
-        cors_headers(&mut headers);
+    
         headers.insert(header::CONTENT_LENGTH, content_length.into());
         headers.insert(header::ACCEPT_RANGES, ACCEPT_RANGES_BYTES);
         headers.insert(header::CONTENT_TYPE, CONTENT_TYPE_OCTET);
@@ -436,7 +424,7 @@ pub async fn get_blob(
         };
 
         let mut headers = HeaderMap::new();
-        cors_headers(&mut headers);
+    
         headers.insert(header::CONTENT_LENGTH, total_bytes.into());
         headers.insert(header::ACCEPT_RANGES, ACCEPT_RANGES_BYTES);
         headers.insert(header::CONTENT_TYPE, CONTENT_TYPE_OCTET);
@@ -480,7 +468,7 @@ pub async fn get_blob_tree(
         .ok_or_else(|| (StatusCode::NOT_FOUND, "blob not found").into_response())?;
 
     let mut headers = HeaderMap::new();
-    cors_headers(&mut headers);
+
     headers.insert(header::CONTENT_TYPE, CONTENT_TYPE_JSON);
 
     Ok((StatusCode::OK, headers, data).into_response())
@@ -510,7 +498,7 @@ pub async fn get_chunk(
         .ok_or_else(|| (StatusCode::NOT_FOUND, "chunk not found").into_response())?;
 
     let mut headers = HeaderMap::new();
-    cors_headers(&mut headers);
+
     headers.insert(header::CONTENT_TYPE, CONTENT_TYPE_OCTET);
 
     Ok((StatusCode::OK, headers, data).into_response())

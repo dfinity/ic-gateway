@@ -6,6 +6,8 @@ use axum::{
     Router,
     routing::{delete, get, head, put},
 };
+use http::{Method, header::CONTENT_TYPE};
+use tower_http::cors::{Any, CorsLayer};
 
 use crate::{cashier::CashierConnector, s3::bucket::BucketLike, storage::auth::IngressAuth};
 
@@ -18,6 +20,17 @@ pub struct StorageState {
 }
 
 pub fn storage_router(state: StorageState) -> Router {
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods([
+            Method::GET,
+            Method::PUT,
+            Method::HEAD,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers([CONTENT_TYPE]);
+
     Router::new()
         .route("/blob", get(handlers::get_blob))
         .route("/blob", head(handlers::head_blob))
@@ -27,5 +40,6 @@ pub fn storage_router(state: StorageState) -> Router {
         .route("/chunk", get(handlers::get_chunk))
         .route("/chunk", put(handlers::put_chunk))
         .route("/owner", delete(handlers::delete_owner))
+        .layer(cors)
         .with_state(state)
 }
