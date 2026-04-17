@@ -1,4 +1,4 @@
-pub mod handlers;
+pub mod handler;
 
 use std::sync::Arc;
 
@@ -18,7 +18,6 @@ use crate::{
     storage::auth::{AuthError, IngressAuth},
 };
 
-#[derive(Clone)]
 pub struct StorageState {
     pub connector: Arc<CashierConnector>,
     pub bucket: Arc<dyn BucketLike>,
@@ -97,14 +96,14 @@ pub fn storage_router(state: StorageState) -> Router {
         .allow_headers([CONTENT_TYPE]);
 
     Router::new()
-        .route("/blob", get(handlers::get_blob))
-        .route("/blob", head(handlers::head_blob))
-        .route("/blob-tree", get(handlers::get_blob_tree))
-        .route("/blob-tree", put(handlers::put_blob_tree))
-        .route("/blob-tree", delete(handlers::delete_blob_tree_disabled))
-        .route("/chunk", get(handlers::get_chunk))
-        .route("/chunk", put(handlers::put_chunk))
-        .route("/owner", delete(handlers::delete_owner))
+        .route("/blob", get(handler::get_blob))
+        .route("/blob", head(handler::head_blob))
+        .route("/blob-tree", get(handler::get_blob_tree))
+        .route("/blob-tree", put(handler::put_blob_tree))
+        .route("/blob-tree", delete(handler::delete_blob_tree_disabled))
+        .route("/chunk", get(handler::get_chunk))
+        .route("/chunk", put(handler::put_chunk))
+        .route("/owner", delete(handler::delete_owner))
         .layer(cors)
-        .with_state(state)
+        .with_state(Arc::new(state))
 }

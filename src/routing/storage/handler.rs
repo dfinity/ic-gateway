@@ -27,12 +27,11 @@ use crate::{
 
 use super::{StorageError, StorageState};
 
+type S = Arc<StorageState>;
+
 const BODY_READ_TIMEOUT: Duration = Duration::from_secs(60);
 
-// ---------------------------------------------------------------------------
 // Query param structs
-// ---------------------------------------------------------------------------
-
 #[derive(Deserialize)]
 pub struct BlobQuery {
     pub owner_id: String,
@@ -59,9 +58,7 @@ pub struct OwnerQuery {
     pub owner_id: String,
 }
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 /// Build response headers for a blob/chunk download: Content-Length, Accept-Ranges, Content-Type,
 /// plus any custom headers stored in the blob metadata.
@@ -108,10 +105,7 @@ async fn load_blob_metadata(
         .map_err(|e| StorageError::Internal(format!("corrupt blob metadata: {e}")))
 }
 
-// ---------------------------------------------------------------------------
 // Range parsing (RFC 7233 single-range only)
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Clone)]
 enum ByteRange {
     Inclusive(u64, u64),
@@ -214,10 +208,6 @@ fn range_to_chunk_ranges(range: &Range<u64>) -> (Range<usize>, usize, usize) {
     (start_chunk..end_chunk, start_offset, end_offset)
 }
 
-// ---------------------------------------------------------------------------
-// DELETE /owner host gate
-// ---------------------------------------------------------------------------
-
 fn check_delete_owner_host(
     host: Option<&str>,
     allowed_env: Option<&str>,
@@ -252,12 +242,9 @@ fn check_delete_owner_host(
     }
 }
 
-// ---------------------------------------------------------------------------
-// HEAD /v1/blob?owner_id=...&blob_hash=...
-// ---------------------------------------------------------------------------
-
+// HEAD /v1/blob
 pub async fn head_blob(
-    State(state): State<StorageState>,
+    State(state): State<S>,
     Query(q): Query<BlobQuery>,
 ) -> Result<Response, StorageError> {
     let owner = parse_principal(&q.owner_id)?;
@@ -278,12 +265,9 @@ pub async fn head_blob(
     Ok((StatusCode::OK, headers).into_response())
 }
 
-// ---------------------------------------------------------------------------
-// GET /v1/blob?owner_id=...&blob_hash=...  (with Range support)
-// ---------------------------------------------------------------------------
-
+// GET /v1/blob (with Range support)
 pub async fn get_blob(
-    State(state): State<StorageState>,
+    State(state): State<S>,
     req_headers: HeaderMap,
     Query(q): Query<BlobQuery>,
 ) -> Result<Response, StorageError> {
@@ -380,12 +364,9 @@ pub async fn get_blob(
     }
 }
 
-// ---------------------------------------------------------------------------
-// GET /v1/blob-tree?owner_id=...&blob_hash=...
-// ---------------------------------------------------------------------------
-
+// GET /v1/blob-tree
 pub async fn get_blob_tree(
-    State(state): State<StorageState>,
+    State(state): State<S>,
     Query(q): Query<BlobQuery>,
 ) -> Result<Response, StorageError> {
     let owner = parse_principal(&q.owner_id)?;
@@ -410,12 +391,9 @@ pub async fn get_blob_tree(
     Ok((StatusCode::OK, headers, data).into_response())
 }
 
-// ---------------------------------------------------------------------------
-// GET /v1/chunk?owner_id=...&root_hash=...&chunk_hash=...
-// ---------------------------------------------------------------------------
-
+// GET /v1/chunk
 pub async fn get_chunk(
-    State(state): State<StorageState>,
+    State(state): State<S>,
     Query(q): Query<ChunkGetQuery>,
 ) -> Result<Response, StorageError> {
     let owner = parse_principal(&q.owner_id)?;
@@ -440,12 +418,9 @@ pub async fn get_chunk(
     Ok((StatusCode::OK, headers, data).into_response())
 }
 
-// ---------------------------------------------------------------------------
-// PUT /v1/blob-tree  (JSON body, with auth)
-// ---------------------------------------------------------------------------
-
+// PUT /v1/blob-tree (JSON body, with auth)
 pub async fn put_blob_tree(
-    State(state): State<StorageState>,
+    State(state): State<S>,
     body: Body,
 ) -> Result<Response, StorageError> {
     let body_bytes = buffer_body(body, MAX_REQUEST_BODY_SIZE, BODY_READ_TIMEOUT)
@@ -512,12 +487,9 @@ pub async fn put_blob_tree(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-// ---------------------------------------------------------------------------
-// PUT /v1/chunk?owner_id=...&blob_hash=...&chunk_index=N
-// ---------------------------------------------------------------------------
-
+// PUT /v1/chunk
 pub async fn put_chunk(
-    State(state): State<StorageState>,
+    State(state): State<S>,
     Query(q): Query<ChunkPutQuery>,
     body: Body,
 ) -> Result<Response, StorageError> {
@@ -576,12 +548,9 @@ pub async fn put_chunk(
     .into_response())
 }
 
-// ---------------------------------------------------------------------------
-// DELETE /v1/owner?owner_id=...
-// ---------------------------------------------------------------------------
-
+// DELETE /v1/owner
 pub async fn delete_owner(
-    State(state): State<StorageState>,
+    State(state): State<S>,
     Host(host): Host,
     Query(q): Query<OwnerQuery>,
 ) -> Result<Response, StorageError> {
@@ -642,10 +611,7 @@ async fn delete_all_with_prefix(
     Ok(deleted_any)
 }
 
-// ---------------------------------------------------------------------------
 // DELETE /v1/blob-tree — intentionally disabled (405)
-// ---------------------------------------------------------------------------
-
 pub async fn delete_blob_tree_disabled() -> impl IntoResponse {
     (
         StatusCode::METHOD_NOT_ALLOWED,
