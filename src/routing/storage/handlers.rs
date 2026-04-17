@@ -34,10 +34,7 @@ const BODY_READ_TIMEOUT: Duration = Duration::from_secs(60);
 // Header constants
 // ---------------------------------------------------------------------------
 
-const CONTENT_TYPE_OCTET: header::HeaderValue = hval!("application/octet-stream");
-const CONTENT_TYPE_JSON: header::HeaderValue = hval!("application/json");
-const CONTENT_TYPE_TEXT: header::HeaderValue = hval!("text/plain");
-const ACCEPT_RANGES_BYTES: header::HeaderValue = hval!("bytes");
+use crate::routing::{ACCEPT_RANGES_BYTES, CONTENT_TYPE_JSON, CONTENT_TYPE_OCTET};
 
 // ---------------------------------------------------------------------------
 // Query param structs
@@ -382,7 +379,7 @@ pub async fn get_blob(
         let cr = format!("bytes {}-{}/{total_bytes}", range.start, range.end - 1);
         headers.insert(
             header::CONTENT_RANGE,
-            cr.parse().unwrap_or_else(|_| CONTENT_TYPE_TEXT),
+            cr.parse().expect("Content-Range value is always valid ASCII"),
         );
 
         for pair in meta.headers.chunks(2) {

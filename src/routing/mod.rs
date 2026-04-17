@@ -83,6 +83,8 @@ use {
 };
 
 pub const CONTENT_TYPE_JSON: HeaderValue = hval!("application/json");
+pub const CONTENT_TYPE_OCTET: HeaderValue = hval!("application/octet-stream");
+pub const ACCEPT_RANGES_BYTES: HeaderValue = hval!("bytes");
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash)]
 pub struct CanisterId(pub Principal);
