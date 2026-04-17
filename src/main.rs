@@ -14,15 +14,12 @@ use tracing::warn;
 use crate::cli::Cli;
 
 mod api;
-mod cashier;
 mod cli;
 mod core;
 mod log;
 mod metrics;
 mod policy;
 mod routing;
-mod s3;
-mod storage;
 #[cfg(any(test, feature = "bench"))]
 pub mod test;
 mod tls;

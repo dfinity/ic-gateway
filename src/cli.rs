@@ -546,6 +546,10 @@ pub struct CashierConfig {
     #[clap(env, long)]
     pub cashier_canister_id: Option<Principal>,
 
+    /// How frequently to report accumulated usage counters to the cashier canister
+    #[clap(env, long, default_value = "10s", value_parser = parse_duration)]
+    pub cashier_usage_report_interval: Duration,
+
     /// Skip IC egress certificate verification on PUT /blob-tree.
     /// Use only for local development / testing.
     #[clap(env, long)]

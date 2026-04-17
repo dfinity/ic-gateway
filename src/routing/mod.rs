@@ -64,7 +64,7 @@ use crate::{
     routing::middleware::{
         canister_match, cors, geoip, headers, preprocess, request_id, validate,
     },
-    s3::bucket::BucketLike,
+    routing::storage::BucketLike,
 };
 use domain::{CustomDomainStorage, DomainResolver};
 use middleware::{
@@ -221,8 +221,8 @@ pub async fn setup_router(
     custom_domains_router: Option<Router>,
     subnets_info: Arc<ArcSwapOption<SubnetsInfo>>,
     s3_bucket: Option<Arc<dyn BucketLike>>,
-    cashier_connector: Option<Arc<crate::cashier::CashierConnector>>,
-    ingress_auth: Arc<dyn crate::storage::auth::IngressAuth>,
+    cashier_connector: Option<Arc<storage::CashierConnector>>,
+    ingress_auth: Arc<dyn storage::IngressAuth>,
     allowed_delete_owner_hosts: Option<String>,
 ) -> Result<Router, Error> {
     // Setup API router

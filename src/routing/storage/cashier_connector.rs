@@ -12,13 +12,12 @@ use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
 
-use super::client::CashierClient;
-use super::types::*;
-use crate::storage::ONE_MIB;
+use super::cashier_client::CashierClient;
+use super::cashier_types::*;
+use super::types::ONE_MIB;
 
 const BUDGET_TTL: Duration = Duration::from_secs(30);
 const BUDGET_REFRESH_DELAY: Duration = Duration::from_secs(5);
-const REPORT_INTERVAL: Duration = Duration::from_secs(10);
 
 #[derive(Debug, Clone)]
 pub enum BillingError {
@@ -71,7 +70,6 @@ pub struct CashierConnector {
     pricelist: Pricelist,
     budgets: RwLock<HashMap<Principal, CachedBudget>>,
     usage: RwLock<HashMap<Principal, OwnerUsage>>,
-    last_report: RwLock<Instant>,
     healthy: AtomicBool,
 }
 
@@ -105,7 +103,6 @@ impl CashierConnector {
             pricelist,
             budgets: RwLock::new(HashMap::new()),
             usage: RwLock::new(HashMap::new()),
-            last_report: RwLock::new(Instant::now()),
             healthy: AtomicBool::new(true),
         })
     }
@@ -146,16 +143,8 @@ impl CashierConnector {
     // Usage reporting
     // -----------------------------------------------------------------------
 
-    /// Flush accumulated usage to cashier if the reporting interval has elapsed.
-    pub async fn maybe_report_usage(&self) {
-        let should_report = {
-            let last = self.last_report.read().await;
-            last.elapsed() >= REPORT_INTERVAL
-        };
-        if !should_report {
-            return;
-        }
-
+    /// Flush accumulated usage counters to the cashier canister.
+    async fn report_usage(&self) {
         if let Err(e) = self.flush_usage().await {
             self.healthy.store(false, Ordering::Relaxed);
             warn!("Failed to report usage to cashier: {e}");
@@ -207,7 +196,6 @@ impl CashierConnector {
             }
         }
 
-        *self.last_report.write().await = Instant::now();
         Ok(())
     }
 
@@ -307,7 +295,7 @@ impl CashierConnector {
 #[async_trait]
 impl Run for CashierConnector {
     async fn run(&self, _token: CancellationToken) -> Result<(), Error> {
-        self.maybe_report_usage().await;
+        self.report_usage().await;
         Ok(())
     }
 }

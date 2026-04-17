@@ -28,10 +28,13 @@ use tracing::warn;
 use tracing_subscriber::{EnvFilter, reload::Handle};
 
 use crate::{
-    cashier::{CashierClient, CashierConnector},
     cli::Cli,
     metrics,
     routing::ic::subnets_info::SubnetsInfoFetcher,
+    routing::storage::{
+        AWSBucket, BucketLike, CashierClient, CashierConnector, IngressAuth, IngressAuthImpl,
+        IngressAuthStub, S3Config,
+    },
     routing::{
         self,
         ic::{
@@ -40,8 +43,6 @@ use crate::{
             route_provider::{RouteProviderWrapper, setup_route_provider},
         },
     },
-    s3::{S3Config, bucket::AWSBucket},
-    storage::auth::{IngressAuth, IngressAuthImpl, IngressAuthStub},
     tls::{self},
 };
 
@@ -279,12 +280,12 @@ pub async fn main(
                 let connector = Arc::new(connector);
                 warn!("CashierConnector initialized (billing enabled)");
 
+                health_manager.add(connector.clone());
                 tasks.add_interval(
                     "cashier_usage_reporter",
                     connector.clone(),
-                    Duration::from_secs(10),
+                    cli.cashier.cashier_usage_report_interval,
                 );
-                health_manager.add(connector.clone());
 
                 Some(connector)
             }
@@ -334,7 +335,7 @@ pub async fn main(
                     intelligent_tiering = tiering,
                     "S3 bucket ready"
                 );
-                Some(Arc::new(bucket) as Arc<dyn crate::s3::bucket::BucketLike>)
+                Some(Arc::new(bucket) as Arc<dyn BucketLike>)
             }
             Err(e) => {
                 warn!("S3 bucket initialization failed (non-fatal): {e}");

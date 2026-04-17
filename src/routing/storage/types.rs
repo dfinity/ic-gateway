@@ -48,8 +48,6 @@ impl BlobHashTree {
             Self::DSBMTWH { tree, .. } => Some(tree.hash.as_str()),
         }
     }
-
-    pub fn num_chunks(&self) -> usize { self.chunk_hashes().len() }
 }
 
 /// A node in the Merkle tree.

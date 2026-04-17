@@ -13,15 +13,14 @@ use ic_bn_lib::http::body::buffer_body;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-use crate::{
-    routing::{ACCEPT_RANGES_BYTES, CONTENT_TYPE_JSON, CONTENT_TYPE_OCTET},
-    s3::bucket::BucketLike,
-    storage::{
-        self,
-        types::{
-            BlobMetadata, MAX_REQUEST_BODY_SIZE, ONE_MIB,
-            PutBlobTreeRequest, PutBlobTreeResponse, PutChunkResponse,
-        },
+use crate::routing::{ACCEPT_RANGES_BYTES, CONTENT_TYPE_JSON, CONTENT_TYPE_OCTET};
+
+use super::{
+    bucket::BucketLike,
+    paths,
+    types::{
+        BlobMetadata, MAX_REQUEST_BODY_SIZE, ONE_MIB, PutBlobTreeRequest, PutBlobTreeResponse,
+        PutChunkResponse,
     },
 };
 
@@ -94,7 +93,7 @@ async fn load_blob_metadata(
     owner: &Principal,
     blob_hash: &str,
 ) -> Result<BlobMetadata, StorageError> {
-    let path = storage::paths::blob_path(owner, blob_hash);
+    let path = paths::blob_path(owner, blob_hash);
     let data = bucket
         .get_object(path)
         .await
@@ -306,7 +305,7 @@ pub async fn get_blob(
                     .map_err(|e| std::io::Error::new(std::io::ErrorKind::PermissionDenied, e.to_string()))?;
 
                 let hash = &hashes[chunk_idx];
-                let path = storage::paths::chunk_path(&owner_c, hash);
+                let path = paths::chunk_path(&owner_c, hash);
                 let data = bucket_c
                     .get_object(path)
                     .await
@@ -347,7 +346,7 @@ pub async fn get_blob(
                     .await
                     .map_err(|e| std::io::Error::new(std::io::ErrorKind::PermissionDenied, e.to_string()))?;
 
-                let path = storage::paths::chunk_path(&owner_c, hash);
+                let path = paths::chunk_path(&owner_c, hash);
                 let data = bucket_c
                     .get_object(path)
                     .await
@@ -377,7 +376,7 @@ pub async fn get_blob_tree(
         .await
         .map_err(|e| StorageError::from(&e))?;
 
-    let path = storage::paths::blob_path(&owner, &q.blob_hash);
+    let path = paths::blob_path(&owner, &q.blob_hash);
     let data = state
         .bucket
         .get_object(path)
@@ -404,7 +403,7 @@ pub async fn get_chunk(
         .await
         .map_err(|e| StorageError::from(&e))?;
 
-    let path = storage::paths::chunk_path(&owner, &q.chunk_hash);
+    let path = paths::chunk_path(&owner, &q.chunk_hash);
     let data = state
         .bucket
         .get_object(path)
@@ -458,7 +457,7 @@ pub async fn put_blob_tree(
     let data = serde_json::to_vec(&metadata)
         .map_err(|e| StorageError::Internal(e.to_string()))?;
 
-    let path = storage::paths::blob_path(&owner, &root_hash);
+    let path = paths::blob_path(&owner, &root_hash);
     state
         .bucket
         .put_object(path, &data)
@@ -470,7 +469,7 @@ pub async fn put_blob_tree(
     let mut chunk_check_errors: usize = 0;
 
     for hash in chunk_hashes {
-        let path = storage::paths::chunk_path(&owner, hash);
+        let path = paths::chunk_path(&owner, hash);
         match state.bucket.object_exists(path).await {
             Ok(true) => existing_chunks.push(hash.clone()),
             Ok(false) => {}
@@ -535,7 +534,7 @@ pub async fn put_chunk(
         .await
         .map_err(|e| StorageError::from(&e))?;
 
-    let path = storage::paths::chunk_path(&owner, expected_hash);
+    let path = paths::chunk_path(&owner, expected_hash);
     state
         .bucket
         .put_object(path, &body)
@@ -558,8 +557,8 @@ pub async fn delete_owner(
 
     check_delete_owner_host(Some(&host), state.allowed_delete_owner_hosts.as_deref())?;
 
-    let blob_prefix = storage::paths::blob_path_owner_prefix(&owner);
-    let chunk_prefix = storage::paths::chunk_path_owner_prefix(&owner);
+    let blob_prefix = paths::blob_path_owner_prefix(&owner);
+    let chunk_prefix = paths::chunk_path_owner_prefix(&owner);
 
     let blobs_deleted = delete_all_with_prefix(&state.bucket, blob_prefix).await?;
     let chunks_deleted = delete_all_with_prefix(&state.bucket, chunk_prefix).await?;

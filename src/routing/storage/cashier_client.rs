@@ -4,7 +4,7 @@ use anyhow::{Context, Error};
 use candid::{Decode, Principal};
 use ic_bn_lib::ic_agent::Agent;
 
-use super::types::*;
+use super::cashier_types::*;
 
 /// Client for calling the cashier canister using the gateway's existing Agent.
 ///

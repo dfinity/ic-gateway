@@ -1,4 +1,12 @@
+pub mod auth;
+pub mod bucket;
+pub mod bucket_config;
+pub mod cashier_client;
+pub mod cashier_connector;
+pub mod cashier_types;
 pub mod handler;
+pub mod paths;
+pub mod types;
 
 use std::sync::Arc;
 
@@ -12,10 +20,17 @@ use http::{Method, header::CONTENT_TYPE};
 use ic_bn_lib::hval;
 use tower_http::cors::{Any, CorsLayer};
 
-use crate::{
-    cashier::{CashierConnector, connector::BillingError},
-    s3::bucket::BucketLike,
-    storage::auth::{AuthError, IngressAuth},
+use self::{
+    auth::AuthError,
+    cashier_connector::BillingError,
+};
+
+pub use self::{
+    auth::{IngressAuth, IngressAuthImpl, IngressAuthStub},
+    bucket::{AWSBucket, BucketLike},
+    bucket_config::S3Config,
+    cashier_client::CashierClient,
+    cashier_connector::CashierConnector,
 };
 
 pub struct StorageState {
