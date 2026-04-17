@@ -28,6 +28,7 @@ use tracing::warn;
 use tracing_subscriber::{EnvFilter, reload::Handle};
 
 use crate::{
+    cashier::{CashierClient, CashierConnector},
     cli::Cli,
     metrics,
     routing::ic::subnets_info::SubnetsInfoFetcher,
@@ -39,6 +40,8 @@ use crate::{
             route_provider::{RouteProviderWrapper, setup_route_provider},
         },
     },
+    s3::{S3Config, bucket::AWSBucket},
+    storage::auth::{IngressAuth, IngressAuthImpl, IngressAuthStub},
     tls::{self},
 };
 
@@ -254,7 +257,9 @@ pub async fn main(
 
     let root_subnet_id = principal!(MAINNET_ROOT_SUBNET_ID);
 
-    let fetcher = Arc::new(SubnetsInfoFetcher::new(Arc::new(agent), root_subnet_id));
+    let agent = Arc::new(agent);
+
+    let fetcher = Arc::new(SubnetsInfoFetcher::new(agent.clone(), root_subnet_id));
     let subnets_info = fetcher.info.clone();
 
     health_manager.add(fetcher.clone());
@@ -263,6 +268,82 @@ pub async fn main(
         fetcher,
         cli.domain.subnets_info_poll_interval,
     );
+
+    // Setup Cashier client + billing connector
+    let cashier_connector = if let Some(canister_id) = cli.cashier.cashier_canister_id {
+        let cashier_client = Arc::new(CashierClient::new(agent.clone(), canister_id));
+        warn!("Cashier client configured for canister {canister_id}");
+
+        match CashierConnector::new(cashier_client, Some(HOSTNAME.get().unwrap().clone())).await {
+            Ok(connector) => {
+                let connector = Arc::new(connector);
+                warn!("CashierConnector initialized (billing enabled)");
+
+                tasks.add_interval(
+                    "cashier_usage_reporter",
+                    connector.clone(),
+                    Duration::from_secs(10),
+                );
+                health_manager.add(connector.clone());
+
+                Some(connector)
+            }
+            Err(e) => {
+                warn!("CashierConnector init failed (non-fatal, billing disabled): {e:#}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    // Setup ingress auth for PUT /blob-tree
+    let ingress_auth: Arc<dyn IngressAuth> = if cli.cashier.fake_ingress_auth {
+        warn!("Using fake ingress auth (certificate verification disabled)");
+        Arc::new(IngressAuthStub)
+    } else {
+        Arc::new(IngressAuthImpl::new(agent.clone()))
+    };
+
+    // Setup S3 storage backend (single bucket)
+    let s3_bucket = if let Some(ref endpoint) = cli.s3.s3_endpoint {
+        let s3_config = S3Config::new(
+            endpoint.clone(),
+            cli.s3.s3_access_key.clone(),
+            cli.s3.s3_secret_key.clone(),
+            cli.s3.s3_bucket.clone(),
+            cli.s3.s3_region.clone(),
+            cli.s3.s3_session_token.clone(),
+        );
+        warn!(
+            endpoint = %endpoint,
+            bucket = %s3_config.bucket_name,
+            region = %s3_config.region,
+            "Initializing S3 storage backend"
+        );
+
+        match AWSBucket::new(s3_config).await {
+            Ok(bucket) => {
+                let tiering = if bucket.supports_intelligent_tiering() {
+                    "enabled"
+                } else {
+                    "disabled"
+                };
+                warn!(
+                    bucket = %cli.s3.s3_bucket,
+                    intelligent_tiering = tiering,
+                    "S3 bucket ready"
+                );
+                Some(Arc::new(bucket) as Arc<dyn crate::s3::bucket::BucketLike>)
+            }
+            Err(e) => {
+                warn!("S3 bucket initialization failed (non-fatal): {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     // Setup WAF
     let waf_layer = if cli.waf.waf_enable {
@@ -292,6 +373,10 @@ pub async fn main(
         waf_layer,
         custom_domains_router,
         subnets_info,
+        s3_bucket,
+        cashier_connector,
+        ingress_auth,
+        cli.cashier.allow_delete_owner_from_host.clone(),
     )
     .await
     .context("unable to setup Axum router")?;

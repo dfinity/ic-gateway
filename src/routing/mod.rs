@@ -3,6 +3,7 @@ pub mod error_cause;
 pub mod ic;
 pub mod middleware;
 pub mod proxy;
+pub mod storage;
 
 use std::{net::IpAddr, ops::Deref, str::FromStr, sync::Arc, time::Duration};
 
@@ -60,7 +61,10 @@ use crate::{
     cli::Cli,
     metrics::{self},
     routing::ic::subnets_info::SubnetsInfo,
-    routing::middleware::{canister_match, cors, geoip, headers, preprocess, request_id, validate},
+    routing::middleware::{
+        canister_match, cors, geoip, headers, preprocess, request_id, validate,
+    },
+    s3::bucket::BucketLike,
 };
 use domain::{CustomDomainStorage, DomainResolver};
 use middleware::{
@@ -214,6 +218,10 @@ pub async fn setup_router(
     waf_layer: Option<WafLayer>,
     custom_domains_router: Option<Router>,
     subnets_info: Arc<ArcSwapOption<SubnetsInfo>>,
+    s3_bucket: Option<Arc<dyn BucketLike>>,
+    cashier_connector: Option<Arc<crate::cashier::CashierConnector>>,
+    ingress_auth: Arc<dyn crate::storage::auth::IngressAuth>,
+    allowed_delete_owner_hosts: Option<String>,
 ) -> Result<Router, Error> {
     // Setup API router
     let router_api = setup_api_router(
@@ -533,6 +541,18 @@ pub async fn setup_router(
             ]))
     });
 
+    // Build optional storage router (blob/chunk CRUD under /v1/)
+    // Requires both S3 bucket and cashier connector to be configured.
+    let storage_router = s3_bucket.zip(cashier_connector).map(|(bucket, connector)| {
+        let state = storage::StorageState {
+            connector,
+            bucket,
+            ingress_auth: ingress_auth.clone(),
+            allowed_delete_owner_hosts: allowed_delete_owner_hosts.clone(),
+        };
+        storage::storage_router(state)
+    });
+
     // Top-level router
     #[allow(unused_mut)]
     let mut router = Router::new()
@@ -577,6 +597,10 @@ pub async fn setup_router(
             },
         )
         .layer(common_layers);
+
+    if let Some(sr) = storage_router {
+        router = router.nest("/v1", sr);
+    }
 
     #[cfg(all(target_os = "linux", feature = "sev-snp"))]
     if cli.sev_snp.sev_snp_enable {

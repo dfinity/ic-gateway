@@ -17,6 +17,8 @@ use ic_bn_lib_common::{
 };
 use reqwest::Url;
 
+use candid::Principal;
+
 use crate::{
     core::{AUTHOR_NAME, SERVICE_NAME},
     routing::{RequestType, domain::CanisterAlias},
@@ -90,6 +92,12 @@ pub struct Cli {
 
     #[command(flatten, next_help_heading = "Cache")]
     pub cache: CacheConfig,
+
+    #[command(flatten, next_help_heading = "Cashier")]
+    pub cashier: CashierConfig,
+
+    #[command(flatten, next_help_heading = "S3 Storage")]
+    pub s3: S3Storage,
 
     #[command(flatten, next_help_heading = "Shedding System")]
     pub shed_system: ShedSystemCli,
@@ -529,6 +537,52 @@ pub struct CacheConfig {
     /// Value of 0.0 would effectively disable the x-fetch algorithm.
     #[clap(env, long, default_value = "3.0")]
     pub cache_xfetch_beta: f64,
+}
+
+#[derive(Args)]
+pub struct CashierConfig {
+    /// Canister ID of the cashier backend.
+    /// When set, the gateway will connect to this canister for billing and budget checks.
+    #[clap(env, long)]
+    pub cashier_canister_id: Option<Principal>,
+
+    /// Skip IC egress certificate verification on PUT /blob-tree.
+    /// Use only for local development / testing.
+    #[clap(env, long)]
+    pub fake_ingress_auth: bool,
+
+    /// Comma-separated list of hosts allowed to call DELETE /owner.
+    /// If unset, owner deletion is unrestricted.
+    #[clap(env = "ALLOW_DELETE_OWNER_FROM_HOST", long)]
+    pub allow_delete_owner_from_host: Option<String>,
+}
+
+#[derive(Args)]
+pub struct S3Storage {
+    /// S3-compatible endpoint URL (e.g. http://localhost:9000 for MinIO).
+    /// When set together with other S3_* options, enables S3 storage backend.
+    #[clap(env, long)]
+    pub s3_endpoint: Option<String>,
+
+    /// S3 access key
+    #[clap(env, long, default_value = "root-user")]
+    pub s3_access_key: String,
+
+    /// S3 secret key
+    #[clap(env, long, default_value = "password")]
+    pub s3_secret_key: String,
+
+    /// S3 bucket name (used as the default / fallback bucket for health checks)
+    #[clap(env, long, default_value = "ic-gateway-storage")]
+    pub s3_bucket: String,
+
+    /// S3 region
+    #[clap(env, long, default_value = "us-east-1")]
+    pub s3_region: String,
+
+    /// S3 session token (for temporary credentials, e.g. Okta-based AWS access)
+    #[clap(env, long)]
+    pub s3_session_token: Option<String>,
 }
 
 #[derive(Args)]
