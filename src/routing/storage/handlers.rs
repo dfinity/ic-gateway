@@ -9,16 +9,15 @@ use axum::{
 };
 use axum_extra::extract::Host;
 use candid::Principal;
-use ic_bn_lib::{hval, http::body::buffer_body};
+use ic_bn_lib::http::body::buffer_body;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 use crate::{
-    cashier::connector::BillingError,
+    routing::{ACCEPT_RANGES_BYTES, CONTENT_TYPE_JSON, CONTENT_TYPE_OCTET},
     s3::bucket::BucketLike,
     storage::{
         self,
-        auth::AuthError,
         types::{
             BlobMetadata, MAX_REQUEST_BODY_SIZE, ONE_MIB,
             PutBlobTreeRequest, PutBlobTreeResponse, PutChunkResponse,
@@ -26,15 +25,9 @@ use crate::{
     },
 };
 
-use super::StorageState;
+use super::{StorageError, StorageState};
 
 const BODY_READ_TIMEOUT: Duration = Duration::from_secs(60);
-
-// ---------------------------------------------------------------------------
-// Header constants
-// ---------------------------------------------------------------------------
-
-use crate::routing::{ACCEPT_RANGES_BYTES, CONTENT_TYPE_JSON, CONTENT_TYPE_OCTET};
 
 // ---------------------------------------------------------------------------
 // Query param structs
@@ -49,8 +42,8 @@ pub struct BlobQuery {
 #[derive(Deserialize)]
 pub struct ChunkGetQuery {
     pub owner_id: String,
-    #[allow(dead_code)]
-    pub root_hash: String,
+    #[serde(alias = "root_hash")]
+    pub _root_hash: String,
     pub chunk_hash: String,
 }
 
@@ -67,59 +60,52 @@ pub struct OwnerQuery {
 }
 
 // ---------------------------------------------------------------------------
-// Error helpers
+// Helpers
 // ---------------------------------------------------------------------------
 
-fn billing_error_response(e: &BillingError) -> Response {
-    match e {
-        BillingError::OwnerNotFound | BillingError::InsufficientBalance => {
-            (StatusCode::FORBIDDEN, e.to_string()).into_response()
-        }
-        BillingError::CashierUnavailable(_) => {
-            (StatusCode::BAD_GATEWAY, e.to_string()).into_response()
+/// Build response headers for a blob/chunk download: Content-Length, Accept-Ranges, Content-Type,
+/// plus any custom headers stored in the blob metadata.
+fn blob_download_headers(content_length: u64, stored_headers: &[String]) -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CONTENT_LENGTH, content_length.into());
+    headers.insert(header::ACCEPT_RANGES, ACCEPT_RANGES_BYTES);
+    headers.insert(header::CONTENT_TYPE, CONTENT_TYPE_OCTET);
+    apply_stored_headers(&mut headers, stored_headers);
+    headers
+}
+
+fn apply_stored_headers(headers: &mut HeaderMap, stored: &[String]) {
+    for pair in stored.chunks(2) {
+        if let [name, value] = pair {
+            if let (Ok(hn), Ok(hv)) = (
+                name.parse::<header::HeaderName>(),
+                value.parse::<header::HeaderValue>(),
+            ) {
+                headers.insert(hn, hv);
+            }
         }
     }
 }
 
-fn auth_error_response(e: &AuthError) -> Response {
-    match e {
-        AuthError::MissingAuth(m) => {
-            let mut headers = HeaderMap::new();
-            headers.insert(
-                header::WWW_AUTHENTICATE,
-                hval!("X-ICP-Canister-Signature"),
-            );
-            (StatusCode::UNAUTHORIZED, headers, m.to_string()).into_response()
-        }
-        AuthError::Forbidden(m) => (StatusCode::FORBIDDEN, m.to_string()).into_response(),
-    }
-}
-
-fn parse_principal(s: &str) -> Result<Principal, Response> {
-    Principal::from_text(s).map_err(|e| {
-        (StatusCode::BAD_REQUEST, format!("invalid owner_id: {e}")).into_response()
-    })
+fn parse_principal(s: &str) -> Result<Principal, StorageError> {
+    Principal::from_text(s)
+        .map_err(|e| StorageError::BadRequest(format!("invalid owner_id: {e}")))
 }
 
 async fn load_blob_metadata(
     bucket: &Arc<dyn BucketLike>,
     owner: &Principal,
     blob_hash: &str,
-) -> Result<BlobMetadata, Response> {
+) -> Result<BlobMetadata, StorageError> {
     let path = storage::paths::blob_path(owner, blob_hash);
     let data = bucket
         .get_object(path)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response())?
-        .ok_or_else(|| (StatusCode::NOT_FOUND, "blob not found").into_response())?;
+        .map_err(|e| StorageError::Internal(e.to_string()))?
+        .ok_or(StorageError::NotFound("blob not found"))?;
 
-    serde_json::from_slice::<BlobMetadata>(&data).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("corrupt blob metadata: {e}"),
-        )
-            .into_response()
-    })
+    serde_json::from_slice::<BlobMetadata>(&data)
+        .map_err(|e| StorageError::Internal(format!("corrupt blob metadata: {e}")))
 }
 
 // ---------------------------------------------------------------------------
@@ -134,27 +120,27 @@ enum ByteRange {
 }
 
 impl ByteRange {
-    fn resolve(&self, total: u64) -> Result<Range<u64>, Response> {
+    fn resolve(&self, total: u64) -> Result<Range<u64>, StorageError> {
         let range = match self {
             Self::Inclusive(s, e) => {
                 if *s <= *e && *e < total {
                     *s..*e + 1
                 } else {
-                    return Err(range_not_satisfiable(total));
+                    return Err(StorageError::RangeNotSatisfiable(total));
                 }
             }
             Self::From(s) => {
                 if *s < total {
                     *s..total
                 } else {
-                    return Err(range_not_satisfiable(total));
+                    return Err(StorageError::RangeNotSatisfiable(total));
                 }
             }
             Self::Last(n) => {
                 if *n <= total {
                     (total - *n)..total
                 } else {
-                    return Err(range_not_satisfiable(total));
+                    return Err(StorageError::RangeNotSatisfiable(total));
                 }
             }
         };
@@ -162,46 +148,38 @@ impl ByteRange {
     }
 }
 
-fn range_not_satisfiable(total: u64) -> Response {
-    (
-        StatusCode::RANGE_NOT_SATISFIABLE,
-        format!("range not satisfiable; available length: {total}"),
-    )
-        .into_response()
-}
-
-fn parse_range_header(headers: &HeaderMap) -> Result<Option<ByteRange>, Response> {
+fn parse_range_header(headers: &HeaderMap) -> Result<Option<ByteRange>, StorageError> {
     let Some(value) = headers.get(header::RANGE) else {
         return Ok(None);
     };
-    let s = value.to_str().map_err(|_| {
-        (StatusCode::BAD_REQUEST, "invalid Range header encoding").into_response()
-    })?;
+    let s = value
+        .to_str()
+        .map_err(|_| StorageError::BadRequest("invalid Range header encoding".into()))?;
 
-    let rest = s.strip_prefix("bytes=").ok_or_else(|| {
-        (StatusCode::BAD_REQUEST, "only bytes ranges are supported").into_response()
-    })?;
+    let rest = s
+        .strip_prefix("bytes=")
+        .ok_or_else(|| StorageError::BadRequest("only bytes ranges are supported".into()))?;
 
     let specs: Vec<&str> = rest.split(',').collect();
     if specs.len() != 1 {
-        return Err(
-            (StatusCode::BAD_REQUEST, "only single-range requests are supported").into_response(),
-        );
+        return Err(StorageError::BadRequest(
+            "only single-range requests are supported".into(),
+        ));
     }
 
     let spec = specs[0].trim();
-    let (start_s, end_s) = spec.split_once('-').ok_or_else(|| {
-        (StatusCode::BAD_REQUEST, "malformed range spec").into_response()
-    })?;
+    let (start_s, end_s) = spec
+        .split_once('-')
+        .ok_or_else(|| StorageError::BadRequest("malformed range spec".into()))?;
 
-    let parse = |s: &str| -> Result<Option<u64>, Response> {
+    let parse = |s: &str| -> Result<Option<u64>, StorageError> {
         let t = s.trim();
         if t.is_empty() {
             Ok(None)
         } else {
-            t.parse::<u64>().map(Some).map_err(|_| {
-                (StatusCode::BAD_REQUEST, "non-numeric range value").into_response()
-            })
+            t.parse::<u64>()
+                .map(Some)
+                .map_err(|_| StorageError::BadRequest("non-numeric range value".into()))
         }
     };
 
@@ -209,14 +187,14 @@ fn parse_range_header(headers: &HeaderMap) -> Result<Option<ByteRange>, Response
     let end = parse(end_s)?;
 
     match (start, end) {
-        (None, None) => Err((StatusCode::BAD_REQUEST, "empty range").into_response()),
+        (None, None) => Err(StorageError::BadRequest("empty range".into())),
         (None, Some(n)) => Ok(Some(ByteRange::Last(n))),
         (Some(s), None) => Ok(Some(ByteRange::From(s))),
         (Some(s), Some(e)) => {
             if s <= e {
                 Ok(Some(ByteRange::Inclusive(s, e)))
             } else {
-                Err((StatusCode::BAD_REQUEST, "range start > end").into_response())
+                Err(StorageError::BadRequest("range start > end".into()))
             }
         }
     }
@@ -243,13 +221,13 @@ fn range_to_chunk_ranges(range: &Range<u64>) -> (Range<usize>, usize, usize) {
 fn check_delete_owner_host(
     host: Option<&str>,
     allowed_env: Option<&str>,
-) -> Result<(), Response> {
+) -> Result<(), StorageError> {
     let Some(allowed_list) = allowed_env else {
         return Ok(());
     };
 
     let host = host.ok_or_else(|| {
-        (StatusCode::FORBIDDEN, "missing Host header for owner deletion").into_response()
+        StorageError::Forbidden("missing Host header for owner deletion".into())
     })?;
 
     let normalize = |h: &str| {
@@ -259,16 +237,18 @@ fn check_delete_owner_host(
     };
 
     let normalized = normalize(host);
-    let allowed: Vec<&str> = allowed_list.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+    let allowed: Vec<&str> = allowed_list
+        .split(',')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
 
     if allowed.iter().any(|a| *a == host || *a == normalized) {
         Ok(())
     } else {
-        Err((
-            StatusCode::FORBIDDEN,
-            format!("host '{host}' is not allowed for owner deletion"),
-        )
-            .into_response())
+        Err(StorageError::Forbidden(format!(
+            "host '{host}' is not allowed for owner deletion"
+        )))
     }
 }
 
@@ -279,32 +259,21 @@ fn check_delete_owner_host(
 pub async fn head_blob(
     State(state): State<StorageState>,
     Query(q): Query<BlobQuery>,
-) -> Result<Response, Response> {
+) -> Result<Response, StorageError> {
     let owner = parse_principal(&q.owner_id)?;
 
     state
         .connector
         .charge_blob_tree_download(&owner)
         .await
-        .map_err(|e| billing_error_response(&e))?;
+        .map_err(|e| StorageError::from(&e))?;
 
     let meta = load_blob_metadata(&state.bucket, &owner, &q.blob_hash).await?;
 
     let mut headers = HeaderMap::new();
-
     headers.insert(header::CONTENT_LENGTH, meta.num_blob_bytes.into());
     headers.insert(header::ACCEPT_RANGES, ACCEPT_RANGES_BYTES);
-
-    for pair in meta.headers.chunks(2) {
-        if let [name, value] = pair {
-            if let (Ok(hn), Ok(hv)) = (
-                name.parse::<header::HeaderName>(),
-                value.parse::<header::HeaderValue>(),
-            ) {
-                headers.insert(hn, hv);
-            }
-        }
-    }
+    apply_stored_headers(&mut headers, &meta.headers);
 
     Ok((StatusCode::OK, headers).into_response())
 }
@@ -317,14 +286,14 @@ pub async fn get_blob(
     State(state): State<StorageState>,
     req_headers: HeaderMap,
     Query(q): Query<BlobQuery>,
-) -> Result<Response, Response> {
+) -> Result<Response, StorageError> {
     let owner = parse_principal(&q.owner_id)?;
 
     state
         .connector
         .charge_blob_tree_download(&owner)
         .await
-        .map_err(|e| billing_error_response(&e))?;
+        .map_err(|e| StorageError::from(&e))?;
 
     let meta = load_blob_metadata(&state.bucket, &owner, &q.blob_hash).await?;
     let chunk_hashes: Vec<String> = meta.hash_tree.chunk_hashes().to_vec();
@@ -371,27 +340,12 @@ pub async fn get_blob(
             }
         };
 
-        let mut headers = HeaderMap::new();
-    
-        headers.insert(header::CONTENT_LENGTH, content_length.into());
-        headers.insert(header::ACCEPT_RANGES, ACCEPT_RANGES_BYTES);
-        headers.insert(header::CONTENT_TYPE, CONTENT_TYPE_OCTET);
+        let mut headers = blob_download_headers(content_length, &meta.headers);
         let cr = format!("bytes {}-{}/{total_bytes}", range.start, range.end - 1);
         headers.insert(
             header::CONTENT_RANGE,
             cr.parse().expect("Content-Range value is always valid ASCII"),
         );
-
-        for pair in meta.headers.chunks(2) {
-            if let [name, value] = pair {
-                if let (Ok(hn), Ok(hv)) = (
-                    name.parse::<header::HeaderName>(),
-                    value.parse::<header::HeaderValue>(),
-                ) {
-                    headers.insert(hn, hv);
-                }
-            }
-        }
 
         Ok((StatusCode::PARTIAL_CONTENT, headers, Body::from_stream(stream)).into_response())
     } else {
@@ -420,22 +374,7 @@ pub async fn get_blob(
             }
         };
 
-        let mut headers = HeaderMap::new();
-    
-        headers.insert(header::CONTENT_LENGTH, total_bytes.into());
-        headers.insert(header::ACCEPT_RANGES, ACCEPT_RANGES_BYTES);
-        headers.insert(header::CONTENT_TYPE, CONTENT_TYPE_OCTET);
-
-        for pair in meta.headers.chunks(2) {
-            if let [name, value] = pair {
-                if let (Ok(hn), Ok(hv)) = (
-                    name.parse::<header::HeaderName>(),
-                    value.parse::<header::HeaderValue>(),
-                ) {
-                    headers.insert(hn, hv);
-                }
-            }
-        }
+        let headers = blob_download_headers(total_bytes, &meta.headers);
 
         Ok((StatusCode::OK, headers, Body::from_stream(stream)).into_response())
     }
@@ -448,24 +387,24 @@ pub async fn get_blob(
 pub async fn get_blob_tree(
     State(state): State<StorageState>,
     Query(q): Query<BlobQuery>,
-) -> Result<Response, Response> {
+) -> Result<Response, StorageError> {
     let owner = parse_principal(&q.owner_id)?;
 
     state
         .connector
         .charge_blob_tree_download(&owner)
         .await
-        .map_err(|e| billing_error_response(&e))?;
+        .map_err(|e| StorageError::from(&e))?;
 
     let path = storage::paths::blob_path(&owner, &q.blob_hash);
-    let data = state.bucket
+    let data = state
+        .bucket
         .get_object(path)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response())?
-        .ok_or_else(|| (StatusCode::NOT_FOUND, "blob not found").into_response())?;
+        .map_err(|e| StorageError::Internal(e.to_string()))?
+        .ok_or(StorageError::NotFound("blob not found"))?;
 
     let mut headers = HeaderMap::new();
-
     headers.insert(header::CONTENT_TYPE, CONTENT_TYPE_JSON);
 
     Ok((StatusCode::OK, headers, data).into_response())
@@ -478,24 +417,24 @@ pub async fn get_blob_tree(
 pub async fn get_chunk(
     State(state): State<StorageState>,
     Query(q): Query<ChunkGetQuery>,
-) -> Result<Response, Response> {
+) -> Result<Response, StorageError> {
     let owner = parse_principal(&q.owner_id)?;
 
     state
         .connector
         .charge_chunk_download(&owner)
         .await
-        .map_err(|e| billing_error_response(&e))?;
+        .map_err(|e| StorageError::from(&e))?;
 
     let path = storage::paths::chunk_path(&owner, &q.chunk_hash);
-    let data = state.bucket
+    let data = state
+        .bucket
         .get_object(path)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response())?
-        .ok_or_else(|| (StatusCode::NOT_FOUND, "chunk not found").into_response())?;
+        .map_err(|e| StorageError::Internal(e.to_string()))?
+        .ok_or(StorageError::NotFound("chunk not found"))?;
 
     let mut headers = HeaderMap::new();
-
     headers.insert(header::CONTENT_TYPE, CONTENT_TYPE_OCTET);
 
     Ok((StatusCode::OK, headers, data).into_response())
@@ -508,18 +447,18 @@ pub async fn get_chunk(
 pub async fn put_blob_tree(
     State(state): State<StorageState>,
     body: Body,
-) -> Result<Response, Response> {
+) -> Result<Response, StorageError> {
     let body_bytes = buffer_body(body, MAX_REQUEST_BODY_SIZE, BODY_READ_TIMEOUT)
         .await
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()).into_response())?;
+        .map_err(|e| StorageError::BadRequest(e.to_string()))?;
 
     let request: PutBlobTreeRequest = serde_json::from_slice(&body_bytes)
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("invalid JSON: {e}")).into_response())?;
+        .map_err(|e| StorageError::BadRequest(format!("invalid JSON: {e}")))?;
 
     state
         .ingress_auth
         .check_put_blob(&request)
-        .map_err(|e| auth_error_response(&e))?;
+        .map_err(|e| StorageError::from(&e))?;
 
     let owner = request.owner;
 
@@ -527,12 +466,12 @@ pub async fn put_blob_tree(
         .connector
         .charge_blob_tree_upload(&owner)
         .await
-        .map_err(|e| billing_error_response(&e))?;
+        .map_err(|e| StorageError::from(&e))?;
 
     let root_hash = request
         .blob_tree
         .root_hash()
-        .ok_or_else(|| (StatusCode::BAD_REQUEST, "blob tree has no root hash").into_response())?
+        .ok_or_else(|| StorageError::BadRequest("blob tree has no root hash".into()))?
         .to_string();
 
     let metadata = BlobMetadata {
@@ -542,13 +481,14 @@ pub async fn put_blob_tree(
     };
 
     let data = serde_json::to_vec(&metadata)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response())?;
+        .map_err(|e| StorageError::Internal(e.to_string()))?;
 
     let path = storage::paths::blob_path(&owner, &root_hash);
-    state.bucket
+    state
+        .bucket
         .put_object(path, &data)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response())?;
+        .map_err(|e| StorageError::Internal(e.to_string()))?;
 
     let chunk_hashes = metadata.hash_tree.chunk_hashes();
     let mut existing_chunks = Vec::new();
@@ -580,56 +520,55 @@ pub async fn put_chunk(
     State(state): State<StorageState>,
     Query(q): Query<ChunkPutQuery>,
     body: Body,
-) -> Result<Response, Response> {
+) -> Result<Response, StorageError> {
     let owner = parse_principal(&q.owner_id)?;
 
     let body = buffer_body(body, ONE_MIB, BODY_READ_TIMEOUT)
         .await
-        .map_err(|e| (StatusCode::PAYLOAD_TOO_LARGE, e.to_string()).into_response())?;
+        .map_err(|e| StorageError::PayloadTooLarge(e.to_string()))?;
 
     state
         .connector
         .charge_blob_tree_download(&owner)
         .await
-        .map_err(|e| billing_error_response(&e))?;
+        .map_err(|e| StorageError::from(&e))?;
 
     let meta = load_blob_metadata(&state.bucket, &owner, &q.blob_hash).await?;
     let chunk_hashes = meta.hash_tree.chunk_hashes();
 
     if q.chunk_index >= chunk_hashes.len() {
-        return Err((StatusCode::BAD_REQUEST, "chunk_index out of range").into_response());
+        return Err(StorageError::BadRequest(
+            "chunk_index out of range".into(),
+        ));
     }
 
     let expected_hash = &chunk_hashes[q.chunk_index];
 
     let actual_hash = format!("sha256:{:x}", Sha256::digest(&body));
     if actual_hash != *expected_hash {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            format!("chunk hash mismatch: expected {expected_hash}, got {actual_hash}"),
-        )
-            .into_response());
+        return Err(StorageError::BadRequest(format!(
+            "chunk hash mismatch: expected {expected_hash}, got {actual_hash}"
+        )));
     }
 
     if q.chunk_index + 1 < chunk_hashes.len() && body.len() != ONE_MIB {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "non-last chunk must be exactly 1 MiB",
-        )
-            .into_response());
+        return Err(StorageError::BadRequest(
+            "non-last chunk must be exactly 1 MiB".into(),
+        ));
     }
 
     state
         .connector
         .charge_chunk_upload(&owner)
         .await
-        .map_err(|e| billing_error_response(&e))?;
+        .map_err(|e| StorageError::from(&e))?;
 
     let path = storage::paths::chunk_path(&owner, expected_hash);
-    state.bucket
+    state
+        .bucket
         .put_object(path, &body)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response())?;
+        .map_err(|e| StorageError::Internal(e.to_string()))?;
 
     Ok(Json(PutChunkResponse {
         status: "chunk_accepted".to_string(),
@@ -645,13 +584,10 @@ pub async fn delete_owner(
     State(state): State<StorageState>,
     Host(host): Host,
     Query(q): Query<OwnerQuery>,
-) -> Result<Response, Response> {
+) -> Result<Response, StorageError> {
     let owner = parse_principal(&q.owner_id)?;
 
-    check_delete_owner_host(
-        Some(&host),
-        state.allowed_delete_owner_hosts.as_deref(),
-    )?;
+    check_delete_owner_host(Some(&host), state.allowed_delete_owner_hosts.as_deref())?;
 
     let blob_prefix = storage::paths::blob_path_owner_prefix(&owner);
     let chunk_prefix = storage::paths::chunk_path_owner_prefix(&owner);
@@ -662,14 +598,14 @@ pub async fn delete_owner(
     if blobs_deleted || chunks_deleted {
         Ok((StatusCode::OK, format!("deleted all data for owner: {owner}")).into_response())
     } else {
-        Ok((StatusCode::NO_CONTENT).into_response())
+        Ok(StatusCode::NO_CONTENT.into_response())
     }
 }
 
 async fn delete_all_with_prefix(
     bucket: &Arc<dyn BucketLike>,
     prefix: String,
-) -> Result<bool, Response> {
+) -> Result<bool, StorageError> {
     let mut deleted_any = false;
     let mut continuation_token = None;
 
@@ -683,7 +619,7 @@ async fn delete_all_with_prefix(
                 Some(1000),
             )
             .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response())?;
+            .map_err(|e| StorageError::Internal(e.to_string()))?;
 
         if page.keys.is_empty() {
             break;
@@ -694,9 +630,7 @@ async fn delete_all_with_prefix(
             bucket
                 .delete_object(key.clone())
                 .await
-                .map_err(|e| {
-                    (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
-                })?;
+                .map_err(|e| StorageError::Internal(e.to_string()))?;
         }
 
         match page.next_continuation_token {
