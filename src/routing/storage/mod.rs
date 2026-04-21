@@ -12,7 +12,7 @@ use std::{sync::Arc, time::Duration};
 
 use axum::{
     Router,
-    routing::{delete, get, head, put},
+    routing::{delete, get, put},
 };
 use http::HeaderValue;
 
@@ -69,14 +69,25 @@ pub fn storage_router(
     let cors = cors::layer(cors_max_age, cors_allow_origin).allow_methods(cors::ALLOW_METHODS_STORAGE);
 
     Router::new()
-        .route("/blob", get(handler::get_blob))
-        .route("/blob", head(handler::head_blob))
-        .route("/blob-tree", get(handler::get_blob_tree))
-        .route("/blob-tree", put(handler::put_blob_tree))
-        .route("/blob-tree", delete(handler::delete_blob_tree_disabled))
-        .route("/chunk", get(handler::get_chunk))
-        .route("/chunk", put(handler::put_chunk))
-        .route("/owner", delete(handler::delete_owner))
+        .route(
+            "/owner/{owner_id}/blob/{blob_hash}",
+            get(handler::get_blob).head(handler::head_blob),
+        )
+        .route(
+            "/owner/{owner_id}/blob_tree/{blob_hash}",
+            get(handler::get_blob_tree)
+                .put(handler::put_blob_tree)
+                .delete(handler::delete_blob_tree_disabled),
+        )
+        .route(
+            "/owner/{owner_id}/chunk/{chunk_hash}",
+            get(handler::get_chunk),
+        )
+        .route(
+            "/owner/{owner_id}/blob/{blob_hash}/chunk/{chunk_index}",
+            put(handler::put_chunk),
+        )
+        .route("/owner/{owner_id}", delete(handler::delete_owner))
         .layer(cors)
         .with_state(Arc::new(state))
 }

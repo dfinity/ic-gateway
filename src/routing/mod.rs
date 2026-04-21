@@ -594,7 +594,7 @@ pub async fn setup_router(
         .layer(common_layers);
 
     if let Some(sr) = storage_router {
-        router = router.nest("/v1", sr);
+        router = router.nest("/storage/v1", sr);
     }
 
     #[cfg(all(target_os = "linux", feature = "sev-snp"))]

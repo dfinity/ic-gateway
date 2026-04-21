@@ -559,7 +559,7 @@ pub struct CashierConfig {
     #[clap(env, long, default_value = "10s", value_parser = parse_duration)]
     pub cashier_usage_report_interval: Duration,
 
-    /// Skip IC egress certificate verification on PUT /blob-tree.
+    /// Skip IC egress certificate verification on PUT blob_tree.
     /// Use only for local development / testing.
     #[clap(env, long)]
     pub fake_ingress_auth: bool,

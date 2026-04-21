@@ -2,7 +2,7 @@ use std::{cmp::min, ops::Range, sync::Arc, time::Duration};
 
 use axum::{
     body::Body,
-    extract::{Query, State},
+    extract::{Path, State},
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
     Json,
@@ -10,7 +10,6 @@ use axum::{
 use axum_extra::extract::Host;
 use candid::Principal;
 use ic_bn_lib::http::body::buffer_body;
-use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 use crate::routing::{
@@ -31,33 +30,6 @@ use super::{
 type S = Arc<StorageState>;
 
 const BODY_READ_TIMEOUT: Duration = Duration::from_secs(60);
-
-// Query param structs
-#[derive(Deserialize)]
-pub struct BlobQuery {
-    pub owner_id: String,
-    pub blob_hash: String,
-}
-
-#[derive(Deserialize)]
-pub struct ChunkGetQuery {
-    pub owner_id: String,
-    #[serde(alias = "root_hash")]
-    pub _root_hash: String,
-    pub chunk_hash: String,
-}
-
-#[derive(Deserialize)]
-pub struct ChunkPutQuery {
-    pub owner_id: String,
-    pub blob_hash: String,
-    pub chunk_index: usize,
-}
-
-#[derive(Deserialize)]
-pub struct OwnerQuery {
-    pub owner_id: String,
-}
 
 // Helpers
 
@@ -242,12 +214,12 @@ fn check_delete_owner_host(
     }
 }
 
-// HEAD /v1/blob
+// HEAD /storage/v1/owner/{owner_id}/blob/{blob_hash}
 pub async fn head_blob(
     State(state): State<S>,
-    Query(q): Query<BlobQuery>,
+    Path((owner_id, blob_hash)): Path<(String, String)>,
 ) -> Result<Response, StorageError> {
-    let owner = parse_principal(&q.owner_id)?;
+    let owner = parse_principal(&owner_id)?;
 
     state
         .connector
@@ -255,7 +227,7 @@ pub async fn head_blob(
         .await
         .map_err(|e| StorageError::from(&e))?;
 
-    let meta = load_blob_metadata(&state.bucket, &owner, &q.blob_hash).await?;
+    let meta = load_blob_metadata(&state.bucket, &owner, &blob_hash).await?;
 
     let mut headers = HeaderMap::new();
     headers.insert(header::CONTENT_LENGTH, meta.num_blob_bytes.into());
@@ -265,13 +237,13 @@ pub async fn head_blob(
     Ok((StatusCode::OK, headers).into_response())
 }
 
-// GET /v1/blob (with Range support)
+// GET /storage/v1/owner/{owner_id}/blob/{blob_hash} (with Range support)
 pub async fn get_blob(
     State(state): State<S>,
     req_headers: HeaderMap,
-    Query(q): Query<BlobQuery>,
+    Path((owner_id, blob_hash)): Path<(String, String)>,
 ) -> Result<Response, StorageError> {
-    let owner = parse_principal(&q.owner_id)?;
+    let owner = parse_principal(&owner_id)?;
 
     state
         .connector
@@ -279,7 +251,7 @@ pub async fn get_blob(
         .await
         .map_err(|e| StorageError::from(&e))?;
 
-    let meta = load_blob_metadata(&state.bucket, &owner, &q.blob_hash).await?;
+    let meta = load_blob_metadata(&state.bucket, &owner, &blob_hash).await?;
     let chunk_hashes: Vec<String> = meta.hash_tree.chunk_hashes().to_vec();
     let total_bytes = meta.num_blob_bytes;
 
@@ -364,12 +336,12 @@ pub async fn get_blob(
     }
 }
 
-// GET /v1/blob-tree
+// GET /storage/v1/owner/{owner_id}/blob_tree/{blob_hash}
 pub async fn get_blob_tree(
     State(state): State<S>,
-    Query(q): Query<BlobQuery>,
+    Path((owner_id, blob_hash)): Path<(String, String)>,
 ) -> Result<Response, StorageError> {
-    let owner = parse_principal(&q.owner_id)?;
+    let owner = parse_principal(&owner_id)?;
 
     state
         .connector
@@ -377,7 +349,7 @@ pub async fn get_blob_tree(
         .await
         .map_err(|e| StorageError::from(&e))?;
 
-    let path = paths::blob_path(&owner, &q.blob_hash);
+    let path = paths::blob_path(&owner, &blob_hash);
     let data = state
         .bucket
         .get_object(path)
@@ -391,12 +363,12 @@ pub async fn get_blob_tree(
     Ok((StatusCode::OK, headers, data).into_response())
 }
 
-// GET /v1/chunk
+// GET /storage/v1/owner/{owner_id}/chunk/{chunk_hash}
 pub async fn get_chunk(
     State(state): State<S>,
-    Query(q): Query<ChunkGetQuery>,
+    Path((owner_id, chunk_hash)): Path<(String, String)>,
 ) -> Result<Response, StorageError> {
-    let owner = parse_principal(&q.owner_id)?;
+    let owner = parse_principal(&owner_id)?;
 
     state
         .connector
@@ -404,7 +376,7 @@ pub async fn get_chunk(
         .await
         .map_err(|e| StorageError::from(&e))?;
 
-    let path = paths::chunk_path(&owner, &q.chunk_hash);
+    let path = paths::chunk_path(&owner, &chunk_hash);
     let data = state
         .bucket
         .get_object(path)
@@ -418,11 +390,14 @@ pub async fn get_chunk(
     Ok((StatusCode::OK, headers, data).into_response())
 }
 
-// PUT /v1/blob-tree (JSON body, with auth)
+// PUT /storage/v1/owner/{owner_id}/blob_tree/{blob_hash} (JSON body, with auth)
 pub async fn put_blob_tree(
     State(state): State<S>,
+    Path((owner_id, blob_hash)): Path<(String, String)>,
     body: Body,
 ) -> Result<Response, StorageError> {
+    let owner = parse_principal(&owner_id)?;
+
     let body_bytes = buffer_body(body, MAX_REQUEST_BODY_SIZE, BODY_READ_TIMEOUT)
         .await
         .map_err(|e| ClientError::MalformedRequest(e.to_string()))?;
@@ -430,24 +405,36 @@ pub async fn put_blob_tree(
     let request: PutBlobTreeRequest = serde_json::from_slice(&body_bytes)
         .map_err(|e| ClientError::MalformedRequest(format!("invalid JSON: {e}")))?;
 
-    state
-        .ingress_auth
-        .check_put_blob(&request)
-        .map_err(|e| StorageError::from(&e))?;
-
-    let owner = request.owner;
-
-    state
-        .connector
-        .charge_blob_tree_upload(&owner)
-        .await
-        .map_err(|e| StorageError::from(&e))?;
+    if request.owner != owner {
+        return Err(ClientError::MalformedRequest(
+            "URL owner_id does not match request body owner".into(),
+        )
+        .into());
+    }
 
     let root_hash = request
         .blob_tree
         .root_hash()
         .ok_or_else(|| ClientError::MalformedRequest("blob tree has no root hash".into()))?
         .to_string();
+
+    if root_hash != blob_hash {
+        return Err(ClientError::MalformedRequest(format!(
+            "URL blob_hash {blob_hash} does not match body root_hash {root_hash}"
+        ))
+        .into());
+    }
+
+    state
+        .ingress_auth
+        .check_put_blob(&request)
+        .map_err(|e| StorageError::from(&e))?;
+
+    state
+        .connector
+        .charge_blob_tree_upload(&owner)
+        .await
+        .map_err(|e| StorageError::from(&e))?;
 
     let metadata = BlobMetadata {
         hash_tree: request.blob_tree,
@@ -487,13 +474,13 @@ pub async fn put_blob_tree(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-// PUT /v1/chunk
+// PUT /storage/v1/owner/{owner_id}/blob/{blob_hash}/chunk/{chunk_index}
 pub async fn put_chunk(
     State(state): State<S>,
-    Query(q): Query<ChunkPutQuery>,
+    Path((owner_id, blob_hash, chunk_index)): Path<(String, String, usize)>,
     body: Body,
 ) -> Result<Response, StorageError> {
-    let owner = parse_principal(&q.owner_id)?;
+    let owner = parse_principal(&owner_id)?;
 
     let body = buffer_body(body, ONE_MIB, BODY_READ_TIMEOUT)
         .await
@@ -505,14 +492,14 @@ pub async fn put_chunk(
         .await
         .map_err(|e| StorageError::from(&e))?;
 
-    let meta = load_blob_metadata(&state.bucket, &owner, &q.blob_hash).await?;
+    let meta = load_blob_metadata(&state.bucket, &owner, &blob_hash).await?;
     let chunk_hashes = meta.hash_tree.chunk_hashes();
 
-    if q.chunk_index >= chunk_hashes.len() {
+    if chunk_index >= chunk_hashes.len() {
         return Err(ClientError::MalformedRequest("chunk_index out of range".into()).into());
     }
 
-    let expected_hash = &chunk_hashes[q.chunk_index];
+    let expected_hash = &chunk_hashes[chunk_index];
 
     let actual_hash = format!("sha256:{:x}", Sha256::digest(&body));
     if actual_hash != *expected_hash {
@@ -522,7 +509,7 @@ pub async fn put_chunk(
         .into());
     }
 
-    if q.chunk_index + 1 < chunk_hashes.len() && body.len() != ONE_MIB {
+    if chunk_index + 1 < chunk_hashes.len() && body.len() != ONE_MIB {
         return Err(
             ClientError::MalformedRequest("non-last chunk must be exactly 1 MiB".into()).into(),
         );
@@ -547,13 +534,13 @@ pub async fn put_chunk(
     .into_response())
 }
 
-// DELETE /v1/owner
+// DELETE /storage/v1/owner/{owner_id}
 pub async fn delete_owner(
     State(state): State<S>,
     Host(host): Host,
-    Query(q): Query<OwnerQuery>,
+    Path(owner_id): Path<String>,
 ) -> Result<Response, StorageError> {
-    let owner = parse_principal(&q.owner_id)?;
+    let owner = parse_principal(&owner_id)?;
 
     check_delete_owner_host(Some(&host), state.allowed_delete_owner_hosts.as_deref())?;
 
@@ -610,10 +597,10 @@ async fn delete_all_with_prefix(
     Ok(deleted_any)
 }
 
-// DELETE /v1/blob-tree — intentionally disabled (405)
+// DELETE /storage/v1/owner/{owner_id}/blob_tree/{blob_hash} — intentionally disabled (405)
 pub async fn delete_blob_tree_disabled() -> impl IntoResponse {
     (
         StatusCode::METHOD_NOT_ALLOWED,
-        "DELETE /blob-tree endpoint is disabled",
+        "blob_tree deletion is disabled",
     )
 }

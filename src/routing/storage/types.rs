@@ -73,7 +73,7 @@ pub struct OwnerEgressSignature {
     pub blob_hash: String,
 }
 
-/// PUT /v1/blob-tree request body.
+/// PUT blob_tree request body.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PutBlobTreeRequest {
     pub blob_tree: BlobHashTree,
@@ -85,7 +85,7 @@ pub struct PutBlobTreeRequest {
     pub auth: StorageGatewayAuthorization,
 }
 
-/// PUT /v1/blob-tree response.
+/// PUT blob_tree response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PutBlobTreeResponse {
     #[serde(default)]
@@ -96,7 +96,7 @@ pub struct PutBlobTreeResponse {
     pub chunk_check_errors: usize,
 }
 
-/// PUT /v1/chunk response.
+/// PUT chunk response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PutChunkResponse {
     pub status: String,
