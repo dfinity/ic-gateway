@@ -13,7 +13,10 @@ use ic_bn_lib::http::body::buffer_body;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-use crate::routing::{ACCEPT_RANGES_BYTES, CONTENT_TYPE_JSON, CONTENT_TYPE_OCTET};
+use crate::routing::{
+    ACCEPT_RANGES_BYTES, CONTENT_TYPE_JSON, CONTENT_TYPE_OCTET,
+    error_cause::{BackendError, ClientError, StorageError},
+};
 
 use super::{
     bucket::BucketLike,
@@ -22,9 +25,8 @@ use super::{
         BlobMetadata, MAX_REQUEST_BODY_SIZE, ONE_MIB, PutBlobTreeRequest, PutBlobTreeResponse,
         PutChunkResponse,
     },
+    StorageState,
 };
-
-use super::{StorageError, StorageState};
 
 type S = Arc<StorageState>;
 
@@ -85,7 +87,7 @@ fn apply_stored_headers(headers: &mut HeaderMap, stored: &[String]) {
 
 fn parse_principal(s: &str) -> Result<Principal, StorageError> {
     Principal::from_text(s)
-        .map_err(|e| StorageError::BadRequest(format!("invalid owner_id: {e}")))
+        .map_err(|e| ClientError::MalformedRequest(format!("invalid owner_id: {e}")).into())
 }
 
 async fn load_blob_metadata(
@@ -97,8 +99,8 @@ async fn load_blob_metadata(
     let data = bucket
         .get_object(path)
         .await
-        .map_err(|e| StorageError::Internal(e.to_string()))?
-        .ok_or(StorageError::NotFound("blob not found"))?;
+        .map_err(|e| StorageError::from(BackendError::S3(e.to_string())))?
+        .ok_or_else(|| StorageError::from(ClientError::NotFound("blob")))?;
 
     serde_json::from_slice::<BlobMetadata>(&data)
         .map_err(|e| StorageError::Internal(format!("corrupt blob metadata: {e}")))
@@ -114,26 +116,27 @@ enum ByteRange {
 
 impl ByteRange {
     fn resolve(&self, total: u64) -> Result<Range<u64>, StorageError> {
+        let unsatisfiable = || StorageError::from(ClientError::RangeNotSatisfiable(total));
         let range = match self {
             Self::Inclusive(s, e) => {
                 if *s <= *e && *e < total {
                     *s..*e + 1
                 } else {
-                    return Err(StorageError::RangeNotSatisfiable(total));
+                    return Err(unsatisfiable());
                 }
             }
             Self::From(s) => {
                 if *s < total {
                     *s..total
                 } else {
-                    return Err(StorageError::RangeNotSatisfiable(total));
+                    return Err(unsatisfiable());
                 }
             }
             Self::Last(n) => {
                 if *n <= total {
                     (total - *n)..total
                 } else {
-                    return Err(StorageError::RangeNotSatisfiable(total));
+                    return Err(unsatisfiable());
                 }
             }
         };
@@ -142,28 +145,26 @@ impl ByteRange {
 }
 
 fn parse_range_header(headers: &HeaderMap) -> Result<Option<ByteRange>, StorageError> {
+    let invalid = |m: &str| StorageError::from(ClientError::MalformedRequest(m.to_string()));
+
     let Some(value) = headers.get(header::RANGE) else {
         return Ok(None);
     };
-    let s = value
-        .to_str()
-        .map_err(|_| StorageError::BadRequest("invalid Range header encoding".into()))?;
+    let s = value.to_str().map_err(|_| invalid("invalid Range header encoding"))?;
 
     let rest = s
         .strip_prefix("bytes=")
-        .ok_or_else(|| StorageError::BadRequest("only bytes ranges are supported".into()))?;
+        .ok_or_else(|| invalid("only bytes ranges are supported"))?;
 
     let specs: Vec<&str> = rest.split(',').collect();
     if specs.len() != 1 {
-        return Err(StorageError::BadRequest(
-            "only single-range requests are supported".into(),
-        ));
+        return Err(invalid("only single-range requests are supported"));
     }
 
     let spec = specs[0].trim();
     let (start_s, end_s) = spec
         .split_once('-')
-        .ok_or_else(|| StorageError::BadRequest("malformed range spec".into()))?;
+        .ok_or_else(|| invalid("malformed range spec"))?;
 
     let parse = |s: &str| -> Result<Option<u64>, StorageError> {
         let t = s.trim();
@@ -172,7 +173,7 @@ fn parse_range_header(headers: &HeaderMap) -> Result<Option<ByteRange>, StorageE
         } else {
             t.parse::<u64>()
                 .map(Some)
-                .map_err(|_| StorageError::BadRequest("non-numeric range value".into()))
+                .map_err(|_| invalid("non-numeric range value"))
         }
     };
 
@@ -180,14 +181,14 @@ fn parse_range_header(headers: &HeaderMap) -> Result<Option<ByteRange>, StorageE
     let end = parse(end_s)?;
 
     match (start, end) {
-        (None, None) => Err(StorageError::BadRequest("empty range".into())),
+        (None, None) => Err(invalid("empty range")),
         (None, Some(n)) => Ok(Some(ByteRange::Last(n))),
         (Some(s), None) => Ok(Some(ByteRange::From(s))),
         (Some(s), Some(e)) => {
             if s <= e {
                 Ok(Some(ByteRange::Inclusive(s, e)))
             } else {
-                Err(StorageError::BadRequest("range start > end".into()))
+                Err(invalid("range start > end"))
             }
         }
     }
@@ -381,8 +382,8 @@ pub async fn get_blob_tree(
         .bucket
         .get_object(path)
         .await
-        .map_err(|e| StorageError::Internal(e.to_string()))?
-        .ok_or(StorageError::NotFound("blob not found"))?;
+        .map_err(|e| StorageError::from(BackendError::S3(e.to_string())))?
+        .ok_or_else(|| StorageError::from(ClientError::NotFound("blob")))?;
 
     let mut headers = HeaderMap::new();
     headers.insert(header::CONTENT_TYPE, CONTENT_TYPE_JSON);
@@ -408,8 +409,8 @@ pub async fn get_chunk(
         .bucket
         .get_object(path)
         .await
-        .map_err(|e| StorageError::Internal(e.to_string()))?
-        .ok_or(StorageError::NotFound("chunk not found"))?;
+        .map_err(|e| StorageError::from(BackendError::S3(e.to_string())))?
+        .ok_or_else(|| StorageError::from(ClientError::NotFound("chunk")))?;
 
     let mut headers = HeaderMap::new();
     headers.insert(header::CONTENT_TYPE, CONTENT_TYPE_OCTET);
@@ -424,10 +425,10 @@ pub async fn put_blob_tree(
 ) -> Result<Response, StorageError> {
     let body_bytes = buffer_body(body, MAX_REQUEST_BODY_SIZE, BODY_READ_TIMEOUT)
         .await
-        .map_err(|e| StorageError::BadRequest(e.to_string()))?;
+        .map_err(|e| ClientError::MalformedRequest(e.to_string()))?;
 
     let request: PutBlobTreeRequest = serde_json::from_slice(&body_bytes)
-        .map_err(|e| StorageError::BadRequest(format!("invalid JSON: {e}")))?;
+        .map_err(|e| ClientError::MalformedRequest(format!("invalid JSON: {e}")))?;
 
     state
         .ingress_auth
@@ -445,7 +446,7 @@ pub async fn put_blob_tree(
     let root_hash = request
         .blob_tree
         .root_hash()
-        .ok_or_else(|| StorageError::BadRequest("blob tree has no root hash".into()))?
+        .ok_or_else(|| ClientError::MalformedRequest("blob tree has no root hash".into()))?
         .to_string();
 
     let metadata = BlobMetadata {
@@ -462,7 +463,7 @@ pub async fn put_blob_tree(
         .bucket
         .put_object(path, &data)
         .await
-        .map_err(|e| StorageError::Internal(e.to_string()))?;
+        .map_err(|e| BackendError::S3(e.to_string()))?;
 
     let chunk_hashes = metadata.hash_tree.chunk_hashes();
     let mut existing_chunks = Vec::new();
@@ -496,7 +497,7 @@ pub async fn put_chunk(
 
     let body = buffer_body(body, ONE_MIB, BODY_READ_TIMEOUT)
         .await
-        .map_err(|e| StorageError::PayloadTooLarge(e.to_string()))?;
+        .map_err(|_| ClientError::BodyTooLarge)?;
 
     state
         .connector
@@ -508,24 +509,23 @@ pub async fn put_chunk(
     let chunk_hashes = meta.hash_tree.chunk_hashes();
 
     if q.chunk_index >= chunk_hashes.len() {
-        return Err(StorageError::BadRequest(
-            "chunk_index out of range".into(),
-        ));
+        return Err(ClientError::MalformedRequest("chunk_index out of range".into()).into());
     }
 
     let expected_hash = &chunk_hashes[q.chunk_index];
 
     let actual_hash = format!("sha256:{:x}", Sha256::digest(&body));
     if actual_hash != *expected_hash {
-        return Err(StorageError::BadRequest(format!(
+        return Err(ClientError::MalformedRequest(format!(
             "chunk hash mismatch: expected {expected_hash}, got {actual_hash}"
-        )));
+        ))
+        .into());
     }
 
     if q.chunk_index + 1 < chunk_hashes.len() && body.len() != ONE_MIB {
-        return Err(StorageError::BadRequest(
-            "non-last chunk must be exactly 1 MiB".into(),
-        ));
+        return Err(
+            ClientError::MalformedRequest("non-last chunk must be exactly 1 MiB".into()).into(),
+        );
     }
 
     state
@@ -539,7 +539,7 @@ pub async fn put_chunk(
         .bucket
         .put_object(path, &body)
         .await
-        .map_err(|e| StorageError::Internal(e.to_string()))?;
+        .map_err(|e| BackendError::S3(e.to_string()))?;
 
     Ok(Json(PutChunkResponse {
         status: "chunk_accepted".to_string(),
@@ -587,7 +587,7 @@ async fn delete_all_with_prefix(
                 Some(1000),
             )
             .await
-            .map_err(|e| StorageError::Internal(e.to_string()))?;
+            .map_err(|e| BackendError::S3(e.to_string()))?;
 
         if page.keys.is_empty() {
             break;
@@ -598,7 +598,7 @@ async fn delete_all_with_prefix(
             bucket
                 .delete_object(key.clone())
                 .await
-                .map_err(|e| StorageError::Internal(e.to_string()))?;
+                .map_err(|e| BackendError::S3(e.to_string()))?;
         }
 
         match page.next_continuation_token {

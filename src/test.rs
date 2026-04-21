@@ -161,9 +161,6 @@ pub async fn setup_test_router(tasks: &mut TaskManager) -> (Router, Vec<String>)
         None,
         Arc::new(arc_swap::ArcSwapOption::<SubnetsInfo>::empty()),
         None,
-        None,
-        Arc::new(crate::routing::storage::IngressAuthStub),
-        None,
     )
     .await
     .unwrap();

@@ -8,22 +8,20 @@ pub mod handler;
 pub mod paths;
 pub mod types;
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use axum::{
     Router,
-    http::{HeaderMap, StatusCode, header},
-    response::{IntoResponse, Response},
     routing::{delete, get, head, put},
 };
-use http::{Method, header::CONTENT_TYPE};
-use ic_bn_lib::hval;
-use tower_http::cors::{Any, CorsLayer};
+use http::HeaderValue;
 
-use self::{
-    auth::AuthError,
-    cashier_connector::BillingError,
+use crate::routing::{
+    error_cause::{BackendError, StorageError},
+    middleware::cors,
 };
+
+use self::{auth::AuthError, cashier_connector::BillingError};
 
 pub use self::{
     auth::{IngressAuth, IngressAuthImpl, IngressAuthStub},
@@ -33,58 +31,16 @@ pub use self::{
     cashier_connector::CashierConnector,
 };
 
-pub struct StorageState {
-    pub connector: Arc<CashierConnector>,
-    pub bucket: Arc<dyn BucketLike>,
-    pub ingress_auth: Arc<dyn IngressAuth>,
-    pub allowed_delete_owner_hosts: Option<String>,
-}
-
-/// Unified error type for all storage API endpoints.
-pub enum StorageError {
-    BadRequest(String),
-    NotFound(&'static str),
-    Forbidden(String),
-    Unauthorized(String),
-    BadGateway(String),
-    Internal(String),
-    PayloadTooLarge(String),
-    RangeNotSatisfiable(u64),
-}
-
-impl IntoResponse for StorageError {
-    fn into_response(self) -> Response {
-        match self {
-            Self::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg).into_response(),
-            Self::NotFound(msg) => (StatusCode::NOT_FOUND, msg).into_response(),
-            Self::Forbidden(msg) => (StatusCode::FORBIDDEN, msg).into_response(),
-            Self::Unauthorized(msg) => {
-                let mut headers = HeaderMap::new();
-                headers.insert(
-                    header::WWW_AUTHENTICATE,
-                    hval!("X-ICP-Canister-Signature"),
-                );
-                (StatusCode::UNAUTHORIZED, headers, msg).into_response()
-            }
-            Self::BadGateway(msg) => (StatusCode::BAD_GATEWAY, msg).into_response(),
-            Self::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg).into_response(),
-            Self::PayloadTooLarge(msg) => (StatusCode::PAYLOAD_TOO_LARGE, msg).into_response(),
-            Self::RangeNotSatisfiable(total) => (
-                StatusCode::RANGE_NOT_SATISFIABLE,
-                format!("range not satisfiable; available length: {total}"),
-            )
-                .into_response(),
-        }
-    }
-}
+// Conversions from storage-local error types into the shared `StorageError`.
+// Kept here (rather than in `error_cause.rs`) so `error_cause` stays
+// independent of storage-module internals.
 
 impl From<&BillingError> for StorageError {
     fn from(e: &BillingError) -> Self {
         match e {
-            BillingError::OwnerNotFound | BillingError::InsufficientBalance => {
-                Self::Forbidden(e.to_string())
-            }
-            BillingError::CashierUnavailable(_) => Self::BadGateway(e.to_string()),
+            BillingError::OwnerNotFound => Self::OwnerNotFound,
+            BillingError::InsufficientBalance => Self::InsufficientBalance,
+            BillingError::CashierUnavailable(m) => Self::Backend(BackendError::Cashier(m.clone())),
         }
     }
 }
@@ -92,23 +48,25 @@ impl From<&BillingError> for StorageError {
 impl From<&AuthError> for StorageError {
     fn from(e: &AuthError) -> Self {
         match e {
-            AuthError::MissingAuth(m) => Self::Unauthorized(m.to_string()),
-            AuthError::Forbidden(m) => Self::Forbidden(m.to_string()),
+            AuthError::MissingAuth(m) => Self::Unauthorized(m.clone()),
+            AuthError::Forbidden(m) => Self::Forbidden(m.clone()),
         }
     }
 }
 
-pub fn storage_router(state: StorageState) -> Router {
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods([
-            Method::GET,
-            Method::PUT,
-            Method::HEAD,
-            Method::DELETE,
-            Method::OPTIONS,
-        ])
-        .allow_headers([CONTENT_TYPE]);
+pub struct StorageState {
+    pub connector: Arc<CashierConnector>,
+    pub bucket: Arc<dyn BucketLike>,
+    pub ingress_auth: Arc<dyn IngressAuth>,
+    pub allowed_delete_owner_hosts: Option<String>,
+}
+
+pub fn storage_router(
+    state: StorageState,
+    cors_max_age: Duration,
+    cors_allow_origin: Vec<HeaderValue>,
+) -> Router {
+    let cors = cors::layer(cors_max_age, cors_allow_origin).allow_methods(cors::ALLOW_METHODS_STORAGE);
 
     Router::new()
         .route("/blob", get(handler::get_blob))

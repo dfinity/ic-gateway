@@ -64,7 +64,6 @@ use crate::{
     routing::middleware::{
         canister_match, cors, geoip, headers, preprocess, request_id, validate,
     },
-    routing::storage::BucketLike,
 };
 use domain::{CustomDomainStorage, DomainResolver};
 use middleware::{
@@ -220,10 +219,7 @@ pub async fn setup_router(
     waf_layer: Option<WafLayer>,
     custom_domains_router: Option<Router>,
     subnets_info: Arc<ArcSwapOption<SubnetsInfo>>,
-    s3_bucket: Option<Arc<dyn BucketLike>>,
-    cashier_connector: Option<Arc<storage::CashierConnector>>,
-    ingress_auth: Arc<dyn storage::IngressAuth>,
-    allowed_delete_owner_hosts: Option<String>,
+    storage_state: Option<storage::StorageState>,
 ) -> Result<Router, Error> {
     // Setup API router
     let router_api = setup_api_router(
@@ -534,7 +530,7 @@ pub async fn setup_router(
     let custom_domains_router = custom_domains_router.map(|x| {
         Router::new()
             .nest("/custom-domains", x)
-            .layer(cors_base.allow_methods([
+            .layer(cors_base.clone().allow_methods([
                 Method::HEAD,
                 Method::GET,
                 Method::POST,
@@ -544,15 +540,12 @@ pub async fn setup_router(
     });
 
     // Build optional storage router (blob/chunk CRUD under /v1/)
-    // Requires both S3 bucket and cashier connector to be configured.
-    let storage_router = s3_bucket.zip(cashier_connector).map(|(bucket, connector)| {
-        let state = storage::StorageState {
-            connector,
-            bucket,
-            ingress_auth: ingress_auth.clone(),
-            allowed_delete_owner_hosts: allowed_delete_owner_hosts.clone(),
-        };
-        storage::storage_router(state)
+    let storage_router = storage_state.map(|state| {
+        storage::storage_router(
+            state,
+            cli.cors.cors_max_age,
+            cli.cors.cors_allow_origin.clone(),
+        )
     });
 
     // Top-level router

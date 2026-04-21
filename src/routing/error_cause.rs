@@ -108,6 +108,9 @@ pub enum BackendError {
     HttpGateway(String),
     Other(String),
     ResponseVerification(String),
+    // Storage backends
+    Cashier(String),
+    S3(String),
 }
 
 impl BackendError {
@@ -120,6 +123,8 @@ impl BackendError {
             Self::BoundaryNode(x) => Some(x.clone()),
             Self::HttpGateway(x) => Some(x.clone()),
             Self::Other(x) => Some(x.clone()),
+            Self::Cashier(x) => Some(x.clone()),
+            Self::S3(x) => Some(x.clone()),
             _ => None,
         }
     }
@@ -137,6 +142,10 @@ pub enum ClientError {
     UnknownDomain(FQDN),
     DomainCanisterMismatch(Principal),
     SubnetNotFound,
+    // Storage-side client errors
+    #[strum(to_string = "not_found_{0}")]
+    NotFound(&'static str),
+    RangeNotSatisfiable(u64),
 }
 
 impl ClientError {
@@ -148,6 +157,8 @@ impl ClientError {
             Self::DomainCanisterMismatch(x) => {
                 Some(format!("The canister {x} is not served by this domain"))
             }
+            Self::NotFound(x) => Some((*x).into()),
+            Self::RangeNotSatisfiable(total) => Some(format!("available length: {total}")),
             _ => None,
         }
     }
@@ -700,6 +711,98 @@ impl ErrorData {
         }
 
         tpl
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Storage API error type (for /v1/* endpoints)
+// ---------------------------------------------------------------------------
+//
+// Structurally similar to `ErrorCause` but with two differences:
+//   * reuses `ClientError` and `BackendError` above (instead of defining parallel
+//     enums); the existing `MalformedRequest`/`BodyTooLarge` variants fit the
+//     storage `bad_request`/`payload_too_large` semantics, and storage-specific
+//     concepts (`NotFound`, `RangeNotSatisfiable`, `Cashier`, `S3`) are folded
+//     into the same enums as new variants.
+//   * renders responses as plain text (not HTML pages): `/v1/*` is an
+//     SDK-facing API, not a browser destination.
+
+/// Error type for storage API endpoints (`/v1/*`).
+#[derive(Debug, Clone, Display, IntoStaticStr, Eq, PartialEq)]
+#[strum(serialize_all = "snake_case")]
+pub enum StorageError {
+    #[strum(to_string = "client_{0}")]
+    Client(ClientError),
+    #[strum(to_string = "backend_{0}")]
+    Backend(BackendError),
+    /// 401 with `WWW-Authenticate` (missing ingress signature).
+    Unauthorized(String),
+    /// 403 with an explanatory message (the enum-level `ErrorCause::Forbidden`
+    /// carries no message, hence a storage-specific variant).
+    Forbidden(String),
+    /// 403 — owner principal unknown to the cashier.
+    OwnerNotFound,
+    /// 403 — owner out of credit.
+    InsufficientBalance,
+    #[strum(serialize = "internal_server_error")]
+    Internal(String),
+}
+
+impl From<ClientError> for StorageError {
+    fn from(e: ClientError) -> Self { Self::Client(e) }
+}
+
+impl From<BackendError> for StorageError {
+    fn from(e: BackendError) -> Self { Self::Backend(e) }
+}
+
+impl IntoResponse for StorageError {
+    fn into_response(self) -> Response {
+        use http::header;
+        let mut headers = http::HeaderMap::new();
+        let (status, body) = match &self {
+            Self::Client(ClientError::MalformedRequest(m)) => (StatusCode::BAD_REQUEST, m.clone()),
+            Self::Client(ClientError::BodyTooLarge) => {
+                (StatusCode::PAYLOAD_TOO_LARGE, "payload too large".into())
+            }
+            Self::Client(ClientError::NotFound(what)) => {
+                (StatusCode::NOT_FOUND, format!("{what} not found"))
+            }
+            Self::Client(ClientError::RangeNotSatisfiable(total)) => (
+                StatusCode::RANGE_NOT_SATISFIABLE,
+                format!("range not satisfiable; available length: {total}"),
+            ),
+            Self::Client(e) => (
+                StatusCode::BAD_REQUEST,
+                e.details().unwrap_or_else(|| e.to_string()),
+            ),
+            Self::Backend(BackendError::Cashier(m)) => {
+                (StatusCode::BAD_GATEWAY, format!("cashier unavailable: {m}"))
+            }
+            Self::Backend(BackendError::S3(m)) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("storage backend error: {m}"),
+            ),
+            Self::Backend(e) => (
+                StatusCode::BAD_GATEWAY,
+                e.details().unwrap_or_else(|| e.to_string()),
+            ),
+            Self::Unauthorized(m) => {
+                headers.insert(
+                    header::WWW_AUTHENTICATE,
+                    ic_bn_lib::hval!("X-ICP-Canister-Signature"),
+                );
+                (StatusCode::UNAUTHORIZED, m.clone())
+            }
+            Self::Forbidden(m) => (StatusCode::FORBIDDEN, m.clone()),
+            Self::OwnerNotFound => (StatusCode::FORBIDDEN, "owner not found".into()),
+            Self::InsufficientBalance => (StatusCode::FORBIDDEN, "insufficient balance".into()),
+            Self::Internal(m) => (StatusCode::INTERNAL_SERVER_ERROR, m.clone()),
+        };
+        let mut resp = (status, headers, body).into_response();
+        // Same pattern as ErrorCause: make the typed error visible to middleware.
+        resp.extensions_mut().insert(self);
+        resp
     }
 }
 

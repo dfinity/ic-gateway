@@ -93,11 +93,8 @@ pub struct Cli {
     #[command(flatten, next_help_heading = "Cache")]
     pub cache: CacheConfig,
 
-    #[command(flatten, next_help_heading = "Cashier")]
-    pub cashier: CashierConfig,
-
-    #[command(flatten, next_help_heading = "S3 Storage")]
-    pub s3: S3Storage,
+    #[command(flatten)]
+    pub blob_storage: BlobStorage,
 
     #[command(flatten, next_help_heading = "Shedding System")]
     pub shed_system: ShedSystemCli,
@@ -537,6 +534,18 @@ pub struct CacheConfig {
     /// Value of 0.0 would effectively disable the x-fetch algorithm.
     #[clap(env, long, default_value = "3.0")]
     pub cache_xfetch_beta: f64,
+}
+
+/// Blob-storage feature config: cashier billing + S3 backend.
+/// Both groups below are flattened at the top level; `cli.blob_storage.cashier.*`
+/// and `cli.blob_storage.s3.*` on the Rust side, flag names unchanged.
+#[derive(Args)]
+pub struct BlobStorage {
+    #[command(flatten, next_help_heading = "Blob Storage — Cashier")]
+    pub cashier: CashierConfig,
+
+    #[command(flatten, next_help_heading = "Blob Storage — S3")]
+    pub s3: S3Storage,
 }
 
 #[derive(Args)]

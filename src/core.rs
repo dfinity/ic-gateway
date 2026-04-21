@@ -33,7 +33,7 @@ use crate::{
     routing::ic::subnets_info::SubnetsInfoFetcher,
     routing::storage::{
         AWSBucket, BucketLike, CashierClient, CashierConnector, IngressAuth, IngressAuthImpl,
-        IngressAuthStub, S3Config,
+        IngressAuthStub, S3Config, StorageState,
     },
     routing::{
         self,
@@ -271,7 +271,7 @@ pub async fn main(
     );
 
     // Setup Cashier client + billing connector
-    let cashier_connector = if let Some(canister_id) = cli.cashier.cashier_canister_id {
+    let cashier_connector = if let Some(canister_id) = cli.blob_storage.cashier.cashier_canister_id {
         let cashier_client = Arc::new(CashierClient::new(agent.clone(), canister_id));
         warn!("Cashier client configured for canister {canister_id}");
 
@@ -284,7 +284,7 @@ pub async fn main(
                 tasks.add_interval(
                     "cashier_usage_reporter",
                     connector.clone(),
-                    cli.cashier.cashier_usage_report_interval,
+                    cli.blob_storage.cashier.cashier_usage_report_interval,
                 );
 
                 Some(connector)
@@ -298,23 +298,15 @@ pub async fn main(
         None
     };
 
-    // Setup ingress auth for PUT /blob-tree
-    let ingress_auth: Arc<dyn IngressAuth> = if cli.cashier.fake_ingress_auth {
-        warn!("Using fake ingress auth (certificate verification disabled)");
-        Arc::new(IngressAuthStub)
-    } else {
-        Arc::new(IngressAuthImpl::new(agent.clone()))
-    };
-
     // Setup S3 storage backend (single bucket)
-    let s3_bucket = if let Some(ref endpoint) = cli.s3.s3_endpoint {
+    let s3_bucket = if let Some(ref endpoint) = cli.blob_storage.s3.s3_endpoint {
         let s3_config = S3Config::new(
             endpoint.clone(),
-            cli.s3.s3_access_key.clone(),
-            cli.s3.s3_secret_key.clone(),
-            cli.s3.s3_bucket.clone(),
-            cli.s3.s3_region.clone(),
-            cli.s3.s3_session_token.clone(),
+            cli.blob_storage.s3.s3_access_key.clone(),
+            cli.blob_storage.s3.s3_secret_key.clone(),
+            cli.blob_storage.s3.s3_bucket.clone(),
+            cli.blob_storage.s3.s3_region.clone(),
+            cli.blob_storage.s3.s3_session_token.clone(),
         );
         warn!(
             endpoint = %endpoint,
@@ -331,7 +323,7 @@ pub async fn main(
                     "disabled"
                 };
                 warn!(
-                    bucket = %cli.s3.s3_bucket,
+                    bucket = %cli.blob_storage.s3.s3_bucket,
                     intelligent_tiering = tiering,
                     "S3 bucket ready"
                 );
@@ -345,6 +337,27 @@ pub async fn main(
     } else {
         None
     };
+
+    // Assemble storage state (enabled iff both S3 bucket and cashier connector
+    // are configured). Ingress auth is only constructed when storage is active.
+    let storage_state = s3_bucket.zip(cashier_connector).map(|(bucket, connector)| {
+        let ingress_auth: Arc<dyn IngressAuth> = if cli.blob_storage.cashier.fake_ingress_auth {
+            warn!("Using fake ingress auth (certificate verification disabled)");
+            Arc::new(IngressAuthStub)
+        } else {
+            Arc::new(IngressAuthImpl::new(agent.clone()))
+        };
+        StorageState {
+            connector,
+            bucket,
+            ingress_auth,
+            allowed_delete_owner_hosts: cli
+                .blob_storage
+                .cashier
+                .allow_delete_owner_from_host
+                .clone(),
+        }
+    });
 
     // Setup WAF
     let waf_layer = if cli.waf.waf_enable {
@@ -374,10 +387,7 @@ pub async fn main(
         waf_layer,
         custom_domains_router,
         subnets_info,
-        s3_bucket,
-        cashier_connector,
-        ingress_auth,
-        cli.cashier.allow_delete_owner_from_host.clone(),
+        storage_state,
     )
     .await
     .context("unable to setup Axum router")?;
