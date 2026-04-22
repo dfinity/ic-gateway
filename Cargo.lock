@@ -3742,6 +3742,7 @@ dependencies = [
  "humantime",
  "ic-bn-lib",
  "ic-bn-lib-common",
+ "ic-certificate-verification 3.1.0",
  "ic-certification 3.1.0",
  "ic-certified-assets",
  "ic-custom-domains-backend",

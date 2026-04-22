@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use candid::Principal;
-use ic_bn_lib::ic_agent::{Agent, AgentError, Certificate, hash_tree::LookupResult};
-use tracing::warn;
+use ic_bn_lib::ic_agent::{Agent, Certificate, hash_tree::LookupResult};
+use ic_certificate_verification::VerifyCertificate;
 
 use super::wire::{OwnerEgressSignature, PutBlobTreeRequest, StorageGatewayAuthorization};
 
@@ -40,17 +40,14 @@ impl IngressAuthImpl {
             .map_err(|e| AuthError::Forbidden(format!("failed to parse certificate: {e}")))
     }
 
+    /// Verify the BLS signature, delegation, and canister-range membership of a
+    /// certificate. Freshness is intentionally not enforced: the request body is
+    /// structurally a canister response, and replay protection comes from the
+    /// `blob_hash` binding in the payload rather than the certificate's `time`.
     fn verify_certificate(&self, cert: &Certificate, canister: Principal) -> Result<(), AuthError> {
-        match self.agent.verify(cert, canister) {
-            Ok(()) => Ok(()),
-            Err(AgentError::CertificateOutdated(_)) => {
-                warn!("Egress certificate is outdated (stale but valid signature)");
-                Err(AuthError::Forbidden("certificate outdated".into()))
-            }
-            Err(e) => Err(AuthError::Forbidden(format!(
-                "certificate verification failed: {e}"
-            ))),
-        }
+        let root_key = self.agent.read_root_key();
+        cert.verify(canister.as_slice(), &root_key, &0, &u128::MAX)
+            .map_err(|e| AuthError::Forbidden(format!("certificate verification failed: {e}")))
     }
 
     fn extract_payload(cert: &Certificate) -> Result<OwnerEgressSignature, AuthError> {

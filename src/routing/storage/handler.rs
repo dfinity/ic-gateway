@@ -524,8 +524,8 @@ async fn delete_all_with_prefix(
     let mut continuation_token = None;
 
     loop {
-        let (page, _status) = bucket
-            .list_page(prefix.clone(), None, continuation_token, None, Some(1000))
+        let page = bucket
+            .list_page(prefix.clone(), continuation_token, Some(1000))
             .await
             .map_err(|e| BackendError::S3(e.to_string()))?;
 

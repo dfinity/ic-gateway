@@ -61,11 +61,9 @@ pub trait BucketLike: Send + Sync {
     async fn list_page(
         &self,
         prefix: String,
-        delimiter: Option<String>,
         continuation_token: Option<String>,
-        start_after: Option<String>,
         max_keys: Option<usize>,
-    ) -> Result<(ListPage, u16), StorageError>;
+    ) -> Result<ListPage, StorageError>;
 }
 
 /// A single page of object keys from a paginated list operation.
@@ -73,8 +71,6 @@ pub trait BucketLike: Send + Sync {
 pub struct ListPage {
     pub keys: Vec<String>,
     pub next_continuation_token: Option<String>,
-    pub sizes: Vec<u64>,
-    pub last_modified_ts_secs: Option<Vec<u64>>,
 }
 
 /// Adapter that exposes an `ic_bn_lib_common` [`Resolves`] implementation as
@@ -334,60 +330,30 @@ impl BucketLike for AWSBucket {
     async fn list_page(
         &self,
         prefix: String,
-        delimiter: Option<String>,
         continuation_token: Option<String>,
-        start_after: Option<String>,
         max_keys: Option<usize>,
-    ) -> Result<(ListPage, u16), StorageError> {
-        match self
+    ) -> Result<ListPage, StorageError> {
+        let output = self
             .client
             .list_objects_v2()
             .bucket(&self.config.bucket_name)
             .prefix(prefix)
-            .set_delimiter(delimiter)
             .set_continuation_token(continuation_token)
-            .set_start_after(start_after)
             .set_max_keys(max_keys.map(|v| v as i32))
             .send()
             .await
-        {
-            Ok(output) => {
-                if let Some(objects) = output.contents {
-                    let keys: Vec<String> = objects
-                        .iter()
-                        .map(|o| o.key().unwrap_or_default().to_string())
-                        .collect();
-                    let sizes: Vec<u64> = objects
-                        .iter()
-                        .map(|o| o.size().map_or(0, |v| v as u64))
-                        .collect();
-                    let last_modified: Vec<u64> = objects
-                        .iter()
-                        .map(|o| o.last_modified().map(|dt| dt.secs() as u64).unwrap_or(0))
-                        .collect();
+            .map_err(|e| StorageError::AwsS3(format!("{}", DisplayErrorContext(e))))?;
 
-                    Ok((
-                        ListPage {
-                            keys,
-                            next_continuation_token: output.next_continuation_token,
-                            sizes,
-                            last_modified_ts_secs: Some(last_modified),
-                        },
-                        200,
-                    ))
-                } else {
-                    Ok((
-                        ListPage {
-                            keys: Vec::new(),
-                            next_continuation_token: output.next_continuation_token,
-                            sizes: Vec::new(),
-                            last_modified_ts_secs: None,
-                        },
-                        200,
-                    ))
-                }
-            }
-            Err(e) => Err(StorageError::AwsS3(format!("{}", DisplayErrorContext(e)))),
-        }
+        let keys = output
+            .contents
+            .unwrap_or_default()
+            .into_iter()
+            .map(|o| o.key.unwrap_or_default())
+            .collect();
+
+        Ok(ListPage {
+            keys,
+            next_continuation_token: output.next_continuation_token,
+        })
     }
 }
