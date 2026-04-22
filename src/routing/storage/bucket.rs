@@ -1,5 +1,6 @@
 use std::fmt::{Display, Formatter};
 use std::net::IpAddr;
+use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -13,6 +14,9 @@ use aws_sdk_s3::operation::head_object::HeadObjectError;
 use aws_sdk_s3::primitives::ByteStream;
 use aws_smithy_http_client::{Builder as HttpClientBuilder, tls};
 use aws_smithy_runtime_api::client::dns::{DnsFuture, ResolveDns, ResolveDnsError};
+use hickory_resolver::proto::rr::{RData, RecordType};
+use ic_bn_lib::http::dns::Resolver as DnsResolver;
+use ic_bn_lib::ic_bn_lib_common::traits::dns::Resolves;
 
 use super::bucket_config::S3Config;
 
@@ -64,25 +68,53 @@ pub struct ListPage {
     pub last_modified_ts_secs: Option<Vec<u64>>,
 }
 
-/// DNS resolver using Tokio's async resolution (handles container hostnames, /etc/hosts).
+/// Adapter that exposes an `ic_bn_lib_common` [`Resolves`] implementation as
+/// an AWS SDK [`ResolveDns`].
+///
+/// The AWS SDK only needs `hostname -> Vec<IpAddr>` resolution; we perform
+/// parallel A and AAAA lookups and return the union.
 #[derive(Clone, Debug)]
-struct TokioDnsResolver;
+struct AwsDnsAdapter(Arc<DnsResolver>);
 
-impl ResolveDns for TokioDnsResolver {
+impl ResolveDns for AwsDnsAdapter {
     fn resolve_dns<'a>(&'a self, name: &'a str) -> DnsFuture<'a> {
+        let resolver = self.0.clone();
+        let name = name.to_string();
         DnsFuture::new(async move {
-            let addrs = tokio::net::lookup_host(format!("{name}:0")).await.map_err(|e| {
-                ResolveDnsError::new(std::io::Error::other(format!(
-                    "DNS resolution failed for {name}: {e}"
-                )))
-            })?;
+            let (v4, v6) = tokio::join!(
+                resolver.resolve(RecordType::A, &name),
+                resolver.resolve(RecordType::AAAA, &name),
+            );
 
-            let ips: Vec<IpAddr> = addrs.map(|addr| addr.ip()).collect();
+            let mut ips: Vec<IpAddr> = Vec::new();
+            if let Ok(records) = &v4 {
+                for r in records {
+                    if let RData::A(a) = r.data() {
+                        ips.push(IpAddr::V4(a.0));
+                    }
+                }
+            }
+            if let Ok(records) = &v6 {
+                for r in records {
+                    if let RData::AAAA(aaaa) = r.data() {
+                        ips.push(IpAddr::V6(aaaa.0));
+                    }
+                }
+            }
+
             if ips.is_empty() {
-                return Err(ResolveDnsError::new(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    format!("no addresses found for hostname: {name}"),
-                )));
+                // Surface the underlying error when we have one; otherwise
+                // report an empty result explicitly.
+                let err = v4.err().or(v6.err()).map_or_else(
+                    || {
+                        std::io::Error::new(
+                            std::io::ErrorKind::NotFound,
+                            format!("no addresses found for hostname: {name}"),
+                        )
+                    },
+                    |e| std::io::Error::other(format!("DNS resolution failed for {name}: {e}")),
+                );
+                return Err(ResolveDnsError::new(err));
             }
             Ok(ips)
         })
@@ -106,7 +138,7 @@ impl AWSBucket {
     }
 
     /// Build a new `aws_sdk_s3::Client` from the given config.
-    async fn build_client(config: &S3Config) -> Client {
+    async fn build_client(config: &S3Config, dns_resolver: Arc<DnsResolver>) -> Client {
         let credentials = aws_sdk_s3::config::Credentials::new(
             &config.access_key,
             &config.secret_key,
@@ -118,7 +150,7 @@ impl AWSBucket {
 
         let http_client = HttpClientBuilder::new()
             .tls_provider(tls::Provider::Rustls(tls::rustls_provider::CryptoMode::Ring))
-            .build_with_resolver(TokioDnsResolver);
+            .build_with_resolver(AwsDnsAdapter(dns_resolver));
 
         let lib_config = aws_config::defaults(BehaviorVersion::latest())
             .region(Region::new(config.region.clone()))
@@ -161,8 +193,11 @@ impl AWSBucket {
         Ok(true)
     }
 
-    pub async fn new(config: S3Config) -> Result<Self, StorageError> {
-        let client = Self::build_client(&config).await;
+    pub async fn new(
+        config: S3Config,
+        dns_resolver: Arc<DnsResolver>,
+    ) -> Result<Self, StorageError> {
+        let client = Self::build_client(&config, dns_resolver).await;
         Self::init_bucket(&client, &config).await?;
 
         let mut bucket = Self {

@@ -315,7 +315,7 @@ pub async fn main(
             "Initializing S3 storage backend"
         );
 
-        match AWSBucket::new(s3_config).await {
+        match AWSBucket::new(s3_config, Arc::new(dns_resolver.clone())).await {
             Ok(bucket) => {
                 let tiering = if bucket.supports_intelligent_tiering() {
                     "enabled"
