@@ -25,14 +25,6 @@ pub trait IngressAuth: Send + Sync {
     fn check_put_blob(&self, request: &PutBlobTreeRequest) -> Result<(), AuthError>;
 }
 
-/// Stub that accepts everything. Used with `--fake-ingress-auth`.
-#[derive(Default)]
-pub struct IngressAuthStub;
-
-impl IngressAuth for IngressAuthStub {
-    fn check_put_blob(&self, _request: &PutBlobTreeRequest) -> Result<(), AuthError> { Ok(()) }
-}
-
 /// Production implementation: verify IC egress certificate.
 pub struct IngressAuthImpl {
     agent: Arc<Agent>,

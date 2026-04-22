@@ -559,11 +559,6 @@ pub struct CashierConfig {
     #[clap(env, long, default_value = "10s", value_parser = parse_duration)]
     pub cashier_usage_report_interval: Duration,
 
-    /// Skip IC egress certificate verification on PUT blob_tree.
-    /// Use only for local development / testing.
-    #[clap(env, long)]
-    pub fake_ingress_auth: bool,
-
     /// Comma-separated list of hosts allowed to call DELETE /owner.
     /// If unset, owner deletion is unrestricted.
     #[clap(env = "ALLOW_DELETE_OWNER_FROM_HOST", long)]

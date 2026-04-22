@@ -24,7 +24,7 @@ use crate::routing::{
 use self::{auth::AuthError, cashier_connector::BillingError};
 
 pub use self::{
-    auth::{IngressAuth, IngressAuthImpl, IngressAuthStub},
+    auth::{IngressAuth, IngressAuthImpl},
     bucket::{AWSBucket, BucketLike},
     bucket_config::S3Config,
     cashier_client::CashierClient,

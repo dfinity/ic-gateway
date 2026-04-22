@@ -33,7 +33,7 @@ use crate::{
     routing::ic::subnets_info::SubnetsInfoFetcher,
     routing::storage::{
         AWSBucket, BucketLike, CashierClient, CashierConnector, IngressAuth, IngressAuthImpl,
-        IngressAuthStub, S3Config, StorageState,
+        S3Config, StorageState,
     },
     routing::{
         self,
@@ -341,12 +341,8 @@ pub async fn main(
     // Assemble storage state (enabled iff both S3 bucket and cashier connector
     // are configured). Ingress auth is only constructed when storage is active.
     let storage_state = s3_bucket.zip(cashier_connector).map(|(bucket, connector)| {
-        let ingress_auth: Arc<dyn IngressAuth> = if cli.blob_storage.cashier.fake_ingress_auth {
-            warn!("Using fake ingress auth (certificate verification disabled)");
-            Arc::new(IngressAuthStub)
-        } else {
-            Arc::new(IngressAuthImpl::new(agent.clone()))
-        };
+        let ingress_auth: Arc<dyn IngressAuth> =
+            Arc::new(IngressAuthImpl::new(agent.clone()));
         StorageState {
             connector,
             bucket,
