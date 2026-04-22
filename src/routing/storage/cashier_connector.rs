@@ -17,7 +17,6 @@ use super::cashier_types::*;
 use super::types::ONE_MIB;
 
 const BUDGET_TTL: Duration = Duration::from_secs(30);
-const BUDGET_REFRESH_DELAY: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone)]
 pub enum BillingError {
@@ -222,9 +221,6 @@ impl CashierConnector {
             let mut budgets = self.budgets.write().await;
             if let Some(cached) = budgets.get_mut(owner) {
                 if cached.fetched_at.elapsed() < BUDGET_TTL {
-                    return self.try_debit(cached, cost);
-                }
-                if cached.fetched_at.elapsed() < BUDGET_REFRESH_DELAY {
                     return self.try_debit(cached, cost);
                 }
             }
