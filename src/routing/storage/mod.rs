@@ -1,6 +1,5 @@
 pub mod auth;
 pub mod bucket;
-pub mod bucket_config;
 pub mod cashier_client;
 pub mod cashier_connector;
 pub mod cashier_types;
@@ -25,8 +24,7 @@ use self::{auth::AuthError, cashier_connector::BillingError};
 
 pub use self::{
     auth::{IngressAuth, IngressAuthImpl},
-    bucket::{AWSBucket, BucketLike},
-    bucket_config::S3Config,
+    bucket::{AWSBucket, BucketLike, S3Config},
     cashier_client::CashierClient,
     cashier_connector::CashierConnector,
 };

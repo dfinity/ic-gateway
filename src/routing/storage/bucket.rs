@@ -18,7 +18,16 @@ use hickory_resolver::proto::rr::{RData, RecordType};
 use ic_bn_lib::http::dns::Resolver as DnsResolver;
 use ic_bn_lib::ic_bn_lib_common::traits::dns::Resolves;
 
-use super::bucket_config::S3Config;
+/// Configuration for the S3 backend.
+#[derive(Debug, Clone)]
+pub struct S3Config {
+    pub endpoint: String,
+    pub access_key: String,
+    pub secret_key: String,
+    pub bucket_name: String,
+    pub region: String,
+    pub session_token: Option<String>,
+}
 
 /// Errors from S3 storage operations.
 #[derive(Debug)]

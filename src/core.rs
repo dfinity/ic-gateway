@@ -300,14 +300,14 @@ pub async fn main(
 
     // Setup S3 storage backend (single bucket)
     let s3_bucket = if let Some(ref endpoint) = cli.blob_storage.s3.s3_endpoint {
-        let s3_config = S3Config::new(
-            endpoint.clone(),
-            cli.blob_storage.s3.s3_access_key.clone(),
-            cli.blob_storage.s3.s3_secret_key.clone(),
-            cli.blob_storage.s3.s3_bucket.clone(),
-            cli.blob_storage.s3.s3_region.clone(),
-            cli.blob_storage.s3.s3_session_token.clone(),
-        );
+        let s3_config = S3Config {
+            endpoint: endpoint.clone(),
+            access_key: cli.blob_storage.s3.s3_access_key.clone(),
+            secret_key: cli.blob_storage.s3.s3_secret_key.clone(),
+            bucket_name: cli.blob_storage.s3.s3_bucket.clone(),
+            region: cli.blob_storage.s3.s3_region.clone(),
+            session_token: cli.blob_storage.s3.s3_session_token.clone(),
+        };
         warn!(
             endpoint = %endpoint,
             bucket = %s3_config.bucket_name,
