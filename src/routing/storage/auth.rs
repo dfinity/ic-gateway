@@ -4,7 +4,7 @@ use candid::Principal;
 use ic_bn_lib::ic_agent::{Agent, AgentError, Certificate, hash_tree::LookupResult};
 use tracing::warn;
 
-use super::types::{OwnerEgressSignature, PutBlobTreeRequest, StorageGatewayAuthorization};
+use super::wire::{OwnerEgressSignature, PutBlobTreeRequest, StorageGatewayAuthorization};
 
 #[derive(Debug)]
 pub enum AuthError {

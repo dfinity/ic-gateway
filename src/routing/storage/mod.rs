@@ -4,8 +4,7 @@ pub mod cashier_client;
 pub mod cashier_connector;
 pub mod cashier_types;
 pub mod handler;
-pub mod paths;
-pub mod types;
+pub mod wire;
 
 use std::{sync::Arc, time::Duration};
 

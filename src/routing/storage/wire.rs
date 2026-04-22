@@ -1,4 +1,18 @@
-//! Types for blob storage, serde-compatible with `icfs-common`.
+//! Wire-format types for the storage API.
+//!
+//! These are the serialized representations exchanged with external parties:
+//!
+//! * HTTP request/response bodies (JSON) for the `/storage/v1/` endpoints,
+//!   consumed by Caffeine frontends and the `icfs` CLI.
+//! * [`BlobMetadata`] — JSON blob stored in S3 at
+//!   `blob-metadata/{owner}/{root_hash}` and read back by `get_blob`.
+//! * [`OwnerEgressSignature`] — Candid payload embedded in an IC egress
+//!   certificate, verified by [`crate::routing::storage::auth`].
+//!
+//! These types must stay serde/Candid-compatible with `object-storage`'s
+//! `icfs-common` crate (`BlobHashNHeaders`, `BlobHashTree`, etc.). Any
+//! schema change here is a breaking API change — coordinate with clients
+//! before touching them.
 
 use candid::CandidType;
 use serde::{Deserialize, Serialize};

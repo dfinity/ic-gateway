@@ -14,7 +14,7 @@ use tracing::warn;
 
 use super::cashier_client::CashierClient;
 use super::cashier_types::*;
-use super::types::ONE_MIB;
+use super::wire::ONE_MIB;
 
 const BUDGET_TTL: Duration = Duration::from_secs(30);
 
