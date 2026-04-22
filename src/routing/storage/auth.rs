@@ -31,26 +31,25 @@ pub struct IngressAuthImpl {
 }
 
 impl IngressAuthImpl {
-    pub fn new(agent: Arc<Agent>) -> Self { Self { agent } }
-
-    fn parse_certificate(bytes: &[u8]) -> Result<Certificate, AuthError> {
-        serde_cbor::from_slice::<Certificate>(bytes).map_err(|e| {
-            AuthError::Forbidden(format!("failed to parse certificate: {e}"))
-        })
+    pub fn new(agent: Arc<Agent>) -> Self {
+        Self { agent }
     }
 
-    fn verify_certificate(
-        &self,
-        cert: &Certificate,
-        canister: Principal,
-    ) -> Result<(), AuthError> {
+    fn parse_certificate(bytes: &[u8]) -> Result<Certificate, AuthError> {
+        serde_cbor::from_slice::<Certificate>(bytes)
+            .map_err(|e| AuthError::Forbidden(format!("failed to parse certificate: {e}")))
+    }
+
+    fn verify_certificate(&self, cert: &Certificate, canister: Principal) -> Result<(), AuthError> {
         match self.agent.verify(cert, canister) {
             Ok(()) => Ok(()),
             Err(AgentError::CertificateOutdated(_)) => {
                 warn!("Egress certificate is outdated (stale but valid signature)");
                 Err(AuthError::Forbidden("certificate outdated".into()))
             }
-            Err(e) => Err(AuthError::Forbidden(format!("certificate verification failed: {e}"))),
+            Err(e) => Err(AuthError::Forbidden(format!(
+                "certificate verification failed: {e}"
+            ))),
         }
     }
 
@@ -65,12 +64,17 @@ impl IngressAuthImpl {
                     None
                 }
             })
-            .ok_or_else(|| AuthError::Forbidden("no valid OwnerEgressSignature in certificate tree".into()))
+            .ok_or_else(|| {
+                AuthError::Forbidden("no valid OwnerEgressSignature in certificate tree".into())
+            })
     }
 
     fn check_payload(payload: &OwnerEgressSignature, root_hash: &str) -> Result<(), AuthError> {
         if payload.method != "upload" {
-            Err(AuthError::Forbidden(format!("invalid method: {}", payload.method)))
+            Err(AuthError::Forbidden(format!(
+                "invalid method: {}",
+                payload.method
+            )))
         } else if payload.blob_hash != root_hash {
             Err(AuthError::Forbidden(format!(
                 "blob hash mismatch: expected {root_hash}, got {}",

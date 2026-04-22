@@ -271,7 +271,8 @@ pub async fn main(
     );
 
     // Setup Cashier client + billing connector
-    let cashier_connector = if let Some(canister_id) = cli.blob_storage.cashier.cashier_canister_id {
+    let cashier_connector = if let Some(canister_id) = cli.blob_storage.cashier.cashier_canister_id
+    {
         let cashier_client = Arc::new(CashierClient::new(agent.clone(), canister_id));
         warn!("Cashier client configured for canister {canister_id}");
 
@@ -341,8 +342,7 @@ pub async fn main(
     // Assemble storage state (enabled iff both S3 bucket and cashier connector
     // are configured). Ingress auth is only constructed when storage is active.
     let storage_state = s3_bucket.zip(cashier_connector).map(|(bucket, connector)| {
-        let ingress_auth: Arc<dyn IngressAuth> =
-            Arc::new(IngressAuthImpl::new(agent.clone()));
+        let ingress_auth: Arc<dyn IngressAuth> = Arc::new(IngressAuthImpl::new(agent.clone()));
         StorageState {
             connector,
             bucket,

@@ -6,9 +6,7 @@ use arc_swap::ArcSwapOption;
 use async_trait::async_trait;
 use candid::Principal;
 use ic_bn_lib::ic_agent::{
-    Agent,
-    agent::SubnetType as AgentSubnetType,
-    hash_tree::SubtreeLookupResult,
+    Agent, agent::SubnetType as AgentSubnetType, hash_tree::SubtreeLookupResult,
 };
 use ic_bn_lib_common::traits::{Healthy, Run};
 use tokio_util::sync::CancellationToken;
@@ -197,7 +195,9 @@ impl SubnetsInfoFetcher {
 
             let subnet_type = SubnetType::from(subnet.subnet_type());
             if subnet_type == SubnetType::Unknown {
-                return Err(anyhow::anyhow!("invalid subnet type for subnet {subnet_id}"));
+                return Err(anyhow::anyhow!(
+                    "invalid subnet type for subnet {subnet_id}"
+                ));
             }
 
             Ok::<_, Error>((subnet_id, ranges, subnet_type))
@@ -276,10 +276,7 @@ mod tests {
         let lo_app = Principal::from_slice(&[0x20]);
         let hi_app = Principal::from_slice(&[0x2F]);
 
-        let ranges = vec![
-            (lo_sys, hi_sys, subnet_sys),
-            (lo_app, hi_app, subnet_app),
-        ];
+        let ranges = vec![(lo_sys, hi_sys, subnet_sys), (lo_app, hi_app, subnet_app)];
         let mut types = AHashMap::new();
         types.insert(subnet_sys, SubnetType::System);
         types.insert(subnet_app, SubnetType::Application);
@@ -290,8 +287,14 @@ mod tests {
         let info = info.as_ref().unwrap();
 
         // mid-range hits
-        assert_eq!(info.subnet_type(Principal::from_slice(&[0x13])), Some(SubnetType::System));
-        assert_eq!(info.subnet_type(Principal::from_slice(&[0x25])), Some(SubnetType::Application));
+        assert_eq!(
+            info.subnet_type(Principal::from_slice(&[0x13])),
+            Some(SubnetType::System)
+        );
+        assert_eq!(
+            info.subnet_type(Principal::from_slice(&[0x25])),
+            Some(SubnetType::Application)
+        );
         // exact boundary hits
         assert_eq!(info.subnet_type(lo_sys), Some(SubnetType::System));
         assert_eq!(info.subnet_type(hi_sys), Some(SubnetType::System));

@@ -35,8 +35,7 @@ impl CashierClient {
 
     /// Query: returns the pricing for storage operations.
     pub async fn pricelist_v1(&self) -> Result<Pricelist, Error> {
-        let encoded_args =
-            candid::encode_args(()).context("failed to encode pricelist args")?;
+        let encoded_args = candid::encode_args(()).context("failed to encode pricelist args")?;
 
         let response_bytes = self
             .agent
@@ -92,5 +91,4 @@ impl CashierClient {
             .context("failed to decode storage_usage_set_batch_v1 response")?;
         Ok(response)
     }
-
 }

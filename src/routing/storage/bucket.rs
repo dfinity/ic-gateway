@@ -158,7 +158,9 @@ impl AWSBucket {
         let normalized_endpoint = Self::normalize_endpoint(&config.endpoint);
 
         let http_client = HttpClientBuilder::new()
-            .tls_provider(tls::Provider::Rustls(tls::rustls_provider::CryptoMode::Ring))
+            .tls_provider(tls::Provider::Rustls(
+                tls::rustls_provider::CryptoMode::Ring,
+            ))
             .build_with_resolver(AwsDnsAdapter(dns_resolver));
 
         let lib_config = aws_config::defaults(BehaviorVersion::latest())
@@ -177,11 +179,13 @@ impl AWSBucket {
     }
 
     /// Ensure the bucket exists, creating it if necessary. Probe intelligent tiering.
-    async fn init_bucket(
-        client: &Client,
-        config: &S3Config,
-    ) -> Result<bool, StorageError> {
-        let exists = match client.head_bucket().bucket(&config.bucket_name).send().await {
+    async fn init_bucket(client: &Client, config: &S3Config) -> Result<bool, StorageError> {
+        let exists = match client
+            .head_bucket()
+            .bucket(&config.bucket_name)
+            .send()
+            .await
+        {
             Ok(_) => true,
             Err(SdkError::ServiceError(inner)) => match inner.into_err() {
                 HeadBucketError::NotFound(_) => false,
@@ -353,8 +357,10 @@ impl BucketLike for AWSBucket {
                         .iter()
                         .map(|o| o.key().unwrap_or_default().to_string())
                         .collect();
-                    let sizes: Vec<u64> =
-                        objects.iter().map(|o| o.size().map_or(0, |v| v as u64)).collect();
+                    let sizes: Vec<u64> = objects
+                        .iter()
+                        .map(|o| o.size().map_or(0, |v| v as u64))
+                        .collect();
                     let last_modified: Vec<u64> = objects
                         .iter()
                         .map(|o| o.last_modified().map(|dt| dt.secs() as u64).unwrap_or(0))

@@ -24,7 +24,7 @@ aws-sdk-s3 = "1.120"
 aws-smithy-http-client = { version = "1.1", features = ["rustls-ring"] }
 aws-smithy-runtime-api = { version = "1.10", features = ["client"] }
 axum = { version = "0.8.1", features = ["macros"] }
-axum-extra = "0.10.0"
+axum-extra = { version = "0.10.0", features = ["typed-header"] }
 bytes = "1.10.0"
 candid = "0.10.10"
 clap = { version = "4.5.20", features = ["derive", "string", "env"] }

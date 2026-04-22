@@ -63,7 +63,8 @@ pub fn storage_router(
     cors_max_age: Duration,
     cors_allow_origin: Vec<HeaderValue>,
 ) -> Router {
-    let cors = cors::layer(cors_max_age, cors_allow_origin).allow_methods(cors::ALLOW_METHODS_STORAGE);
+    let cors =
+        cors::layer(cors_max_age, cors_allow_origin).allow_methods(cors::ALLOW_METHODS_STORAGE);
 
     Router::new()
         .route(

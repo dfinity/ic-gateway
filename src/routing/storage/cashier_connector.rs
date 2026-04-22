@@ -82,7 +82,10 @@ impl fmt::Debug for CashierConnector {
 }
 
 impl CashierConnector {
-    pub async fn new(client: Arc<CashierClient>, gateway_name: Option<String>) -> Result<Self, Error> {
+    pub async fn new(
+        client: Arc<CashierClient>,
+        gateway_name: Option<String>,
+    ) -> Result<Self, Error> {
         let principal = client.principal()?;
         let pricelist = client.pricelist_v1().await?;
         let gateway_id = GatewayId {
@@ -264,9 +267,9 @@ impl CashierConnector {
         match result {
             GetBudgetResult::Ok(resp) => Ok(resp.budget),
             GetBudgetResult::Err(GetBudgetError::OwnerNotFound) => Err(BillingError::OwnerNotFound),
-            GetBudgetResult::Err(GetBudgetError::GatewayNotFound(_)) => {
-                Err(BillingError::CashierUnavailable("gateway not found".to_string()))
-            }
+            GetBudgetResult::Err(GetBudgetError::GatewayNotFound(_)) => Err(
+                BillingError::CashierUnavailable("gateway not found".to_string()),
+            ),
         }
     }
 
@@ -297,7 +300,9 @@ impl Run for CashierConnector {
 }
 
 impl Healthy for CashierConnector {
-    fn healthy(&self) -> bool { self.healthy.load(Ordering::Relaxed) }
+    fn healthy(&self) -> bool {
+        self.healthy.load(Ordering::Relaxed)
+    }
 }
 
 fn int_to_i64(v: &Int) -> i64 {

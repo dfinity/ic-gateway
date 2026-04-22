@@ -61,9 +61,7 @@ use crate::{
     cli::Cli,
     metrics::{self},
     routing::ic::subnets_info::SubnetsInfo,
-    routing::middleware::{
-        canister_match, cors, geoip, headers, preprocess, request_id, validate,
-    },
+    routing::middleware::{canister_match, cors, geoip, headers, preprocess, request_id, validate},
 };
 use domain::{CustomDomainStorage, DomainResolver};
 use middleware::{

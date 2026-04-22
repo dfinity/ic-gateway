@@ -749,11 +749,15 @@ pub enum StorageError {
 }
 
 impl From<ClientError> for StorageError {
-    fn from(e: ClientError) -> Self { Self::Client(e) }
+    fn from(e: ClientError) -> Self {
+        Self::Client(e)
+    }
 }
 
 impl From<BackendError> for StorageError {
-    fn from(e: BackendError) -> Self { Self::Backend(e) }
+    fn from(e: BackendError) -> Self {
+        Self::Backend(e)
+    }
 }
 
 impl IntoResponse for StorageError {

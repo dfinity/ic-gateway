@@ -1,13 +1,18 @@
-use std::{cmp::min, ops::Range, sync::Arc, time::Duration};
+use std::{
+    cmp::min,
+    ops::{Bound, Range},
+    sync::Arc,
+    time::Duration,
+};
 
 use axum::{
+    Json,
     body::Body,
     extract::{Path, State},
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
-    Json,
 };
-use axum_extra::extract::Host;
+use axum_extra::{TypedHeader, extract::Host, headers::Range as HttpRange};
 use candid::Principal;
 use ic_bn_lib::http::body::buffer_body;
 use sha2::{Digest, Sha256};
@@ -18,12 +23,12 @@ use crate::routing::{
 };
 
 use super::{
+    StorageState,
     bucket::BucketLike,
     wire::{
         BlobMetadata, MAX_REQUEST_BODY_SIZE, ONE_MIB, PutBlobTreeRequest, PutBlobTreeResponse,
         PutChunkResponse,
     },
-    StorageState,
 };
 
 type S = Arc<StorageState>;
@@ -97,92 +102,36 @@ async fn load_blob_metadata(
         .map_err(|e| StorageError::Internal(format!("corrupt blob metadata: {e}")))
 }
 
-// Range parsing (RFC 7233 single-range only)
-#[derive(Debug, Clone)]
-enum ByteRange {
-    Inclusive(u64, u64),
-    From(u64),
-    Last(u64),
-}
+/// Resolve a parsed `Range` header to an inclusive-start/exclusive-end byte
+/// range. We only support single-range requests (RFC 9110 §14.2). Multi-range
+/// responses would require `multipart/byteranges` which we don't emit.
+fn resolve_range(range: &HttpRange, total: u64) -> Result<Range<u64>, StorageError> {
+    let unsatisfiable = || StorageError::from(ClientError::RangeNotSatisfiable(total));
 
-impl ByteRange {
-    fn resolve(&self, total: u64) -> Result<Range<u64>, StorageError> {
-        let unsatisfiable = || StorageError::from(ClientError::RangeNotSatisfiable(total));
-        let range = match self {
-            Self::Inclusive(s, e) => {
-                if *s <= *e && *e < total {
-                    *s..*e + 1
-                } else {
-                    return Err(unsatisfiable());
-                }
-            }
-            Self::From(s) => {
-                if *s < total {
-                    *s..total
-                } else {
-                    return Err(unsatisfiable());
-                }
-            }
-            Self::Last(n) => {
-                if *n <= total {
-                    (total - *n)..total
-                } else {
-                    return Err(unsatisfiable());
-                }
-            }
-        };
-        Ok(range)
+    let mut iter = range.satisfiable_ranges(total);
+    let first = iter.next().ok_or_else(unsatisfiable)?;
+    if iter.next().is_some() {
+        return Err(StorageError::from(ClientError::MalformedRequest(
+            "only single-range requests are supported".into(),
+        )));
     }
-}
 
-fn parse_range_header(headers: &HeaderMap) -> Result<Option<ByteRange>, StorageError> {
-    let invalid = |m: &str| StorageError::from(ClientError::MalformedRequest(m.to_string()));
-
-    let Some(value) = headers.get(header::RANGE) else {
-        return Ok(None);
+    let (start_bound, end_bound) = first;
+    let start = match start_bound {
+        Bound::Included(n) => n,
+        Bound::Excluded(n) => n.saturating_add(1),
+        Bound::Unbounded => 0,
     };
-    let s = value.to_str().map_err(|_| invalid("invalid Range header encoding"))?;
-
-    let rest = s
-        .strip_prefix("bytes=")
-        .ok_or_else(|| invalid("only bytes ranges are supported"))?;
-
-    let specs: Vec<&str> = rest.split(',').collect();
-    if specs.len() != 1 {
-        return Err(invalid("only single-range requests are supported"));
-    }
-
-    let spec = specs[0].trim();
-    let (start_s, end_s) = spec
-        .split_once('-')
-        .ok_or_else(|| invalid("malformed range spec"))?;
-
-    let parse = |s: &str| -> Result<Option<u64>, StorageError> {
-        let t = s.trim();
-        if t.is_empty() {
-            Ok(None)
-        } else {
-            t.parse::<u64>()
-                .map(Some)
-                .map_err(|_| invalid("non-numeric range value"))
-        }
+    let end = match end_bound {
+        Bound::Included(n) => n.saturating_add(1),
+        Bound::Excluded(n) => n,
+        Bound::Unbounded => total,
     };
 
-    let start = parse(start_s)?;
-    let end = parse(end_s)?;
-
-    match (start, end) {
-        (None, None) => Err(invalid("empty range")),
-        (None, Some(n)) => Ok(Some(ByteRange::Last(n))),
-        (Some(s), None) => Ok(Some(ByteRange::From(s))),
-        (Some(s), Some(e)) => {
-            if s <= e {
-                Ok(Some(ByteRange::Inclusive(s, e)))
-            } else {
-                Err(invalid("range start > end"))
-            }
-        }
+    if start >= end || end > total {
+        return Err(unsatisfiable());
     }
+    Ok(start..end)
 }
 
 /// Map a byte range to (chunk_index_range, start_offset_in_first_chunk, end_offset_in_last_chunk).
@@ -207,9 +156,8 @@ fn check_delete_owner_host(
         return Ok(());
     };
 
-    let host = host.ok_or_else(|| {
-        StorageError::Forbidden("missing Host header for owner deletion".into())
-    })?;
+    let host = host
+        .ok_or_else(|| StorageError::Forbidden("missing Host header for owner deletion".into()))?;
 
     let normalize = |h: &str| {
         h.split_once(':')
@@ -248,18 +196,15 @@ pub async fn head_blob(
 
     let meta = load_blob_metadata(&state.bucket, &owner, &blob_hash).await?;
 
-    let mut headers = HeaderMap::new();
-    headers.insert(header::CONTENT_LENGTH, meta.num_blob_bytes.into());
-    headers.insert(header::ACCEPT_RANGES, ACCEPT_RANGES_BYTES);
-    apply_stored_headers(&mut headers, &meta.headers);
-
+    // Per RFC 9110 §9.3.2, HEAD must return the same headers as GET would.
+    let headers = blob_download_headers(meta.num_blob_bytes, &meta.headers);
     Ok((StatusCode::OK, headers).into_response())
 }
 
 // GET /storage/v1/owner/{owner_id}/blob/{blob_hash} (with Range support)
 pub async fn get_blob(
     State(state): State<S>,
-    req_headers: HeaderMap,
+    range_header: Option<TypedHeader<HttpRange>>,
     Path((owner_id, blob_hash)): Path<(String, String)>,
 ) -> Result<Response, StorageError> {
     let owner = parse_principal(&owner_id)?;
@@ -274,10 +219,8 @@ pub async fn get_blob(
     let chunk_hashes: Vec<String> = meta.hash_tree.chunk_hashes().to_vec();
     let total_bytes = meta.num_blob_bytes;
 
-    let range_opt = parse_range_header(&req_headers)?;
-
-    if let Some(byte_range) = range_opt {
-        let range = byte_range.resolve(total_bytes)?;
+    if let Some(TypedHeader(http_range)) = range_header {
+        let range = resolve_range(&http_range, total_bytes)?;
         let content_length = range.end - range.start;
         let (chunk_range, start_offset, end_offset) = range_to_chunk_ranges(&range);
 
@@ -286,10 +229,7 @@ pub async fn get_blob(
         let bucket_c = state.bucket.clone();
         let hashes = chunk_hashes;
 
-        let stream: async_stream::__private::AsyncStream<
-            Result<bytes::Bytes, std::io::Error>,
-            _,
-        > = async_stream::try_stream! {
+        let stream: async_stream::__private::AsyncStream<Result<bytes::Bytes, std::io::Error>, _> = async_stream::try_stream! {
             for (i, chunk_idx) in (chunk_range.start..chunk_range.end).enumerate() {
                 connector
                     .charge_chunk_download(&owner_c)
@@ -319,19 +259,22 @@ pub async fn get_blob(
         let cr = format!("bytes {}-{}/{total_bytes}", range.start, range.end - 1);
         headers.insert(
             header::CONTENT_RANGE,
-            cr.parse().expect("Content-Range value is always valid ASCII"),
+            cr.parse()
+                .expect("Content-Range value is always valid ASCII"),
         );
 
-        Ok((StatusCode::PARTIAL_CONTENT, headers, Body::from_stream(stream)).into_response())
+        Ok((
+            StatusCode::PARTIAL_CONTENT,
+            headers,
+            Body::from_stream(stream),
+        )
+            .into_response())
     } else {
         let connector = state.connector.clone();
         let owner_c = owner;
         let bucket_c = state.bucket.clone();
 
-        let stream: async_stream::__private::AsyncStream<
-            Result<bytes::Bytes, std::io::Error>,
-            _,
-        > = async_stream::try_stream! {
+        let stream: async_stream::__private::AsyncStream<Result<bytes::Bytes, std::io::Error>, _> = async_stream::try_stream! {
             for hash in &chunk_hashes {
                 connector
                     .charge_chunk_download(&owner_c)
@@ -376,10 +319,7 @@ pub async fn get_blob_tree(
         .map_err(|e| StorageError::from(BackendError::S3(e.to_string())))?
         .ok_or_else(|| StorageError::from(ClientError::NotFound("blob")))?;
 
-    let mut headers = HeaderMap::new();
-    headers.insert(header::CONTENT_TYPE, CONTENT_TYPE_JSON);
-
-    Ok((StatusCode::OK, headers, data).into_response())
+    Ok(([(header::CONTENT_TYPE, CONTENT_TYPE_JSON)], data).into_response())
 }
 
 // GET /storage/v1/owner/{owner_id}/chunk/{chunk_hash}
@@ -403,10 +343,7 @@ pub async fn get_chunk(
         .map_err(|e| StorageError::from(BackendError::S3(e.to_string())))?
         .ok_or_else(|| StorageError::from(ClientError::NotFound("chunk")))?;
 
-    let mut headers = HeaderMap::new();
-    headers.insert(header::CONTENT_TYPE, CONTENT_TYPE_OCTET);
-
-    Ok((StatusCode::OK, headers, data).into_response())
+    Ok(([(header::CONTENT_TYPE, CONTENT_TYPE_OCTET)], data).into_response())
 }
 
 // PUT /storage/v1/owner/{owner_id}/blob_tree/{blob_hash} (JSON body, with auth)
@@ -461,8 +398,7 @@ pub async fn put_blob_tree(
         headers: request.headers,
     };
 
-    let data = serde_json::to_vec(&metadata)
-        .map_err(|e| StorageError::Internal(e.to_string()))?;
+    let data = serde_json::to_vec(&metadata).map_err(|e| StorageError::Internal(e.to_string()))?;
 
     let path = blob_path(&owner, &root_hash);
     state
@@ -570,7 +506,11 @@ pub async fn delete_owner(
     let chunks_deleted = delete_all_with_prefix(&state.bucket, chunk_prefix).await?;
 
     if blobs_deleted || chunks_deleted {
-        Ok((StatusCode::OK, format!("deleted all data for owner: {owner}")).into_response())
+        Ok((
+            StatusCode::OK,
+            format!("deleted all data for owner: {owner}"),
+        )
+            .into_response())
     } else {
         Ok(StatusCode::NO_CONTENT.into_response())
     }
@@ -585,13 +525,7 @@ async fn delete_all_with_prefix(
 
     loop {
         let (page, _status) = bucket
-            .list_page(
-                prefix.clone(),
-                None,
-                continuation_token,
-                None,
-                Some(1000),
-            )
+            .list_page(prefix.clone(), None, continuation_token, None, Some(1000))
             .await
             .map_err(|e| BackendError::S3(e.to_string()))?;
 
