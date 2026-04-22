@@ -381,10 +381,7 @@ pub async fn put_blob_tree(
         .into());
     }
 
-    state
-        .ingress_auth
-        .check_put_blob(&request)
-        .map_err(|e| StorageError::from(&e))?;
+    state.ingress_auth.check_put_blob(&request)?;
 
     state
         .connector

@@ -19,7 +19,7 @@ use crate::routing::{
     middleware::cors,
 };
 
-use self::{auth::AuthError, cashier_connector::BillingError};
+use self::cashier_connector::BillingError;
 
 pub use self::{
     auth::{IngressAuth, IngressAuthImpl},
@@ -28,9 +28,10 @@ pub use self::{
     cashier_connector::CashierConnector,
 };
 
-// Conversions from storage-local error types into the shared `StorageError`.
+// Conversion from storage-local `BillingError` into the shared `StorageError`.
 // Kept here (rather than in `error_cause.rs`) so `error_cause` stays
-// independent of storage-module internals.
+// independent of storage-module internals. `IngressAuth` already returns
+// `StorageError` directly, so it needs no conversion.
 
 impl From<&BillingError> for StorageError {
     fn from(e: &BillingError) -> Self {
@@ -38,15 +39,6 @@ impl From<&BillingError> for StorageError {
             BillingError::OwnerNotFound => Self::OwnerNotFound,
             BillingError::InsufficientBalance => Self::InsufficientBalance,
             BillingError::CashierUnavailable(m) => Self::Backend(BackendError::Cashier(m.clone())),
-        }
-    }
-}
-
-impl From<&AuthError> for StorageError {
-    fn from(e: &AuthError) -> Self {
-        match e {
-            AuthError::MissingAuth(m) => Self::Unauthorized(m.clone()),
-            AuthError::Forbidden(m) => Self::Forbidden(m.clone()),
         }
     }
 }
