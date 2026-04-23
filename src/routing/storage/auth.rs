@@ -1,7 +1,5 @@
-use std::sync::Arc;
-
 use candid::Principal;
-use ic_bn_lib::ic_agent::{Agent, Certificate, hash_tree::LookupResult};
+use ic_bn_lib::ic_agent::{Certificate, hash_tree::LookupResult};
 use ic_certificate_verification::VerifyCertificate;
 
 use super::wire::{OwnerEgressSignature, PutBlobTreeRequest, StorageGatewayAuthorization};
@@ -13,12 +11,12 @@ pub trait IngressAuth: Send + Sync {
 
 /// Production implementation: verify IC egress certificate.
 pub struct IngressAuthImpl {
-    agent: Arc<Agent>,
+    root_key: Vec<u8>,
 }
 
 impl IngressAuthImpl {
-    pub fn new(agent: Arc<Agent>) -> Self {
-        Self { agent }
+    pub fn new(root_key: Vec<u8>) -> Self {
+        Self { root_key }
     }
 
     fn parse_certificate(bytes: &[u8]) -> Result<Certificate, StorageError> {
@@ -35,8 +33,7 @@ impl IngressAuthImpl {
         cert: &Certificate,
         canister: Principal,
     ) -> Result<(), StorageError> {
-        let root_key = self.agent.read_root_key();
-        cert.verify(canister.as_slice(), &root_key, &0, &u128::MAX)
+        cert.verify(canister.as_slice(), &self.root_key, &0, &u128::MAX)
             .map_err(|e| StorageError::Forbidden(format!("certificate verification failed: {e}")))
     }
 

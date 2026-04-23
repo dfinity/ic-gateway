@@ -12,6 +12,7 @@ use aws_sdk_s3::operation::get_object::GetObjectError;
 use aws_sdk_s3::operation::head_bucket::HeadBucketError;
 use aws_sdk_s3::operation::head_object::HeadObjectError;
 use aws_sdk_s3::primitives::ByteStream;
+use bytes::Bytes;
 use aws_smithy_http_client::{Builder as HttpClientBuilder, tls};
 use aws_smithy_runtime_api::client::dns::{DnsFuture, ResolveDns, ResolveDnsError};
 use hickory_resolver::proto::rr::{RData, RecordType};
@@ -48,7 +49,11 @@ impl std::error::Error for StorageError {}
 /// Abstraction over S3 buckets to enable dependency injection in tests.
 #[async_trait]
 pub trait BucketLike: Send + Sync {
-    async fn put_object(&self, path: String, content: &[u8]) -> Result<(), StorageError>;
+    /// Upload `content` under `path`. Takes ownership of `content` as
+    /// `bytes::Bytes` so callers with either `Vec<u8>` or `Bytes` can hand off
+    /// without a copy (`Vec<u8> -> Bytes` and `Bytes -> ByteStream` are both
+    /// zero-copy).
+    async fn put_object(&self, path: String, content: Bytes) -> Result<(), StorageError>;
 
     /// Returns `Ok(Some(data))` if the object exists, `Ok(None)` if not,
     /// and `Err` only for communication errors.
@@ -257,13 +262,13 @@ impl AWSBucket {
 
 #[async_trait]
 impl BucketLike for AWSBucket {
-    async fn put_object(&self, path: String, content: &[u8]) -> Result<(), StorageError> {
+    async fn put_object(&self, path: String, content: Bytes) -> Result<(), StorageError> {
         let mut req = self
             .client
             .put_object()
             .bucket(&self.config.bucket_name)
             .key(&path)
-            .body(ByteStream::from(content.to_vec()));
+            .body(ByteStream::from(content));
 
         if self.use_intelligent_tiering {
             req = req.storage_class(aws_sdk_s3::types::StorageClass::IntelligentTiering);

@@ -342,7 +342,8 @@ pub async fn main(
     // Assemble storage state (enabled iff both S3 bucket and cashier connector
     // are configured). Ingress auth is only constructed when storage is active.
     let storage_state = s3_bucket.zip(cashier_connector).map(|(bucket, connector)| {
-        let ingress_auth: Arc<dyn IngressAuth> = Arc::new(IngressAuthImpl::new(agent.clone()));
+        let ingress_auth: Arc<dyn IngressAuth> =
+            Arc::new(IngressAuthImpl::new(agent.read_root_key()));
         StorageState {
             connector,
             bucket,

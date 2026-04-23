@@ -87,7 +87,7 @@ fn parse_principal(s: &str) -> Result<Principal, StorageError> {
 }
 
 async fn load_blob_metadata(
-    bucket: &Arc<dyn BucketLike>,
+    bucket: &dyn BucketLike,
     owner: &Principal,
     blob_hash: &str,
 ) -> Result<BlobMetadata, StorageError> {
@@ -194,7 +194,7 @@ pub async fn head_blob(
         .await
         .map_err(|e| StorageError::from(&e))?;
 
-    let meta = load_blob_metadata(&state.bucket, &owner, &blob_hash).await?;
+    let meta = load_blob_metadata(&*state.bucket, &owner, &blob_hash).await?;
 
     // Per RFC 9110 §9.3.2, HEAD must return the same headers as GET would.
     let headers = blob_download_headers(meta.num_blob_bytes, &meta.headers);
@@ -215,7 +215,7 @@ pub async fn get_blob(
         .await
         .map_err(|e| StorageError::from(&e))?;
 
-    let meta = load_blob_metadata(&state.bucket, &owner, &blob_hash).await?;
+    let meta = load_blob_metadata(&*state.bucket, &owner, &blob_hash).await?;
     let chunk_hashes: Vec<String> = meta.hash_tree.chunk_hashes().to_vec();
     let total_bytes = meta.num_blob_bytes;
 
@@ -400,7 +400,7 @@ pub async fn put_blob_tree(
     let path = blob_path(&owner, &root_hash);
     state
         .bucket
-        .put_object(path, &data)
+        .put_object(path, data.into())
         .await
         .map_err(|e| BackendError::S3(e.to_string()))?;
 
@@ -444,7 +444,7 @@ pub async fn put_chunk(
         .await
         .map_err(|e| StorageError::from(&e))?;
 
-    let meta = load_blob_metadata(&state.bucket, &owner, &blob_hash).await?;
+    let meta = load_blob_metadata(&*state.bucket, &owner, &blob_hash).await?;
     let chunk_hashes = meta.hash_tree.chunk_hashes();
 
     if chunk_index >= chunk_hashes.len() {
@@ -476,7 +476,7 @@ pub async fn put_chunk(
     let path = chunk_path(&owner, expected_hash);
     state
         .bucket
-        .put_object(path, &body)
+        .put_object(path, body)
         .await
         .map_err(|e| BackendError::S3(e.to_string()))?;
 
@@ -499,8 +499,8 @@ pub async fn delete_owner(
     let blob_prefix = blob_path_owner_prefix(&owner);
     let chunk_prefix = chunk_path_owner_prefix(&owner);
 
-    let blobs_deleted = delete_all_with_prefix(&state.bucket, blob_prefix).await?;
-    let chunks_deleted = delete_all_with_prefix(&state.bucket, chunk_prefix).await?;
+    let blobs_deleted = delete_all_with_prefix(&*state.bucket, blob_prefix).await?;
+    let chunks_deleted = delete_all_with_prefix(&*state.bucket, chunk_prefix).await?;
 
     if blobs_deleted || chunks_deleted {
         Ok((
@@ -514,7 +514,7 @@ pub async fn delete_owner(
 }
 
 async fn delete_all_with_prefix(
-    bucket: &Arc<dyn BucketLike>,
+    bucket: &dyn BucketLike,
     prefix: String,
 ) -> Result<bool, StorageError> {
     let mut deleted_any = false;
