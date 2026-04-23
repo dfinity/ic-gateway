@@ -51,6 +51,10 @@ pub const ALLOW_METHODS_HTTP: [Method; 6] = [
     Method::PATCH,
 ];
 
+// Methods allowed for storage API calls (`/v1/*`)
+pub const ALLOW_METHODS_STORAGE: [Method; 4] =
+    [Method::HEAD, Method::GET, Method::PUT, Method::DELETE];
+
 // Base headers
 const EXPOSE_HEADERS: [HeaderName; 5] = [
     ACCEPT_RANGES,

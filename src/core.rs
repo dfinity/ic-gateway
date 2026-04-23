@@ -31,6 +31,10 @@ use crate::{
     cli::Cli,
     metrics,
     routing::ic::subnets_info::SubnetsInfoFetcher,
+    routing::storage::{
+        AWSBucket, BucketLike, CashierClient, CashierConnector, IngressAuth, IngressAuthImpl,
+        S3Config, StorageState,
+    },
     routing::{
         self,
         ic::{
@@ -254,7 +258,9 @@ pub async fn main(
 
     let root_subnet_id = principal!(MAINNET_ROOT_SUBNET_ID);
 
-    let fetcher = Arc::new(SubnetsInfoFetcher::new(Arc::new(agent), root_subnet_id));
+    let agent = Arc::new(agent);
+
+    let fetcher = Arc::new(SubnetsInfoFetcher::new(agent.clone(), root_subnet_id));
     let subnets_info = fetcher.info.clone();
 
     health_manager.add(fetcher.clone());
@@ -263,6 +269,91 @@ pub async fn main(
         fetcher,
         cli.domain.subnets_info_poll_interval,
     );
+
+    // Setup Cashier client + billing connector
+    let cashier_connector = if let Some(canister_id) = cli.blob_storage.cashier.cashier_canister_id
+    {
+        let cashier_client = Arc::new(CashierClient::new(agent.clone(), canister_id));
+        warn!("Cashier client configured for canister {canister_id}");
+
+        match CashierConnector::new(cashier_client, Some(HOSTNAME.get().unwrap().clone())).await {
+            Ok(connector) => {
+                let connector = Arc::new(connector);
+                warn!("CashierConnector initialized (billing enabled)");
+
+                health_manager.add(connector.clone());
+                tasks.add_interval(
+                    "cashier_usage_reporter",
+                    connector.clone(),
+                    cli.blob_storage.cashier.cashier_usage_report_interval,
+                );
+
+                Some(connector)
+            }
+            Err(e) => {
+                warn!("CashierConnector init failed (non-fatal, billing disabled): {e:#}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    // Setup S3 storage backend (single bucket)
+    let s3_bucket = if let Some(ref endpoint) = cli.blob_storage.s3.s3_endpoint {
+        let s3_config = S3Config {
+            endpoint: endpoint.clone(),
+            access_key: cli.blob_storage.s3.s3_access_key.clone(),
+            secret_key: cli.blob_storage.s3.s3_secret_key.clone(),
+            bucket_name: cli.blob_storage.s3.s3_bucket.clone(),
+            region: cli.blob_storage.s3.s3_region.clone(),
+            session_token: cli.blob_storage.s3.s3_session_token.clone(),
+        };
+        warn!(
+            endpoint = %endpoint,
+            bucket = %s3_config.bucket_name,
+            region = %s3_config.region,
+            "Initializing S3 storage backend"
+        );
+
+        match AWSBucket::new(s3_config, Arc::new(dns_resolver.clone())).await {
+            Ok(bucket) => {
+                let tiering = if bucket.supports_intelligent_tiering() {
+                    "enabled"
+                } else {
+                    "disabled"
+                };
+                warn!(
+                    bucket = %cli.blob_storage.s3.s3_bucket,
+                    intelligent_tiering = tiering,
+                    "S3 bucket ready"
+                );
+                Some(Arc::new(bucket) as Arc<dyn BucketLike>)
+            }
+            Err(e) => {
+                warn!("S3 bucket initialization failed (non-fatal): {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    // Assemble storage state (enabled iff both S3 bucket and cashier connector
+    // are configured). Ingress auth is only constructed when storage is active.
+    let storage_state = s3_bucket.zip(cashier_connector).map(|(bucket, connector)| {
+        let ingress_auth: Arc<dyn IngressAuth> = Arc::new(IngressAuthImpl::new(agent.clone()));
+        StorageState {
+            connector,
+            bucket,
+            ingress_auth,
+            allowed_delete_owner_hosts: cli
+                .blob_storage
+                .cashier
+                .allow_delete_owner_from_host
+                .clone(),
+        }
+    });
 
     // Setup WAF
     let waf_layer = if cli.waf.waf_enable {
@@ -292,6 +383,7 @@ pub async fn main(
         waf_layer,
         custom_domains_router,
         subnets_info,
+        storage_state,
     )
     .await
     .context("unable to setup Axum router")?;

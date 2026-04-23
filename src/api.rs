@@ -66,11 +66,7 @@ pub async fn log_handler(
             .into_response();
     };
     // Maintain hickory_proto::dnssec=error filter when changing log level
-    let env_filter = EnvFilter::new(format!(
-        "{},{}",
-        log_level,
-        crate::log::LOG_LEVEL_OVERRIDES
-    ));
+    let env_filter = EnvFilter::new(format!("{},{}", log_level, crate::log::LOG_LEVEL_OVERRIDES));
     let _ = state.log_handle.modify(|f| *f = env_filter);
 
     "Ok\n".into_response()

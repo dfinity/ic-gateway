@@ -3,6 +3,7 @@ pub mod error_cause;
 pub mod ic;
 pub mod middleware;
 pub mod proxy;
+pub mod storage;
 
 use std::{net::IpAddr, ops::Deref, str::FromStr, sync::Arc, time::Duration};
 
@@ -79,6 +80,8 @@ use {
 };
 
 pub const CONTENT_TYPE_JSON: HeaderValue = hval!("application/json");
+pub const CONTENT_TYPE_OCTET: HeaderValue = hval!("application/octet-stream");
+pub const ACCEPT_RANGES_BYTES: HeaderValue = hval!("bytes");
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash)]
 pub struct CanisterId(pub Principal);
@@ -214,6 +217,7 @@ pub async fn setup_router(
     waf_layer: Option<WafLayer>,
     custom_domains_router: Option<Router>,
     subnets_info: Arc<ArcSwapOption<SubnetsInfo>>,
+    storage_state: Option<storage::StorageState>,
 ) -> Result<Router, Error> {
     // Setup API router
     let router_api = setup_api_router(
@@ -524,13 +528,22 @@ pub async fn setup_router(
     let custom_domains_router = custom_domains_router.map(|x| {
         Router::new()
             .nest("/custom-domains", x)
-            .layer(cors_base.allow_methods([
+            .layer(cors_base.clone().allow_methods([
                 Method::HEAD,
                 Method::GET,
                 Method::POST,
                 Method::DELETE,
                 Method::PATCH,
             ]))
+    });
+
+    // Build optional storage router (blob/chunk CRUD under /v1/)
+    let storage_router = storage_state.map(|state| {
+        storage::storage_router(
+            state,
+            cli.cors.cors_max_age,
+            cli.cors.cors_allow_origin.clone(),
+        )
     });
 
     // Top-level router
@@ -577,6 +590,10 @@ pub async fn setup_router(
             },
         )
         .layer(common_layers);
+
+    if let Some(sr) = storage_router {
+        router = router.nest("/storage/v1", sr);
+    }
 
     #[cfg(all(target_os = "linux", feature = "sev-snp"))]
     if cli.sev_snp.sev_snp_enable {
