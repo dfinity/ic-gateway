@@ -5,16 +5,49 @@ use ic_certificate_verification::VerifyCertificate;
 use super::wire::{OwnerEgressSignature, PutBlobTreeRequest, StorageGatewayAuthorization};
 use crate::routing::error_cause::StorageError;
 
+/// Authorization gate for ingress (client-facing) write operations on the
+/// storage API.
+///
+/// Implementations decide whether a given request is allowed to mutate state
+/// on behalf of the owner principal it names. The trait is kept narrow — it
+/// only covers endpoints where the gateway needs to prove the caller acts on
+/// the owner's behalf (currently `PUT /blob_tree`). Read endpoints and chunk
+/// uploads are gated by other means (public reads; chunk uploads are bound
+/// to an already-authenticated blob tree).
+///
+/// Must be `Send + Sync` so it can live behind an `Arc<dyn IngressAuth>` in
+/// the shared `StorageState` used by the async Axum handlers.
 pub trait IngressAuth: Send + Sync {
+    /// Check that `request` is authorized to upload its blob tree.
+    ///
+    /// Returns `Ok(())` if the request carries a valid authorization binding
+    /// the caller to the blob tree's root hash. Returns a `StorageError`
+    /// (`Unauthorized` / `Forbidden`) otherwise; handlers translate that into
+    /// the appropriate HTTP status.
     fn check_put_blob(&self, request: &PutBlobTreeRequest) -> Result<(), StorageError>;
 }
 
-/// Production implementation: verify IC egress certificate.
+/// Production implementation of [`IngressAuth`] that verifies IC egress
+/// certificates produced by the owner canister.
+///
+/// Authorization is delegated to the IC consensus layer: the owner canister
+/// signs an `OwnerEgressSignature` (containing `method = "upload"` and the
+/// expected `blob_hash`) into its certified data tree, and the client attaches
+/// the resulting certificate to the upload request. We verify the certificate
+/// against the IC root key, then match the embedded payload against the
+/// request's blob root hash.
 pub struct IngressAuthImpl {
     root_key: Vec<u8>,
 }
 
 impl IngressAuthImpl {
+    /// Build a new verifier bound to `root_key`.
+    ///
+    /// `root_key` is the IC NNS root public key used to validate certificate
+    /// signatures and delegation chains. For mainnet this is the well-known
+    /// hardcoded key; for local/dev replicas it is fetched at startup via
+    /// `Agent::fetch_root_key`. The key is snapshotted at construction time —
+    /// runtime rotation is not supported.
     pub fn new(root_key: Vec<u8>) -> Self {
         Self { root_key }
     }
