@@ -224,7 +224,7 @@ impl CashierConnector {
             let mut budgets = self.budgets.write().await;
             if let Some(cached) = budgets.get_mut(owner) {
                 if cached.fetched_at.elapsed() < BUDGET_TTL {
-                    return self.try_debit(cached, cost);
+                    return Self::try_debit(cached, cost);
                 }
             }
         }
@@ -239,10 +239,10 @@ impl CashierConnector {
             },
         );
         let cached = budgets.get_mut(owner).unwrap();
-        self.try_debit(cached, cost)
+        Self::try_debit(cached, cost)
     }
 
-    fn try_debit(&self, cached: &mut CachedBudget, cost: i64) -> Result<(), BillingError> {
+    fn try_debit(cached: &mut CachedBudget, cost: i64) -> Result<(), BillingError> {
         let credit = int_to_i64(&cached.budget.available_credit);
         if credit >= cost {
             cached.budget.available_credit = Int::from(credit - cost);
