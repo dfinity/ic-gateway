@@ -23,7 +23,7 @@ use self::cashier_connector::BillingError;
 
 pub use self::{
     auth::{IngressAuth, IngressAuthImpl},
-    bucket::{AWSBucket, BucketLike, S3Config},
+    bucket::{AWSBucket, BucketLike, S3Config, S3Flavor},
     cashier_client::CashierClient,
     cashier_connector::CashierConnector,
 };

@@ -301,6 +301,7 @@ pub async fn main(
 
     // Setup S3 storage backend (single bucket)
     let s3_bucket = if let Some(ref endpoint) = cli.blob_storage.s3.s3_endpoint {
+        let flavor = cli.blob_storage.s3.s3_flavor;
         let s3_config = S3Config {
             endpoint: endpoint.clone(),
             access_key: cli.blob_storage.s3.s3_access_key.clone(),
@@ -308,24 +309,20 @@ pub async fn main(
             bucket_name: cli.blob_storage.s3.s3_bucket.clone(),
             region: cli.blob_storage.s3.s3_region.clone(),
             session_token: cli.blob_storage.s3.s3_session_token.clone(),
+            flavor,
         };
         warn!(
             endpoint = %endpoint,
             bucket = %s3_config.bucket_name,
             region = %s3_config.region,
+            flavor = ?flavor,
             "Initializing S3 storage backend"
         );
 
         match AWSBucket::new(s3_config, Arc::new(dns_resolver.clone())).await {
             Ok(bucket) => {
-                let tiering = if bucket.supports_intelligent_tiering() {
-                    "enabled"
-                } else {
-                    "disabled"
-                };
                 warn!(
                     bucket = %cli.blob_storage.s3.s3_bucket,
-                    intelligent_tiering = tiering,
                     "S3 bucket ready"
                 );
                 Some(Arc::new(bucket) as Arc<dyn BucketLike>)

@@ -13,11 +13,28 @@ use aws_sdk_s3::operation::head_bucket::HeadBucketError;
 use aws_sdk_s3::operation::head_object::HeadObjectError;
 use aws_sdk_s3::primitives::ByteStream;
 use bytes::Bytes;
+use clap::ValueEnum;
 use aws_smithy_http_client::{Builder as HttpClientBuilder, tls};
 use aws_smithy_runtime_api::client::dns::{DnsFuture, ResolveDns, ResolveDnsError};
 use hickory_resolver::proto::rr::{RData, RecordType};
 use ic_bn_lib::http::dns::Resolver as DnsResolver;
 use ic_bn_lib::ic_bn_lib_common::traits::dns::Resolves;
+
+/// Which S3-compatible backend the gateway is talking to.
+///
+/// The flavor encodes out-of-band knowledge about which features the backend
+/// supports, so we don't have to discover capabilities at runtime. Add new
+/// variants when you onboard a new backend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[value(rename_all = "kebab-case")]
+pub enum S3Flavor {
+    /// Amazon S3 (production). Supports `INTELLIGENT_TIERING`.
+    Aws,
+    /// Pakistan deployment. Does not use `INTELLIGENT_TIERING`.
+    Pakistan,
+    /// MinIO (local/dev). Does not support `INTELLIGENT_TIERING`.
+    Minio,
+}
 
 /// Configuration for the S3 backend.
 #[derive(Debug, Clone)]
@@ -28,6 +45,9 @@ pub struct S3Config {
     pub bucket_name: String,
     pub region: String,
     pub session_token: Option<String>,
+    /// Which S3 flavor we're talking to — drives feature selection
+    /// (e.g. intelligent tiering) without a runtime capability probe.
+    pub flavor: S3Flavor,
 }
 
 /// Errors from S3 storage operations.
@@ -135,7 +155,6 @@ impl ResolveDns for AwsDnsAdapter {
 pub struct AWSBucket {
     client: Client,
     config: S3Config,
-    use_intelligent_tiering: bool,
 }
 
 impl AWSBucket {
@@ -213,50 +232,7 @@ impl AWSBucket {
     ) -> Result<Self, StorageError> {
         let client = Self::build_client(&config, dns_resolver).await;
         Self::init_bucket(&client, &config).await?;
-
-        let mut bucket = Self {
-            client,
-            config,
-            use_intelligent_tiering: false,
-        };
-        bucket.use_intelligent_tiering = bucket.probe_intelligent_tiering().await;
-        Ok(bucket)
-    }
-
-    pub fn supports_intelligent_tiering(&self) -> bool {
-        self.use_intelligent_tiering
-    }
-
-    async fn probe_intelligent_tiering(&self) -> bool {
-        let test_key = format!(
-            "__capabilities__/intelligent-tiering-test-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0)
-        );
-
-        let result = self
-            .client
-            .put_object()
-            .bucket(&self.config.bucket_name)
-            .key(&test_key)
-            .body(ByteStream::from(vec![]))
-            .storage_class(aws_sdk_s3::types::StorageClass::IntelligentTiering)
-            .send()
-            .await;
-
-        let ok = result.is_ok();
-        if ok {
-            let _ = self
-                .client
-                .delete_object()
-                .bucket(&self.config.bucket_name)
-                .key(&test_key)
-                .send()
-                .await;
-        }
-        ok
+        Ok(Self { client, config })
     }
 }
 
@@ -270,7 +246,7 @@ impl BucketLike for AWSBucket {
             .key(&path)
             .body(ByteStream::from(content));
 
-        if self.use_intelligent_tiering {
+        if let S3Flavor::Aws = self.config.flavor {
             req = req.storage_class(aws_sdk_s3::types::StorageClass::IntelligentTiering);
         }
 

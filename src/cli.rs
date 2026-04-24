@@ -21,7 +21,7 @@ use candid::Principal;
 
 use crate::{
     core::{AUTHOR_NAME, SERVICE_NAME},
-    routing::{RequestType, domain::CanisterAlias},
+    routing::{RequestType, domain::CanisterAlias, storage::S3Flavor},
 };
 
 /// Clap does not support prefixes due to macro limitations.
@@ -591,6 +591,12 @@ pub struct S3Storage {
     /// S3 session token (for temporary credentials, e.g. Okta-based AWS access)
     #[clap(env, long)]
     pub s3_session_token: Option<String>,
+
+    /// Which S3 flavor we're talking to. Drives feature selection
+    /// (e.g. whether to request `INTELLIGENT_TIERING` on uploads) without
+    /// probing the backend at startup. Defaults to `minio` for local dev.
+    #[clap(env, long, value_enum, default_value_t = S3Flavor::Minio)]
+    pub s3_flavor: S3Flavor,
 }
 
 #[derive(Args)]
