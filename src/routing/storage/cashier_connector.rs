@@ -335,10 +335,17 @@ fn price_component(price: &PricePerBillingUnit, quantity: u64) -> i64 {
     if quantity == 0 {
         return 0;
     }
-    let cost = int_to_i64(&price.cost);
-    let divisor = factor_divisor(&price.per) as i64;
+    let divisor = factor_divisor(&price.per);
     if divisor == 0 {
         return 0;
     }
-    (quantity as i64 * cost) / divisor
+    // Promote to `i128` so `quantity (u64) * cost (i64)` cannot overflow
+    // (max magnitude ~2^127, needed ~2^127). On absurd inputs we saturate
+    // *high* so an oversized price locks the user out rather than wrapping
+    // negative — a negative cost would let `try_debit` accept anything and
+    // even mint credit (`credit - negative_cost`).
+    let cost = i128::from(int_to_i64(&price.cost));
+    let product = i128::from(quantity).saturating_mul(cost);
+    let result = product / i128::from(divisor);
+    i64::try_from(result).unwrap_or(i64::MAX)
 }
