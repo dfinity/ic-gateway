@@ -251,7 +251,9 @@ pub async fn get_blob(
                     data.len()
                 };
 
-                yield bytes::Bytes::copy_from_slice(&data[s..e]);
+                // `Bytes::from(Vec<u8>)` and `Bytes::slice(..)` are both O(1).
+                // The slice shares the underlying allocation; no memcpy.
+                yield bytes::Bytes::from(data).slice(s..e);
             }
         };
 

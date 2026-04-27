@@ -220,25 +220,32 @@ impl CashierConnector {
     }
 
     async fn consume_budget(&self, owner: &Principal, cost: i64) -> Result<(), BillingError> {
-        {
-            let mut budgets = self.budgets.write().await;
-            if let Some(cached) = budgets.get_mut(owner) {
-                if cached.fetched_at.elapsed() < BUDGET_TTL {
-                    return Self::try_debit(cached, cost);
-                }
-            }
+        // Refresh the cache if the entry is missing or stale. We deliberately
+        // release every lock before awaiting on the canister — holding a
+        // `RwLock` across an await would serialize all charges and risks
+        // contention if `fetch_budget` is slow.
+        let needs_refresh = {
+            let budgets = self.budgets.read().await;
+            budgets
+                .get(owner)
+                .is_none_or(|c| c.fetched_at.elapsed() >= BUDGET_TTL)
+        };
+
+        if needs_refresh {
+            let fresh = self.fetch_budget(owner).await?;
+            self.budgets.write().await.insert(
+                *owner,
+                CachedBudget {
+                    budget: fresh,
+                    fetched_at: Instant::now(),
+                },
+            );
         }
 
-        let fresh = self.fetch_budget(owner).await?;
         let mut budgets = self.budgets.write().await;
-        budgets.insert(
-            *owner,
-            CachedBudget {
-                budget: fresh,
-                fetched_at: Instant::now(),
-            },
-        );
-        let cached = budgets.get_mut(owner).unwrap();
+        let cached = budgets
+            .get_mut(owner)
+            .expect("cache entry exists after refresh");
         Self::try_debit(cached, cost)
     }
 
