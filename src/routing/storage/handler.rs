@@ -14,6 +14,7 @@ use axum::{
 };
 use axum_extra::{TypedHeader, extract::Host, headers::Range as HttpRange};
 use candid::Principal;
+use futures::stream::{self, Stream, StreamExt};
 use ic_bn_lib::http::body::buffer_body;
 use sha2::{Digest, Sha256};
 
@@ -37,6 +38,12 @@ const BODY_READ_TIMEOUT: Duration = Duration::from_secs(60);
 const BLOB_METADATA_PATH: &str = "blob-metadata";
 const CHUNK_PATH: &str = "chunks";
 
+/// Maximum number of chunk fetches kept in flight when streaming a blob
+/// download. `buffered(N)` preserves source order, so the response body stays
+/// strictly sequential while we prefetch ahead. Bounds peak per-download
+/// memory at `CHUNK_DOWNLOAD_PARALLELISM * 1 MiB` (~8 MiB).
+const CHUNK_DOWNLOAD_PARALLELISM: usize = 8;
+
 fn blob_path_owner_prefix(owner: &Principal) -> String {
     format!("{BLOB_METADATA_PATH}/{owner}/")
 }
@@ -53,6 +60,76 @@ fn chunk_path_owner_prefix(owner: &Principal) -> String {
 /// S3 key for a chunk: `chunks/{owner}/{chunk_hash}`.
 fn chunk_path(owner: &Principal, chunk_hash: &str) -> String {
     format!("{}{chunk_hash}", chunk_path_owner_prefix(owner))
+}
+
+/// One slice of a blob to download.
+///
+/// `start`/`end_cap` are byte offsets *within the chunk*. `end_cap` may exceed
+/// the actual chunk length (e.g. `usize::MAX` to mean "to the end of the
+/// chunk"); it is clamped against `data.len()` after the chunk is fetched.
+struct ChunkPart {
+    hash: String,
+    start: usize,
+    end_cap: usize,
+}
+
+impl ChunkPart {
+    /// Returns the entire chunk verbatim.
+    fn full(hash: String) -> Self {
+        Self {
+            hash,
+            start: 0,
+            end_cap: usize::MAX,
+        }
+    }
+}
+
+/// Build an ordered streaming download of `parts`, fetching up to
+/// [`CHUNK_DOWNLOAD_PARALLELISM`] chunks in parallel. Each chunk is
+/// pre-charged via `charge_chunk_download` before its S3 GET; on success
+/// the requested slice is yielded as `Bytes` (O(1) — shares the underlying
+/// allocation, no memcpy).
+///
+/// `buffered` preserves source order, so the response body is strictly
+/// sequential even though fetches overlap.
+///
+/// We take an owned `Arc<StorageState>` rather than borrowing because the
+/// returned stream has `'static` lifetime — axum keeps polling it after this
+/// frame is gone. Each concurrent task `Arc::clone`s the state once
+/// (a single atomic increment); that is the minimum cost of independently
+/// owning shared state across N parallel futures.
+fn chunk_download_stream(
+    state: Arc<StorageState>,
+    owner: Principal,
+    parts: Vec<ChunkPart>,
+) -> impl Stream<Item = Result<bytes::Bytes, std::io::Error>> + Send + 'static {
+    stream::iter(parts)
+        .map(move |part| fetch_chunk(state.clone(), owner, part))
+        .buffered(CHUNK_DOWNLOAD_PARALLELISM)
+}
+
+/// Charge for and fetch a single chunk slice from S3.
+async fn fetch_chunk(
+    state: Arc<StorageState>,
+    owner: Principal,
+    part: ChunkPart,
+) -> Result<bytes::Bytes, std::io::Error> {
+    state
+        .connector
+        .charge_chunk_download(&owner)
+        .await
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::PermissionDenied, e.to_string()))?;
+
+    let path = chunk_path(&owner, &part.hash);
+    let data = state
+        .bucket
+        .get_object(path)
+        .await
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "chunk not found"))?;
+
+    let end = min(part.end_cap, data.len());
+    Ok(bytes::Bytes::from(data).slice(part.start..end))
 }
 
 // Helpers
@@ -224,38 +301,21 @@ pub async fn get_blob(
         let content_length = range.end - range.start;
         let (chunk_range, start_offset, end_offset) = range_to_chunk_ranges(&range);
 
-        let connector = state.connector.clone();
-        let owner_c = owner;
-        let bucket_c = state.bucket.clone();
-        let hashes = chunk_hashes;
+        // Snapshot just the hashes we'll touch; cheap (small set of ~70-char strings).
+        let needed: Vec<String> = chunk_hashes[chunk_range.clone()].to_vec();
+        let last_idx = needed.len().saturating_sub(1);
 
-        let stream: async_stream::__private::AsyncStream<Result<bytes::Bytes, std::io::Error>, _> = async_stream::try_stream! {
-            for (i, chunk_idx) in (chunk_range.start..chunk_range.end).enumerate() {
-                connector
-                    .charge_chunk_download(&owner_c)
-                    .await
-                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::PermissionDenied, e.to_string()))?;
+        let parts: Vec<ChunkPart> = needed
+            .into_iter()
+            .enumerate()
+            .map(|(i, hash)| ChunkPart {
+                hash,
+                start: if i == 0 { start_offset } else { 0 },
+                end_cap: if i == last_idx { end_offset } else { usize::MAX },
+            })
+            .collect();
 
-                let hash = &hashes[chunk_idx];
-                let path = chunk_path(&owner_c, hash);
-                let data = bucket_c
-                    .get_object(path)
-                    .await
-                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?
-                    .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "chunk not found"))?;
-
-                let s = if i == 0 { start_offset } else { 0 };
-                let e = if chunk_idx == chunk_range.end - 1 {
-                    min(end_offset, data.len())
-                } else {
-                    data.len()
-                };
-
-                // `Bytes::from(Vec<u8>)` and `Bytes::slice(..)` are both O(1).
-                // The slice shares the underlying allocation; no memcpy.
-                yield bytes::Bytes::from(data).slice(s..e);
-            }
-        };
+        let stream = chunk_download_stream(state.clone(), owner, parts);
 
         let mut headers = blob_download_headers(content_length, &meta.headers);
         let cr = format!("bytes {}-{}/{total_bytes}", range.start, range.end - 1);
@@ -272,27 +332,9 @@ pub async fn get_blob(
         )
             .into_response())
     } else {
-        let connector = state.connector.clone();
-        let owner_c = owner;
-        let bucket_c = state.bucket.clone();
+        let parts: Vec<ChunkPart> = chunk_hashes.into_iter().map(ChunkPart::full).collect();
 
-        let stream: async_stream::__private::AsyncStream<Result<bytes::Bytes, std::io::Error>, _> = async_stream::try_stream! {
-            for hash in &chunk_hashes {
-                connector
-                    .charge_chunk_download(&owner_c)
-                    .await
-                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::PermissionDenied, e.to_string()))?;
-
-                let path = chunk_path(&owner_c, hash);
-                let data = bucket_c
-                    .get_object(path)
-                    .await
-                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?
-                    .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "chunk not found"))?;
-
-                yield bytes::Bytes::from(data);
-            }
-        };
+        let stream = chunk_download_stream(state.clone(), owner, parts);
 
         let headers = blob_download_headers(total_bytes, &meta.headers);
 
