@@ -1,9 +1,17 @@
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use candid::Principal;
 use ic_bn_lib::ic_agent::{Certificate, hash_tree::LookupResult};
 use ic_certificate_verification::VerifyCertificate;
 
 use super::wire::{OwnerEgressSignature, PutBlobTreeRequest, StorageGatewayAuthorization};
 use crate::routing::error_cause::StorageError;
+
+/// Maximum age of an upload certificate's IC `time` value relative to the
+/// gateway's wall clock. After this, the certificate is rejected even if its
+/// signature is otherwise valid, narrowing the replay window for leaked or
+/// captured certificates.
+const CERT_MAX_AGE_NS: u128 = 30 * 60 * 1_000_000_000;
 
 /// Authorization gate for ingress (client-facing) write operations on the
 /// storage API.
@@ -57,16 +65,23 @@ impl IngressAuthImpl {
             .map_err(|e| StorageError::Forbidden(format!("failed to parse certificate: {e}")))
     }
 
-    /// Verify the BLS signature, delegation, and canister-range membership of a
-    /// certificate. Freshness is intentionally not enforced: the request body is
-    /// structurally a canister response, and replay protection comes from the
-    /// `blob_hash` binding in the payload rather than the certificate's `time`.
+    /// Verify the BLS signature, delegation, canister-range membership, and
+    /// freshness of a certificate. Certificates whose IC `time` is older than
+    /// [`CERT_MAX_AGE_NS`] (relative to the gateway's wall clock) are rejected;
+    /// this caps the replay window for a leaked certificate even though
+    /// `blob_hash`-binding already makes replays idempotent on the same
+    /// content.
     fn verify_certificate(
         &self,
         cert: &Certificate,
         canister: Principal,
     ) -> Result<(), StorageError> {
-        cert.verify(canister.as_slice(), &self.root_key, &0, &u128::MAX)
+        let now_ns = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| StorageError::Internal(format!("system clock before UNIX epoch: {e}")))?
+            .as_nanos();
+
+        cert.verify(canister.as_slice(), &self.root_key, &now_ns, &CERT_MAX_AGE_NS)
             .map_err(|e| StorageError::Forbidden(format!("certificate verification failed: {e}")))
     }
 
