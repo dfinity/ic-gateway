@@ -26,7 +26,6 @@ use ic_bn_lib::{
     ic_agent::agent::route_provider::RouteProvider,
 };
 use ic_bn_lib_common::{traits::http::ClientHttp, types::http::Error as HttpError};
-use regex::Regex;
 use tokio::time::sleep;
 use url::Url;
 
@@ -36,10 +35,6 @@ use super::{
     error_cause::ErrorCause,
     ic::{BNRequestMetadata, BNResponseMetadata},
 };
-
-lazy_static::lazy_static! {
-    pub static ref REGEX_REG_ID: Regex = Regex::new(r"^[a-zA-Z0-9]+$").unwrap();
-}
 
 fn url_join(mut base: Url, mut path: &str) -> Result<Url, url::ParseError> {
     // Add trailing slash to the base URL if it's not there
@@ -70,7 +65,7 @@ pub fn http_error_needs_retrying(e: &HttpError) -> bool {
     }
 }
 
-// Check if we need to retry the request based on the response that we got
+/// Check if we need to retry the request based on the response that we got
 fn request_needs_retrying(result: &Result<Response, HttpError>) -> bool {
     match result {
         Ok(v) => status_code_needs_retrying(v.status()),
@@ -90,7 +85,7 @@ pub struct ApiProxyState {
     pq_default: PathAndQuery,
 }
 
-/// Proxies /api/v2/... and /api/v3/... endpoints to the IC
+/// Proxies /api/... and /api/... endpoints to the IC
 pub async fn api_proxy(
     State(state): State<Arc<ApiProxyState>>,
     OriginalUri(original_uri): OriginalUri,
