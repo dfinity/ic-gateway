@@ -128,8 +128,7 @@ impl IngressAuth for IngressAuthImpl {
         let root_hash = request
             .blob_tree
             .root_hash()
-            .ok_or_else(|| StorageError::Forbidden("blob tree has no root hash".into()))?
-            .to_string();
+            .ok_or_else(|| StorageError::Forbidden("blob tree has no root hash".into()))?;
 
         match &request.auth {
             StorageGatewayAuthorization::None => Err(StorageError::Unauthorized(
@@ -139,7 +138,7 @@ impl IngressAuth for IngressAuthImpl {
                 let cert = Self::parse_certificate(cert_bytes)?;
                 self.verify_certificate(&cert, request.owner)?;
                 let payload = Self::extract_payload(&cert)?;
-                Self::check_payload(&payload, &root_hash)
+                Self::check_payload(&payload, root_hash)
             }
         }
     }
