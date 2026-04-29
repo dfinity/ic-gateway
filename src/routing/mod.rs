@@ -415,11 +415,13 @@ pub async fn setup_router(
             api_proxy_handler.clone(),
         )
         .route("/subnet/{principal}/read_state", api_proxy_handler.clone())
+        .route("/subnet/{principal}/query", api_proxy_handler.clone())
         .fallback(|| async { StatusCode::NOT_FOUND })
         .with_state(state_api.clone());
 
     let router_api_v4 = Router::new()
-        .route("/canister/{principal}/call", api_proxy_handler)
+        .route("/canister/{principal}/call", api_proxy_handler.clone())
+        .route("/subnet/{principal}/call", api_proxy_handler)
         .fallback(|| async { StatusCode::NOT_FOUND })
         .with_state(state_api);
 
