@@ -24,7 +24,7 @@ impl Healthy for RouteProviderWrapper {
         self.0
             .routes_stats()
             .healthy
-            .map_or(true, |healthy_nodes| healthy_nodes > 0)
+            .is_none_or(|healthy_nodes| healthy_nodes > 0)
     }
 }
 
