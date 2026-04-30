@@ -85,7 +85,7 @@ pub struct ApiProxyState {
     pq_default: PathAndQuery,
 }
 
-/// Proxies /api/... and /api/... endpoints to the IC
+/// Proxies /api/... endpoints to the IC
 pub async fn api_proxy(
     State(state): State<Arc<ApiProxyState>>,
     OriginalUri(original_uri): OriginalUri,
