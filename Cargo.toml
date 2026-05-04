@@ -115,10 +115,6 @@ serde_cbor = "0.11.2"
 tempfile = "3.18.0"
 wat = "1.228.0"
 
-[patch.crates-io]
-# v0.3.3 breaks backwards compatibility, do not remove unless you want to deal with it.
-ic-management-canister-types = { git = "https://github.com/dfinity/cdk-rs", rev = "19fdcd4c928b71d010aa124e2bb7f874290edac9" }
-
 [profile.release]
 strip = "symbols"
 codegen-units = 1
