@@ -18,21 +18,14 @@ use super::wire::ONE_MIB;
 
 const BUDGET_TTL: Duration = Duration::from_secs(30);
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum BillingError {
+    #[error("owner not found")]
     OwnerNotFound,
+    #[error("insufficient balance")]
     InsufficientBalance,
+    #[error("cashier unavailable: {0}")]
     CashierUnavailable(String),
-}
-
-impl std::fmt::Display for BillingError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::OwnerNotFound => write!(f, "owner not found"),
-            Self::InsufficientBalance => write!(f, "insufficient balance"),
-            Self::CashierUnavailable(e) => write!(f, "cashier unavailable: {e}"),
-        }
-    }
 }
 
 struct CachedBudget {

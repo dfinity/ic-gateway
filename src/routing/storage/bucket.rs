@@ -12,10 +12,10 @@ use aws_sdk_s3::operation::get_object::GetObjectError;
 use aws_sdk_s3::operation::head_bucket::HeadBucketError;
 use aws_sdk_s3::operation::head_object::HeadObjectError;
 use aws_sdk_s3::primitives::ByteStream;
-use bytes::Bytes;
-use clap::ValueEnum;
 use aws_smithy_http_client::{Builder as HttpClientBuilder, tls};
 use aws_smithy_runtime_api::client::dns::{DnsFuture, ResolveDns, ResolveDnsError};
+use bytes::Bytes;
+use clap::ValueEnum;
 use hickory_resolver::proto::rr::{RData, RecordType};
 use ic_bn_lib::http::dns::Resolver as DnsResolver;
 use ic_bn_lib::ic_bn_lib_common::traits::dns::Resolves;
@@ -77,7 +77,7 @@ pub trait BucketLike: Send + Sync {
 
     /// Returns `Ok(Some(data))` if the object exists, `Ok(None)` if not,
     /// and `Err` only for communication errors.
-    async fn get_object(&self, path: String) -> Result<Option<Vec<u8>>, StorageError>;
+    async fn get_object(&self, path: String) -> Result<Option<Bytes>, StorageError>;
 
     async fn object_exists(&self, path: String) -> Result<bool, StorageError>;
 
@@ -256,7 +256,7 @@ impl BucketLike for AWSBucket {
             .map_err(|e| StorageError::AwsS3(format!("{}", DisplayErrorContext(e))))
     }
 
-    async fn get_object(&self, path: String) -> Result<Option<Vec<u8>>, StorageError> {
+    async fn get_object(&self, path: String) -> Result<Option<Bytes>, StorageError> {
         match self
             .client
             .get_object()
@@ -269,7 +269,7 @@ impl BucketLike for AWSBucket {
                 .body
                 .collect()
                 .await
-                .map(|b| Some(b.to_vec()))
+                .map(|b| Some(b.into_bytes()))
                 .map_err(|e| StorageError::AwsS3(e.to_string())),
             Err(SdkError::ServiceError(inner)) => match inner.into_err() {
                 GetObjectError::NoSuchKey(_) => Ok(None),

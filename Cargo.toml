@@ -92,6 +92,7 @@ tokio = { version = "1.45.0", features = ["full", "tracing"] }
 tokio-util = { version = "0.7.12", features = ["full"] }
 tower = { version = "0.5.1", features = ["limit"] }
 tower-http = { version = "0.6.1", features = ["cors", "compression-full"] }
+thiserror = "2.0.18"
 tracing = "0.1.40"
 tracing-core = "0.1.32"
 tracing-serde = "0.2.0"

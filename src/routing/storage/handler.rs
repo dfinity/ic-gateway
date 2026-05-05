@@ -129,7 +129,7 @@ async fn fetch_chunk(
         .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "chunk not found"))?;
 
     let end = min(part.end_cap, data.len());
-    Ok(bytes::Bytes::from(data).slice(part.start..end))
+    Ok(data.slice(part.start..end))
 }
 
 // Helpers
@@ -311,7 +311,11 @@ pub async fn get_blob(
             .map(|(i, hash)| ChunkPart {
                 hash,
                 start: if i == 0 { start_offset } else { 0 },
-                end_cap: if i == last_idx { end_offset } else { usize::MAX },
+                end_cap: if i == last_idx {
+                    end_offset
+                } else {
+                    usize::MAX
+                },
             })
             .collect();
 
