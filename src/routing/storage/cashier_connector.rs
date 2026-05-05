@@ -77,10 +77,12 @@ pub struct CashierConnector {
 
 impl fmt::Debug for CashierConnector {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("CashierConnector")
-            .field("gateway_id", &self.gateway_id.principal)
-            .field("healthy", &self.healthy.load(Ordering::Relaxed))
-            .finish()
+        write!(
+            f,
+            "CashierConnector {{ gateway_id: {}, healthy: {} }}",
+            self.gateway_id.principal,
+            self.healthy.load(Ordering::Relaxed),
+        )
     }
 }
 

@@ -81,8 +81,13 @@ impl IngressAuthImpl {
             .map_err(|e| StorageError::Internal(format!("system clock before UNIX epoch: {e}")))?
             .as_nanos();
 
-        cert.verify(canister.as_slice(), &self.root_key, &now_ns, &CERT_MAX_AGE_NS)
-            .map_err(|e| StorageError::Forbidden(format!("certificate verification failed: {e}")))
+        cert.verify(
+            canister.as_slice(),
+            &self.root_key,
+            &now_ns,
+            &CERT_MAX_AGE_NS,
+        )
+        .map_err(|e| StorageError::Forbidden(format!("certificate verification failed: {e}")))
     }
 
     fn extract_payload(cert: &Certificate) -> Result<OwnerEgressSignature, StorageError> {
@@ -97,16 +102,11 @@ impl IngressAuthImpl {
                 }
             })
             .ok_or_else(|| {
-                StorageError::Forbidden(
-                    "no valid OwnerEgressSignature in certificate tree".into(),
-                )
+                StorageError::Forbidden("no valid OwnerEgressSignature in certificate tree".into())
             })
     }
 
-    fn check_payload(
-        payload: &OwnerEgressSignature,
-        root_hash: &str,
-    ) -> Result<(), StorageError> {
+    fn check_payload(payload: &OwnerEgressSignature, root_hash: &str) -> Result<(), StorageError> {
         if payload.method != "upload" {
             Err(StorageError::Forbidden(format!(
                 "invalid method: {}",
