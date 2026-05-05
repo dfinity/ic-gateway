@@ -1,3 +1,4 @@
+use std::error::Error as StdError;
 use std::fmt::{Display, Formatter};
 use std::net::IpAddr;
 use std::sync::Arc;
@@ -65,6 +66,12 @@ impl Display for StorageError {
 }
 
 impl std::error::Error for StorageError {}
+
+impl<E: StdError> From<DisplayErrorContext<E>> for StorageError {
+    fn from(e: DisplayErrorContext<E>) -> Self {
+        Self::AwsS3(e.to_string())
+    }
+}
 
 /// Abstraction over S3 buckets to enable dependency injection in tests.
 #[async_trait]
@@ -211,7 +218,7 @@ impl AWSBucket {
                 HeadBucketError::NotFound(_) => false,
                 other => return Err(StorageError::AwsS3(other.to_string())),
             },
-            Err(e) => return Err(StorageError::AwsS3(format!("{}", DisplayErrorContext(e)))),
+            Err(e) => return Err(DisplayErrorContext(e).into()),
         };
 
         if !exists {
@@ -220,7 +227,7 @@ impl AWSBucket {
                 .bucket(&config.bucket_name)
                 .send()
                 .await
-                .map_err(|e| StorageError::AwsS3(format!("{}", DisplayErrorContext(e))))?;
+                .map_err(|e| -> StorageError { DisplayErrorContext(e).into() })?;
         }
 
         Ok(true)
@@ -253,7 +260,7 @@ impl BucketLike for AWSBucket {
         req.send()
             .await
             .map(|_| ())
-            .map_err(|e| StorageError::AwsS3(format!("{}", DisplayErrorContext(e))))
+            .map_err(|e| DisplayErrorContext(e).into())
     }
 
     async fn get_object(&self, path: String) -> Result<Option<Bytes>, StorageError> {
@@ -275,7 +282,7 @@ impl BucketLike for AWSBucket {
                 GetObjectError::NoSuchKey(_) => Ok(None),
                 other => Err(StorageError::AwsS3(other.to_string())),
             },
-            Err(e) => Err(StorageError::AwsS3(format!("{}", DisplayErrorContext(e)))),
+            Err(e) => Err(DisplayErrorContext(e).into()),
         }
     }
 
@@ -293,7 +300,7 @@ impl BucketLike for AWSBucket {
                 HeadObjectError::NotFound(_) => Ok(false),
                 other => Err(StorageError::AwsS3(other.to_string())),
             },
-            Err(e) => Err(StorageError::AwsS3(format!("{}", DisplayErrorContext(e)))),
+            Err(e) => Err(DisplayErrorContext(e).into()),
         }
     }
 
@@ -305,7 +312,7 @@ impl BucketLike for AWSBucket {
             .send()
             .await
             .map(|_| ())
-            .map_err(|e| StorageError::AwsS3(format!("{}", DisplayErrorContext(e))))
+            .map_err(|e| DisplayErrorContext(e).into())
     }
 
     async fn list_page(
@@ -323,7 +330,7 @@ impl BucketLike for AWSBucket {
             .set_max_keys(max_keys.map(|v| v as i32))
             .send()
             .await
-            .map_err(|e| StorageError::AwsS3(format!("{}", DisplayErrorContext(e))))?;
+            .map_err(|e| -> StorageError { DisplayErrorContext(e).into() })?;
 
         let keys = output
             .contents
