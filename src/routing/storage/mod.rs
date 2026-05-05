@@ -36,9 +36,11 @@ pub use self::{
 impl From<&BillingError> for StorageError {
     fn from(e: &BillingError) -> Self {
         match e {
-            BillingError::OwnerNotFound => Self::OwnerNotFound,
-            BillingError::InsufficientBalance => Self::InsufficientBalance,
-            BillingError::CashierUnavailable(m) => Self::Backend(BackendError::Cashier(m.clone())),
+            BillingError::OwnerNotFound { .. } => Self::OwnerNotFound,
+            BillingError::InsufficientBalance { .. } => Self::InsufficientBalance,
+            BillingError::CashierUnavailable { .. } => {
+                Self::Backend(BackendError::Cashier(e.to_string()))
+            }
         }
     }
 }

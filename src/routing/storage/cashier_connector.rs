@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use anyhow::Error;
+use anyhow::{Context, Error};
 use async_trait::async_trait;
 use candid::{Int, Nat, Principal};
 use ic_bn_lib_common::traits::{Healthy, Run};
@@ -20,12 +20,22 @@ const BUDGET_TTL: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum BillingError {
-    #[error("owner not found")]
-    OwnerNotFound,
-    #[error("insufficient balance")]
-    InsufficientBalance,
-    #[error("cashier unavailable: {0}")]
-    CashierUnavailable(String),
+    #[error("owner {owner} not found while charging {operation}")]
+    OwnerNotFound {
+        owner: Principal,
+        operation: &'static str,
+    },
+    #[error(
+        "insufficient balance for owner {owner} while charging {operation}: required {cost}, available {available}"
+    )]
+    InsufficientBalance {
+        owner: Principal,
+        operation: &'static str,
+        cost: i64,
+        available: i64,
+    },
+    #[error("cashier unavailable while {context}: {reason}")]
+    CashierUnavailable { context: String, reason: String },
 }
 
 struct CachedBudget {
@@ -79,8 +89,15 @@ impl CashierConnector {
         client: Arc<CashierClient>,
         gateway_name: Option<String>,
     ) -> Result<Self, Error> {
-        let principal = client.principal()?;
-        let pricelist = client.pricelist_v1().await?;
+        let principal = client
+            .principal()
+            .context("failed to get gateway principal for cashier connector")?;
+        let pricelist = client.pricelist_v1().await.with_context(|| {
+            format!(
+                "failed to fetch pricelist from cashier {}",
+                client.canister_id()
+            )
+        })?;
         let gateway_id = GatewayId {
             principal,
             name: gateway_name,
@@ -108,28 +125,29 @@ impl CashierConnector {
 
     pub async fn charge_blob_tree_upload(&self, owner: &Principal) -> Result<(), BillingError> {
         let cost = self.compute_cost(ONE_MIB as u64, 0, 0, 1);
-        self.consume_budget(owner, cost).await?;
+        self.consume_budget(owner, cost, "blob tree upload").await?;
         self.record_usage(owner, ONE_MIB as u64, 0, 0, 1).await;
         Ok(())
     }
 
     pub async fn charge_chunk_upload(&self, owner: &Principal) -> Result<(), BillingError> {
         let cost = self.compute_cost(ONE_MIB as u64, 0, 0, 1);
-        self.consume_budget(owner, cost).await?;
+        self.consume_budget(owner, cost, "chunk upload").await?;
         self.record_usage(owner, ONE_MIB as u64, 0, 0, 1).await;
         Ok(())
     }
 
     pub async fn charge_blob_tree_download(&self, owner: &Principal) -> Result<(), BillingError> {
         let cost = self.compute_cost(0, ONE_MIB as u64, 1, 0);
-        self.consume_budget(owner, cost).await?;
+        self.consume_budget(owner, cost, "blob tree download")
+            .await?;
         self.record_usage(owner, 0, ONE_MIB as u64, 1, 0).await;
         Ok(())
     }
 
     pub async fn charge_chunk_download(&self, owner: &Principal) -> Result<(), BillingError> {
         let cost = self.compute_cost(0, ONE_MIB as u64, 1, 0);
-        self.consume_budget(owner, cost).await?;
+        self.consume_budget(owner, cost, "chunk download").await?;
         self.record_usage(owner, 0, ONE_MIB as u64, 1, 0).await;
         Ok(())
     }
@@ -173,7 +191,17 @@ impl CashierConnector {
             counters: batch,
         };
 
-        match self.client.storage_usage_set_batch_v1(&request).await? {
+        let batch_len = request.counters.len();
+        match self
+            .client
+            .storage_usage_set_batch_v1(&request)
+            .await
+            .with_context(|| {
+                format!(
+                    "failed to report usage batch with {batch_len} owner(s) to cashier {}",
+                    self.client.canister_id()
+                )
+            })? {
             StorageSetUsageBatchResult::Ok(resp) => {
                 let mut budgets = self.budgets.write().await;
                 for (principal, budget) in resp.budgets {
@@ -187,7 +215,10 @@ impl CashierConnector {
                 }
             }
             StorageSetUsageBatchResult::Err(e) => {
-                warn!("Cashier rejected usage report: {e:?}");
+                warn!(
+                    "Cashier {} rejected usage report for {batch_len} owner(s): {e:?}",
+                    self.client.canister_id()
+                );
             }
         }
 
@@ -212,7 +243,12 @@ impl CashierConnector {
             + price_component(&p.write_request_price, write_requests)
     }
 
-    async fn consume_budget(&self, owner: &Principal, cost: i64) -> Result<(), BillingError> {
+    async fn consume_budget(
+        &self,
+        owner: &Principal,
+        cost: i64,
+        operation: &'static str,
+    ) -> Result<(), BillingError> {
         // Refresh the cache if the entry is missing or stale. We deliberately
         // release every lock before awaiting on the canister — holding a
         // `RwLock` across an await would serialize all charges and risks
@@ -225,7 +261,7 @@ impl CashierConnector {
         };
 
         if needs_refresh {
-            let fresh = self.fetch_budget(owner).await?;
+            let fresh = self.fetch_budget(owner, operation).await?;
             self.budgets.write().await.insert(
                 *owner,
                 CachedBudget {
@@ -239,37 +275,65 @@ impl CashierConnector {
         let cached = budgets
             .get_mut(owner)
             .expect("cache entry exists after refresh");
-        Self::try_debit(cached, cost)
+        Self::try_debit(cached, owner, cost, operation)
     }
 
-    fn try_debit(cached: &mut CachedBudget, cost: i64) -> Result<(), BillingError> {
+    fn try_debit(
+        cached: &mut CachedBudget,
+        owner: &Principal,
+        cost: i64,
+        operation: &'static str,
+    ) -> Result<(), BillingError> {
         let credit = int_to_i64(&cached.budget.available_credit);
         if credit >= cost {
             cached.budget.available_credit = Int::from(credit - cost);
             Ok(())
         } else {
-            Err(BillingError::InsufficientBalance)
+            Err(BillingError::InsufficientBalance {
+                owner: *owner,
+                operation,
+                cost,
+                available: credit,
+            })
         }
     }
 
-    async fn fetch_budget(&self, owner: &Principal) -> Result<GatewayBudget, BillingError> {
+    async fn fetch_budget(
+        &self,
+        owner: &Principal,
+        operation: &'static str,
+    ) -> Result<GatewayBudget, BillingError> {
         let request = GetBudgetRequestV1 {
             gateway_id: Some(self.gateway_id.clone()),
             owner_id: *owner,
         };
 
-        let result = self
-            .client
-            .budget_get_v1(&request)
-            .await
-            .map_err(|e| BillingError::CashierUnavailable(e.to_string()))?;
+        let result = self.client.budget_get_v1(&request).await.map_err(|e| {
+            BillingError::CashierUnavailable {
+                context: format!(
+                    "fetching budget for owner {owner} before charging {operation} via gateway {}",
+                    self.gateway_id.principal
+                ),
+                reason: e.to_string(),
+            }
+        })?;
 
         match result {
             GetBudgetResult::Ok(resp) => Ok(resp.budget),
-            GetBudgetResult::Err(GetBudgetError::OwnerNotFound) => Err(BillingError::OwnerNotFound),
-            GetBudgetResult::Err(GetBudgetError::GatewayNotFound(_)) => Err(
-                BillingError::CashierUnavailable("gateway not found".to_string()),
-            ),
+            GetBudgetResult::Err(GetBudgetError::OwnerNotFound) => {
+                Err(BillingError::OwnerNotFound {
+                    owner: *owner,
+                    operation,
+                })
+            }
+            GetBudgetResult::Err(GetBudgetError::GatewayNotFound(gateway)) => {
+                Err(BillingError::CashierUnavailable {
+                    context: format!(
+                        "fetching budget for owner {owner} before charging {operation}"
+                    ),
+                    reason: format!("gateway not found: {gateway:?}"),
+                })
+            }
         }
     }
 
