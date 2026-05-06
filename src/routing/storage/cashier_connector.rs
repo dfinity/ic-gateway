@@ -2,13 +2,14 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use anyhow::{Context, Error};
 use async_trait::async_trait;
 use candid::{Int, Nat, Principal};
 use ic_bn_lib_common::traits::{Healthy, Run};
-use tokio::sync::RwLock;
+use moka::future::Cache;
+use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
 
@@ -38,11 +39,6 @@ pub enum BillingError {
     CashierUnavailable { context: String, reason: String },
 }
 
-struct CachedBudget {
-    budget: GatewayBudget,
-    fetched_at: Instant,
-}
-
 struct OwnerUsage {
     counters: UsageCounters,
     dirty: bool,
@@ -70,7 +66,7 @@ pub struct CashierConnector {
     client: Arc<CashierClient>,
     gateway_id: GatewayId,
     pricelist: Pricelist,
-    budgets: RwLock<HashMap<Principal, CachedBudget>>,
+    budgets: Cache<Principal, Arc<Mutex<GatewayBudget>>>,
     usage: RwLock<HashMap<Principal, OwnerUsage>>,
     healthy: AtomicBool,
 }
@@ -115,7 +111,7 @@ impl CashierConnector {
             client,
             gateway_id,
             pricelist,
-            budgets: RwLock::new(HashMap::new()),
+            budgets: Cache::builder().time_to_live(BUDGET_TTL).build(),
             usage: RwLock::new(HashMap::new()),
             healthy: AtomicBool::new(true),
         })
@@ -205,15 +201,8 @@ impl CashierConnector {
                 )
             })? {
             StorageSetUsageBatchResult::Ok(resp) => {
-                let mut budgets = self.budgets.write().await;
                 for (principal, budget) in resp.budgets {
-                    budgets.insert(
-                        principal,
-                        CachedBudget {
-                            budget,
-                            fetched_at: Instant::now(),
-                        },
-                    );
+                    self.store_budget(principal, budget).await;
                 }
             }
             StorageSetUsageBatchResult::Err(e) => {
@@ -251,44 +240,29 @@ impl CashierConnector {
         cost: i64,
         operation: &'static str,
     ) -> Result<(), BillingError> {
-        // Refresh the cache if the entry is missing or stale. We deliberately
-        // release every lock before awaiting on the canister — holding a
-        // `RwLock` across an await would serialize all charges and risks
-        // contention if `fetch_budget` is slow.
-        let needs_refresh = {
-            let budgets = self.budgets.read().await;
-            budgets
-                .get(owner)
-                .is_none_or(|c| c.fetched_at.elapsed() >= BUDGET_TTL)
-        };
+        let cached = self
+            .budgets
+            .try_get_with(*owner, async {
+                Ok::<_, BillingError>(Arc::new(Mutex::new(
+                    self.fetch_budget(owner, operation).await?,
+                )))
+            })
+            .await
+            .map_err(|e| (*e).clone())?;
 
-        if needs_refresh {
-            let fresh = self.fetch_budget(owner, operation).await?;
-            self.budgets.write().await.insert(
-                *owner,
-                CachedBudget {
-                    budget: fresh,
-                    fetched_at: Instant::now(),
-                },
-            );
-        }
-
-        let mut budgets = self.budgets.write().await;
-        let cached = budgets
-            .get_mut(owner)
-            .expect("cache entry exists after refresh");
-        Self::try_debit(cached, owner, cost, operation)
+        let mut budget = cached.lock().await;
+        Self::try_debit(&mut budget, owner, cost, operation)
     }
 
     fn try_debit(
-        cached: &mut CachedBudget,
+        budget: &mut GatewayBudget,
         owner: &Principal,
         cost: i64,
         operation: &'static str,
     ) -> Result<(), BillingError> {
-        let credit = int_to_i64(&cached.budget.available_credit);
+        let credit = int_to_i64(&budget.available_credit);
         if credit >= cost {
-            cached.budget.available_credit = Int::from(credit - cost);
+            budget.available_credit = Int::from(credit - cost);
             Ok(())
         } else {
             Err(BillingError::InsufficientBalance {
@@ -298,6 +272,16 @@ impl CashierConnector {
                 available: credit,
             })
         }
+    }
+
+    async fn store_budget(&self, owner: Principal, budget: GatewayBudget) {
+        let cached = self
+            .budgets
+            .get(&owner)
+            .await
+            .unwrap_or_else(|| Arc::new(Mutex::new(budget.clone())));
+        *cached.lock().await = budget;
+        self.budgets.insert(owner, cached).await;
     }
 
     async fn fetch_budget(
