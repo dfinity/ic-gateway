@@ -55,8 +55,7 @@ impl CashierClient {
         &self,
         request: &GetBudgetRequestV1,
     ) -> Result<GetBudgetResult, Error> {
-        let encoded_args =
-            candid::encode_args((request,)).context("failed to encode budget_get_v1 args")?;
+        let encoded_args = candid::encode_args((request,)).context("failed to encode args")?;
 
         let response_bytes = self
             .agent
@@ -64,10 +63,10 @@ impl CashierClient {
             .with_arg(encoded_args)
             .call()
             .await
-            .context("budget_get_v1 query failed")?;
+            .context("query failed")?;
 
-        let response = Decode!(&response_bytes, GetBudgetResult)
-            .context("failed to decode budget_get_v1 response")?;
+        let response =
+            Decode!(&response_bytes, GetBudgetResult).context("failed to decode response")?;
         Ok(response)
     }
 
