@@ -97,6 +97,9 @@ pub struct Cli {
     #[command(flatten, next_help_heading = "Shedding Latency")]
     pub shed_latency: ShedShardedCli<RequestType>,
 
+    #[command(flatten, next_help_heading = "Caffeine")]
+    pub caffeine: Caffeine,
+
     #[cfg(all(target_os = "linux", feature = "sev-snp"))]
     #[command(flatten, next_help_heading = "SEV-SNP")]
     pub sev_snp: ic_bn_lib_common::types::utils::SevSnpCli,
@@ -560,6 +563,18 @@ pub struct RateLimit {
     /// Bypass token for rate-limiter that should be sent in `x-ratelimit-bypass-token` header
     #[clap(env, long)]
     pub rate_limit_bypass_token: Option<String>,
+}
+
+#[derive(Args)]
+pub struct Caffeine {
+    /// Caffeine domain that serves the apps
+    #[clap(env, long, default_value = "caffeine.xyz")]
+    pub caffeine_domain: FQDN,
+
+    /// URL of the server-side renderer for Caffeine.
+    /// If not specified - proxying to renderer is not enabled.
+    #[clap(env, long)]
+    pub caffeine_renderer_url: Option<Url>,
 }
 
 #[cfg(test)]

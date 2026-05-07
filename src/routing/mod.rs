@@ -59,8 +59,14 @@ use crate::{
     api::setup_api_router,
     cli::Cli,
     metrics::{self},
-    routing::ic::subnets_info::SubnetsInfo,
-    routing::middleware::{canister_match, cors, geoip, headers, preprocess, request_id, validate},
+    routing::{
+        ic::subnets_info::SubnetsInfo,
+        middleware::{
+            canister_match, cors, geoip, headers,
+            is_bot::{self, IsBotState},
+            preprocess, request_id, validate,
+        },
+    },
 };
 use domain::{CustomDomainStorage, DomainResolver};
 use middleware::{
@@ -519,7 +525,11 @@ pub async fn setup_router(
         .layer(load_shedder_system_mw)
         .layer(from_fn_with_state(validate_state, validate::middleware))
         .layer(concurrency_limit_mw)
-        .layer(load_shedder_latency_mw);
+        .layer(load_shedder_latency_mw)
+        .layer(from_fn_with_state(
+            Arc::new(IsBotState::default()),
+            is_bot::middleware,
+        ));
 
     let api_hostname = cli.api.api_hostname.clone().map(|x| x.to_string());
 
