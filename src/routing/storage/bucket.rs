@@ -54,23 +54,30 @@ pub struct S3Config {
 /// Errors from S3 storage operations.
 #[derive(Debug)]
 pub enum StorageError {
-    AwsS3(String),
+    AwsS3(Box<dyn StdError + Send + Sync>),
 }
 
 impl Display for StorageError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::AwsS3(inner) => write!(f, "AWS S3 error: {inner}"),
+            Self::AwsS3(inner) => write!(f, "AWS S3 error: {}", DisplayErrorContext(inner.as_ref())),
         }
     }
 }
 
-impl std::error::Error for StorageError {}
-
-impl<E: StdError> From<DisplayErrorContext<E>> for StorageError {
-    fn from(e: DisplayErrorContext<E>) -> Self {
-        Self::AwsS3(e.to_string())
+impl std::error::Error for StorageError {
+    fn source(&self) -> Option<&(dyn StdError + 'static)> {
+        match self {
+            Self::AwsS3(inner) => Some(inner.as_ref()),
+        }
     }
+}
+
+fn aws_s3_error<E>(e: E) -> StorageError
+where
+    E: StdError + Send + Sync + 'static,
+{
+    StorageError::AwsS3(Box::new(e))
 }
 
 /// Abstraction over S3 buckets to enable dependency injection in tests.
@@ -216,9 +223,9 @@ impl AWSBucket {
             Ok(_) => true,
             Err(SdkError::ServiceError(inner)) => match inner.into_err() {
                 HeadBucketError::NotFound(_) => false,
-                other => return Err(StorageError::AwsS3(other.to_string())),
+                other => return Err(aws_s3_error(other)),
             },
-            Err(e) => return Err(DisplayErrorContext(e).into()),
+            Err(e) => return Err(aws_s3_error(e)),
         };
 
         if !exists {
@@ -227,7 +234,7 @@ impl AWSBucket {
                 .bucket(&config.bucket_name)
                 .send()
                 .await
-                .map_err(|e| -> StorageError { DisplayErrorContext(e).into() })?;
+                .map_err(aws_s3_error)?;
         }
 
         Ok(true)
@@ -260,7 +267,7 @@ impl BucketLike for AWSBucket {
         req.send()
             .await
             .map(|_| ())
-            .map_err(|e| DisplayErrorContext(e).into())
+            .map_err(aws_s3_error)
     }
 
     async fn get_object(&self, path: String) -> Result<Option<Bytes>, StorageError> {
@@ -277,12 +284,12 @@ impl BucketLike for AWSBucket {
                 .collect()
                 .await
                 .map(|b| Some(b.into_bytes()))
-                .map_err(|e| StorageError::AwsS3(e.to_string())),
+                .map_err(aws_s3_error),
             Err(SdkError::ServiceError(inner)) => match inner.into_err() {
                 GetObjectError::NoSuchKey(_) => Ok(None),
-                other => Err(StorageError::AwsS3(other.to_string())),
+                other => Err(aws_s3_error(other)),
             },
-            Err(e) => Err(DisplayErrorContext(e).into()),
+            Err(e) => Err(aws_s3_error(e)),
         }
     }
 
@@ -298,9 +305,9 @@ impl BucketLike for AWSBucket {
             Ok(_) => Ok(true),
             Err(SdkError::ServiceError(inner)) => match inner.into_err() {
                 HeadObjectError::NotFound(_) => Ok(false),
-                other => Err(StorageError::AwsS3(other.to_string())),
+                other => Err(aws_s3_error(other)),
             },
-            Err(e) => Err(DisplayErrorContext(e).into()),
+            Err(e) => Err(aws_s3_error(e)),
         }
     }
 
@@ -312,7 +319,7 @@ impl BucketLike for AWSBucket {
             .send()
             .await
             .map(|_| ())
-            .map_err(|e| DisplayErrorContext(e).into())
+            .map_err(aws_s3_error)
     }
 
     async fn list_page(
@@ -330,7 +337,7 @@ impl BucketLike for AWSBucket {
             .set_max_keys(max_keys.map(|v| v as i32))
             .send()
             .await
-            .map_err(|e| -> StorageError { DisplayErrorContext(e).into() })?;
+            .map_err(aws_s3_error)?;
 
         let keys = output
             .contents
