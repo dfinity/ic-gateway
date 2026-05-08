@@ -78,7 +78,7 @@ pub fn generate_response(response_size: usize) -> Response<AxumBody> {
 }
 
 #[derive(Debug, Clone)]
-struct TestClient(pub usize);
+pub struct TestClient(pub usize);
 
 #[async_trait]
 impl Client for TestClient {
@@ -90,6 +90,13 @@ impl Client for TestClient {
 #[async_trait]
 impl ClientHttp<Full<Bytes>> for TestClient {
     async fn execute(&self, _req: Request<Full<Bytes>>) -> Result<Response<AxumBody>, HttpError> {
+        Ok(generate_response(self.0))
+    }
+}
+
+#[async_trait]
+impl ClientHttp<AxumBody> for TestClient {
+    async fn execute(&self, _req: Request<AxumBody>) -> Result<Response<AxumBody>, HttpError> {
         Ok(generate_response(self.0))
     }
 }

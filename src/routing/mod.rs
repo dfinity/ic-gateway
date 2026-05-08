@@ -6,7 +6,7 @@ pub mod proxy;
 
 use std::{net::IpAddr, ops::Deref, str::FromStr, sync::Arc, time::Duration};
 
-use anyhow::{Context, Error};
+use anyhow::{Context, Error, anyhow};
 use arc_swap::ArcSwapOption;
 use axum::{
     Extension, Router,
@@ -59,8 +59,16 @@ use crate::{
     api::setup_api_router,
     cli::Cli,
     metrics::{self},
-    routing::ic::subnets_info::SubnetsInfo,
-    routing::middleware::{canister_match, cors, geoip, headers, preprocess, request_id, validate},
+    routing::{
+        ic::subnets_info::SubnetsInfo,
+        middleware::{
+            canister_match, cors, geoip, headers,
+            is_bot::{self, IsBotState},
+            preprocess,
+            prerender::{self, PrerenderState},
+            request_id, validate,
+        },
+    },
 };
 use domain::{CustomDomainStorage, DomainResolver};
 use middleware::{
@@ -378,7 +386,7 @@ pub async fn setup_router(
         cli.ic.ic_request_max_size,
     ));
     let state_api = Arc::new(proxy::ApiProxyState::new(
-        http_client_hyper,
+        http_client_hyper.clone(),
         route_provider,
         cli.ic.ic_request_retries,
         cli.ic.ic_request_retry_interval,
@@ -502,6 +510,31 @@ pub async fn setup_router(
         cli.misc.disable_html_error_messages,
     ));
 
+    let prerender_mw = if !cli.prerender.prerender_domains.is_empty() {
+        let url = cli
+            .prerender
+            .prerender_url
+            .clone()
+            .ok_or_else(|| anyhow!("Prerender requires an URL"))?;
+        let secret = cli
+            .prerender
+            .prerender_secret
+            .clone()
+            .ok_or_else(|| anyhow!("Prerender requires a secret"))?;
+
+        let state = PrerenderState::new(
+            cli.prerender.prerender_domains.clone(),
+            url,
+            secret,
+            cli.prerender.prerender_timeout,
+            http_client_hyper,
+        );
+
+        Some(from_fn_with_state(Arc::new(state), prerender::middleware))
+    } else {
+        None
+    };
+
     // Common layers for all routes
     let common_layers = ServiceBuilder::new()
         .layer(from_fn_with_state(
@@ -519,7 +552,12 @@ pub async fn setup_router(
         .layer(load_shedder_system_mw)
         .layer(from_fn_with_state(validate_state, validate::middleware))
         .layer(concurrency_limit_mw)
-        .layer(load_shedder_latency_mw);
+        .layer(load_shedder_latency_mw)
+        .layer(from_fn_with_state(
+            Arc::new(IsBotState::default()),
+            is_bot::middleware,
+        ))
+        .layer(option_layer(prerender_mw));
 
     let api_hostname = cli.api.api_hostname.clone().map(|x| x.to_string());
 

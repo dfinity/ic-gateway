@@ -3,6 +3,7 @@ use std::{net::SocketAddr, path::PathBuf, time::Duration};
 use ::http::HeaderValue;
 use clap::{Args, Parser};
 use fqdn::FQDN;
+use http::Uri;
 use humantime::parse_duration;
 #[cfg(feature = "acme")]
 use ic_bn_lib_common::types::acme::{AcmeUrl, Challenge, DnsBackend};
@@ -96,6 +97,9 @@ pub struct Cli {
 
     #[command(flatten, next_help_heading = "Shedding Latency")]
     pub shed_latency: ShedShardedCli<RequestType>,
+
+    #[command(flatten, next_help_heading = "Prerender")]
+    pub prerender: Prerender,
 
     #[cfg(all(target_os = "linux", feature = "sev-snp"))]
     #[command(flatten, next_help_heading = "SEV-SNP")]
@@ -560,6 +564,26 @@ pub struct RateLimit {
     /// Bypass token for rate-limiter that should be sent in `x-ratelimit-bypass-token` header
     #[clap(env, long)]
     pub rate_limit_bypass_token: Option<String>,
+}
+
+#[derive(Args)]
+pub struct Prerender {
+    /// Domains that are eligible for pre-prender.
+    /// If no domains specified - pre-render is not active.
+    #[clap(env, long)]
+    pub prerender_domains: Vec<FQDN>,
+
+    /// URL of the server-side renderer
+    #[clap(env, long)]
+    pub prerender_url: Option<Uri>,
+
+    /// Secret to authenticate with a pre-renderer
+    #[clap(env, long)]
+    pub prerender_secret: Option<HeaderValue>,
+
+    /// Timeout for executing pre-render request
+    #[clap(env, long, default_value = "1m", value_parser = parse_duration)]
+    pub prerender_timeout: Duration,
 }
 
 #[cfg(test)]
