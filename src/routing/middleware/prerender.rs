@@ -11,11 +11,11 @@ use derive_new::new;
 use fqdn::{FQDN, Fqdn};
 use http::{
     HeaderName, HeaderValue, Method, Uri,
-    header::{CONNECTION, CONTENT_ENCODING, CONTENT_LENGTH, TRANSFER_ENCODING, USER_AGENT},
+    header::{CONNECTION, CONTENT_ENCODING, TRANSFER_ENCODING, USER_AGENT},
     uri::Authority,
 };
 use http_body_util::Full;
-use ic_bn_lib::hname;
+use ic_bn_lib::{hname, hval};
 use ic_bn_lib_common::traits::http::ClientHttp;
 use tokio::time::timeout;
 
@@ -26,11 +26,11 @@ use crate::routing::{
 };
 
 const HEADER_SECRET: HeaderName = hname!("x-worker-secret");
+const HEADER_X_PRE_RENDERED: HeaderName = hname!("x-pre-rendered");
 
-const HEADERS_TO_REMOVE: [HeaderName; 5] = [
+const HEADERS_TO_REMOVE: [HeaderName; 4] = [
     CONTENT_ENCODING,
     TRANSFER_ENCODING,
-    CONTENT_LENGTH,
     CONNECTION,
     hname!("keep-alive"),
 ];
@@ -97,7 +97,7 @@ impl PrerenderState {
             return false;
         }
 
-        if self.domains.iter().all(|x| !authority.is_subdomain_of(x)) {
+        if !self.domains.iter().any(|x| authority.is_subdomain_of(x)) {
             return false;
         }
 
@@ -113,8 +113,7 @@ impl PrerenderState {
             return false;
         }
 
-        let path = uri.path();
-        if is_static_asset(path) {
+        if is_static_asset(uri.path()) {
             return false;
         }
 
@@ -122,17 +121,21 @@ impl PrerenderState {
     }
 
     /// Encodes the URI to be usable as a query parameter and attaches it to the render URI
-    fn create_renderer_uri(&self, uri: Uri, authority: &Fqdn) -> Result<Uri, anyhow::Error> {
+    fn create_renderer_uri(
+        &self,
+        original_uri: Uri,
+        authority: &Fqdn,
+    ) -> Result<Uri, anyhow::Error> {
         // Inject authority into URI since it's missing in Axum
-        let mut parts = uri.into_parts();
-        let authority = Authority::from_str(&authority.to_string())?;
+        let mut parts = original_uri.into_parts();
+        let authority = Authority::from_maybe_shared(Bytes::from(authority.to_string()))?;
         parts.authority = Some(authority);
-        let uri = Uri::from_parts(parts)?;
+        let original_uri = Uri::from_parts(parts)?.to_string();
 
-        let encoded_uri = urlencoding::encode(&uri.to_string()).to_string();
-        let render_uri = Uri::from_str(&format!("{}?url={encoded_uri}", self.url))?;
+        let original_uri_encoded = urlencoding::encode(&original_uri);
+        let renderer_uri = Uri::from_str(&format!("{}?url={original_uri_encoded}", self.url))?;
 
-        Ok(render_uri)
+        Ok(renderer_uri)
     }
 
     /// Executes the render request with fallbacks
@@ -155,6 +158,9 @@ impl PrerenderState {
                 HEADERS_TO_REMOVE.iter().for_each(|x| {
                     v.headers_mut().remove(x);
                 });
+
+                // Add marker to show that it was pre-rendered
+                v.headers_mut().insert(HEADER_X_PRE_RENDERED, hval!("1"));
 
                 v
             }
