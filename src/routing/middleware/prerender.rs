@@ -1,22 +1,39 @@
-use std::{str::FromStr, sync::Arc};
+use std::{str::FromStr, sync::Arc, time::Duration};
 
 use axum::{
     Extension,
-    body::Body,
     extract::{OriginalUri, Request, State},
     middleware::Next,
     response::Response,
 };
+use bytes::Bytes;
 use derive_new::new;
 use fqdn::{FQDN, Fqdn};
-use http::{Uri, uri::Authority};
+use http::{
+    HeaderName, HeaderValue, Method, Uri,
+    header::{CONNECTION, CONTENT_ENCODING, CONTENT_LENGTH, TRANSFER_ENCODING, USER_AGENT},
+    uri::Authority,
+};
+use http_body_util::Full;
+use ic_bn_lib::hname;
 use ic_bn_lib_common::traits::http::ClientHttp;
+use tokio::time::timeout;
 
 use crate::routing::{
     RequestCtx,
     error_cause::{ClientError, ErrorCause},
     middleware::is_bot::IsBot,
 };
+
+const HEADER_SECRET: HeaderName = hname!("x-worker-secret");
+
+const HEADERS_TO_REMOVE: [HeaderName; 5] = [
+    CONTENT_ENCODING,
+    TRANSFER_ENCODING,
+    CONTENT_LENGTH,
+    CONNECTION,
+    hname!("keep-alive"),
+];
 
 const STATIC_ASSET_EXTENSIONS: &[&str] = &[
     ".js",
@@ -65,15 +82,22 @@ fn is_static_asset(path: &str) -> bool {
 }
 
 #[derive(new)]
-pub struct RedirectorState {
-    caffeine_domain: FQDN,
-    caffeine_renderer: Uri,
-    client: Arc<dyn ClientHttp<Body>>,
+pub struct PrerenderState {
+    domains: Vec<FQDN>,
+    url: Uri,
+    secret: HeaderValue,
+    timeout: Duration,
+    client: Arc<dyn ClientHttp<Full<Bytes>>>,
 }
 
-impl RedirectorState {
-    fn should_render(&self, authority: &Fqdn, uri: &Uri, is_bot: bool) -> bool {
-        if !authority.is_subdomain_of(&self.caffeine_domain) {
+impl PrerenderState {
+    /// Whether we should prerender this request or pass it through
+    fn should_render(&self, authority: &Fqdn, uri: &Uri, method: &Method, is_bot: bool) -> bool {
+        if method != Method::GET {
+            return false;
+        }
+
+        if self.domains.iter().all(|x| !authority.is_subdomain_of(x)) {
             return false;
         }
 
@@ -98,7 +122,7 @@ impl RedirectorState {
     }
 
     /// Encodes the URI to be usable as a query parameter and attaches it to the render URI
-    fn create_render_uri(&self, uri: Uri, authority: &Fqdn) -> Result<Uri, anyhow::Error> {
+    fn create_renderer_uri(&self, uri: Uri, authority: &Fqdn) -> Result<Uri, anyhow::Error> {
         // Inject authority into URI since it's missing in Axum
         let mut parts = uri.into_parts();
         let authority = Authority::from_str(&authority.to_string())?;
@@ -106,31 +130,69 @@ impl RedirectorState {
         let uri = Uri::from_parts(parts)?;
 
         let encoded_uri = urlencoding::encode(&uri.to_string()).to_string();
-        let render_uri = Uri::from_str(&format!("{}?url={encoded_uri}", self.caffeine_renderer))?;
+        let render_uri = Uri::from_str(&format!("{}?url={encoded_uri}", self.url))?;
 
         Ok(render_uri)
+    }
+
+    /// Executes the render request with fallbacks
+    async fn render_request(
+        &self,
+        render_request: Request<Full<Bytes>>,
+        request: Request,
+        next: Next,
+    ) -> Response {
+        let render_result = timeout(self.timeout, self.client.execute(render_request)).await;
+        match render_result {
+            Ok(Ok(mut v)) => {
+                // If the request succeeded - check return code
+                if !v.status().is_success() {
+                    // Otherwise pass the request as usual
+                    return next.run(request).await;
+                }
+
+                // Remove certain headers from the response
+                HEADERS_TO_REMOVE.iter().for_each(|x| {
+                    v.headers_mut().remove(x);
+                });
+
+                v
+            }
+
+            // If we timed out or the request failed - forward as usual
+            Err(_) | Ok(Err(_)) => next.run(request).await,
+        }
     }
 }
 
 pub async fn middleware(
-    State(state): State<Arc<RedirectorState>>,
+    State(state): State<Arc<PrerenderState>>,
     Extension(ctx): Extension<Arc<RequestCtx>>,
     Extension(is_bot): Extension<IsBot>,
     OriginalUri(uri): OriginalUri,
     request: Request,
     next: Next,
 ) -> Result<Response, ErrorCause> {
-    if !state.should_render(&ctx.authority, &uri, is_bot.0) {
+    if !state.should_render(&ctx.authority, &uri, request.method(), is_bot.0) {
         return Ok(next.run(request).await);
     }
 
     // Prepare the request to send to the renderer
-    let mut proxy_request = Request::new(Body::empty());
-    let encoded_uri = state
-        .create_render_uri(uri, &ctx.authority)
+    let mut render_request = Request::new(Full::new(Bytes::new()));
+    let renderer_uri = state
+        .create_renderer_uri(uri, &ctx.authority)
         .map_err(|e| ErrorCause::Client(ClientError::MalformedRequest(e.to_string())))?;
+    *render_request.uri_mut() = renderer_uri;
+    *render_request.method_mut() = Method::GET;
+    render_request
+        .headers_mut()
+        .insert(HEADER_SECRET, state.secret.clone());
+    if let Some(v) = request.headers().get(USER_AGENT) {
+        render_request.headers_mut().insert(USER_AGENT, v.clone());
+    }
 
-    Ok(next.run(request).await)
+    // Execute the render request
+    Ok(state.render_request(render_request, request, next).await)
 }
 
 #[cfg(test)]
@@ -139,6 +201,7 @@ mod tests {
 
     use crate::test::TestClient;
     use fqdn::fqdn;
+    use ic_bn_lib::hval;
 
     use super::*;
 
@@ -165,9 +228,11 @@ mod tests {
 
     #[test]
     fn test_should_render() {
-        let state = RedirectorState::new(
-            fqdn!("caffeine.xyz"),
+        let state = PrerenderState::new(
+            vec![fqdn!("caffeine.xyz"), fqdn!("caffeine.abc")],
             Uri::from_str("http://foo/bar").unwrap(),
+            hval!(""),
+            Duration::ZERO,
             Arc::new(TestClient(1)),
         );
 
@@ -175,6 +240,13 @@ mod tests {
         assert!(state.should_render(
             &fqdn!("foo.caffeine.xyz"),
             &Uri::from_static("http://foo/script.php"),
+            &Method::GET,
+            true
+        ));
+        assert!(state.should_render(
+            &fqdn!("bar.caffeine.abc"),
+            &Uri::from_static("http://foo/script.php"),
+            &Method::GET,
             true
         ));
 
@@ -182,6 +254,7 @@ mod tests {
         assert!(!state.should_render(
             &fqdn!("foo.caffeine.foo"),
             &Uri::from_static("http://foo/script.php"),
+            &Method::GET,
             true
         ));
 
@@ -189,6 +262,7 @@ mod tests {
         assert!(!state.should_render(
             &fqdn!("foo.caffeine.xyz"),
             &Uri::from_static("http://foo/logo.png"),
+            &Method::GET,
             true
         ));
 
@@ -196,6 +270,15 @@ mod tests {
         assert!(!state.should_render(
             &fqdn!("foo.caffeine.xyz"),
             &Uri::from_static("http://foo/script.php"),
+            &Method::GET,
+            false
+        ));
+
+        // wrong method
+        assert!(!state.should_render(
+            &fqdn!("foo.caffeine.xyz"),
+            &Uri::from_static("http://foo/script.php"),
+            &Method::POST,
             false
         ));
 
@@ -203,28 +286,32 @@ mod tests {
         assert!(!state.should_render(
             &fqdn!("foo-draft.caffeine.xyz"),
             &Uri::from_static("http://foo/script.php"),
+            &Method::GET,
             true
         ));
 
         assert!(!state.should_render(
             &fqdn!("foo-draft-foo.caffeine.xyz"),
             &Uri::from_static("http://foo/script.php"),
+            &Method::GET,
             true
         ));
     }
 
     #[test]
     fn test_create_render_uri() {
-        let state = RedirectorState::new(
-            fqdn!("caffeine.xyz"),
+        let state = PrerenderState::new(
+            vec![fqdn!("caffeine.xyz")],
             Uri::from_str("https://prerenderer.caffeine.tech/render").unwrap(),
+            hval!(""),
+            Duration::ZERO,
             Arc::new(TestClient(1)),
         );
 
         // ok
         assert_eq!(
             state
-                .create_render_uri(
+                .create_renderer_uri(
                     Uri::from_static("https://foo/bar/baz?q=1"),
                     &fqdn!("foo.caffeine.xyz")
                 )
@@ -232,15 +319,14 @@ mod tests {
             "https://prerenderer.caffeine.tech/render?url=https%3A%2F%2Ffoo.caffeine.xyz%2Fbar%2Fbaz%3Fq%3D1"
         );
 
-        // bad authority
         assert_eq!(
             state
-                .create_render_uri(
-                    Uri::from_static("://foo/bar/baz?q=1"),
-                    &fqdn!("foo.caffeine.xyz")
+                .create_renderer_uri(
+                    Uri::from_static("http://foo/bar/baz?q=1"),
+                    &fqdn!("foo.caffeine.abc")
                 )
                 .unwrap(),
-            "https://prerenderer.caffeine.tech/render?url=https%3A%2F%2Ffoo.caffeine.xyz%2Fbar%2Fbaz%3Fq%3D1"
+            "https://prerenderer.caffeine.tech/render?url=http%3A%2F%2Ffoo.caffeine.abc%2Fbar%2Fbaz%3Fq%3D1"
         );
     }
 }

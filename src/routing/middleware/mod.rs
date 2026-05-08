@@ -6,6 +6,6 @@ pub mod geoip;
 pub mod headers;
 pub mod is_bot;
 pub mod preprocess;
-pub mod redirector;
+pub mod prerender;
 pub mod request_id;
 pub mod validate;
