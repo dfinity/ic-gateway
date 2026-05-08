@@ -266,13 +266,14 @@ impl CashierConnector {
     }
 
     async fn store_budget(&self, owner: Principal, budget: GatewayBudget) {
-        let cached = self
-            .budgets
-            .get(&owner)
-            .await
-            .unwrap_or_else(|| Arc::new(Mutex::new(budget.clone())));
-        *cached.lock().await = budget;
-        self.budgets.insert(owner, cached).await;
+        if let Some(cached) = self.budgets.get(&owner).await {
+            *cached.lock().await = budget;
+            self.budgets.insert(owner, cached).await;
+        } else {
+            self.budgets
+                .insert(owner, Arc::new(Mutex::new(budget)))
+                .await;
+        }
     }
 
     async fn fetch_budget(
