@@ -251,15 +251,6 @@ impl CashierConnector {
             .map_err(|e| (*e).clone())?;
 
         let mut budget = cached.lock().await;
-        Self::try_debit(&mut budget, owner, cost, operation)
-    }
-
-    fn try_debit(
-        budget: &mut GatewayBudget,
-        owner: &Principal,
-        cost: i64,
-        operation: &'static str,
-    ) -> Result<(), BillingError> {
         let credit = int_to_i64(&budget.available_credit);
         if credit >= cost {
             budget.available_credit = Int::from(credit - cost);
@@ -385,7 +376,7 @@ fn price_component(price: &PricePerBillingUnit, quantity: u64) -> i64 {
     // Promote to `i128` so `quantity (u64) * cost (i64)` cannot overflow
     // (max magnitude ~2^127, needed ~2^127). On absurd inputs we saturate
     // *high* so an oversized price locks the user out rather than wrapping
-    // negative — a negative cost would let `try_debit` accept anything and
+    // negative — a negative cost would let budget debiting accept anything and
     // even mint credit (`credit - negative_cost`).
     let cost = i128::from(int_to_i64(&price.cost));
     let product = i128::from(quantity).saturating_mul(cost);
