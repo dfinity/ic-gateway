@@ -180,10 +180,8 @@ pub async fn middleware(
     next: Next,
 ) -> Result<Response, ErrorCause> {
     if !state.should_render(&ctx.authority, &uri, request.method(), is_bot.0) {
-        println!("not-pre-rendering");
         return Ok(next.run(request).await);
     }
-    println!("pre-rendering");
 
     // Prepare the request to send to the renderer
     let mut render_request = Request::new(Full::new(Bytes::new()));
