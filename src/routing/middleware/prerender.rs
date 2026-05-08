@@ -180,8 +180,10 @@ pub async fn middleware(
     next: Next,
 ) -> Result<Response, ErrorCause> {
     if !state.should_render(&ctx.authority, &uri, request.method(), is_bot.0) {
+        println!("not-pre-rendering");
         return Ok(next.run(request).await);
     }
+    println!("pre-rendering");
 
     // Prepare the request to send to the renderer
     let mut render_request = Request::new(Full::new(Bytes::new()));
@@ -205,9 +207,25 @@ pub async fn middleware(
 mod tests {
     use std::str::FromStr;
 
-    use crate::test::TestClient;
+    use crate::{
+        routing::{
+            domain::{CustomDomainStorage, DomainResolver},
+            middleware::{
+                is_bot::{self, IsBotState},
+                validate::{self, ValidateState},
+            },
+        },
+        test::{FakeDomainProvider, TestClient},
+    };
+    use async_trait::async_trait;
+    use axum::{Router, body::Body, middleware::from_fn_with_state, response::IntoResponse};
     use fqdn::fqdn;
+    use http::{Request, StatusCode};
+    use http_body_util::BodyExt;
     use ic_bn_lib::hval;
+    use ic_bn_lib_common::types::http::Error as HttpError;
+    use prometheus::Registry;
+    use tower::{ServiceBuilder, ServiceExt};
 
     use super::*;
 
@@ -333,6 +351,177 @@ mod tests {
                 )
                 .unwrap(),
             "https://prerenderer.caffeine.tech/render?url=http%3A%2F%2Ffoo.caffeine.abc%2Fbar%2Fbaz%3Fq%3D1"
+        );
+    }
+
+    #[derive(Debug)]
+    pub struct TestClientPrerender(StatusCode, String, bool);
+
+    #[async_trait]
+    impl ClientHttp<Full<Bytes>> for TestClientPrerender {
+        async fn execute(&self, _req: Request<Full<Bytes>>) -> Result<Response, HttpError> {
+            if self.2 {
+                return Err(HttpError::BodyTimedOut);
+            }
+
+            Ok((self.0, self.1.clone()).into_response())
+        }
+    }
+
+    fn create_router(cli: Arc<dyn ClientHttp<Full<Bytes>>>) -> Router {
+        let resolver = DomainResolver::new(
+            vec![fqdn!("caffeine.xyz"), fqdn!("caffeine.ai")],
+            vec![],
+            vec![],
+            Arc::new(CustomDomainStorage::new(
+                vec![Arc::new(FakeDomainProvider(vec![]))],
+                &Registry::new(),
+            )),
+            false,
+        );
+
+        let svc = ServiceBuilder::new()
+            .layer(from_fn_with_state(
+                ValidateState::new(Arc::new(resolver), false, false),
+                validate::middleware,
+            ))
+            .layer(from_fn_with_state(
+                Arc::new(IsBotState::default()),
+                is_bot::middleware,
+            ))
+            .layer(from_fn_with_state(
+                Arc::new(PrerenderState::new(
+                    vec![fqdn!("caffeine.xyz")],
+                    Uri::from_str("https://prerenderer.caffeine.tech/render").unwrap(),
+                    hval!(""),
+                    Duration::ZERO,
+                    cli,
+                )),
+                middleware,
+            ));
+
+        Router::new().fallback(|| async { "direct" }).layer(svc)
+    }
+
+    #[tokio::test]
+    async fn test_prerender_middleware_prerender_normal() {
+        let cli = Arc::new(TestClientPrerender(
+            StatusCode::OK,
+            "pre-rendered".into(),
+            false,
+        ));
+
+        let router = create_router(cli);
+
+        let mut req = Request::new(Body::empty());
+        *req.uri_mut() = Uri::from_static("https://caffeine.xyz/foo/bar/baz?a=b&c=d");
+        req.headers_mut()
+            .insert(USER_AGENT, hval!("Googlebot-Image/1.0"));
+
+        let resp = router.oneshot(req).await.unwrap();
+        assert!(resp.status().is_success());
+        let body = resp.into_body();
+        assert_eq!(
+            String::from_utf8_lossy(body.collect().await.unwrap().to_bytes().as_ref()),
+            "pre-rendered"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_prerender_middleware_prerenderer_error() {
+        let cli = Arc::new(TestClientPrerender(
+            StatusCode::OK,
+            "pre-rendered".into(),
+            true,
+        ));
+
+        let router = create_router(cli);
+
+        let mut req = Request::new(Body::empty());
+        *req.uri_mut() = Uri::from_static("https://caffeine.xyz/foo/bar/baz?a=b&c=d");
+        req.headers_mut()
+            .insert(USER_AGENT, hval!("Googlebot-Image/1.0"));
+
+        let resp = router.oneshot(req).await.unwrap();
+        assert!(resp.status().is_success());
+        let body = resp.into_body();
+        assert_eq!(
+            String::from_utf8_lossy(body.collect().await.unwrap().to_bytes().as_ref()),
+            "direct"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_prerender_middleware_prerenderer_bad_status() {
+        let cli = Arc::new(TestClientPrerender(
+            StatusCode::BAD_GATEWAY,
+            "pre-rendered".into(),
+            false,
+        ));
+
+        let router = create_router(cli);
+
+        let mut req = Request::new(Body::empty());
+        *req.uri_mut() = Uri::from_static("https://caffeine.xyz/foo/bar/baz?a=b&c=d");
+        req.headers_mut()
+            .insert(USER_AGENT, hval!("Googlebot-Image/1.0"));
+
+        let resp = router.oneshot(req).await.unwrap();
+        assert!(resp.status().is_success());
+        let body = resp.into_body();
+        assert_eq!(
+            String::from_utf8_lossy(body.collect().await.unwrap().to_bytes().as_ref()),
+            "direct"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_prerender_middleware_direct_other_domain() {
+        let cli = Arc::new(TestClientPrerender(
+            StatusCode::OK,
+            "pre-rendered".into(),
+            false,
+        ));
+
+        let router = create_router(cli);
+
+        let mut req = Request::new(Body::empty());
+        *req.uri_mut() = Uri::from_static("https://caffeine.ai/foo/bar/baz?a=b&c=d");
+        req.headers_mut()
+            .insert(USER_AGENT, hval!("Googlebot-Image/1.0"));
+
+        let resp = router.oneshot(req).await.unwrap();
+        assert!(resp.status().is_success());
+        let body = resp.into_body();
+        assert_eq!(
+            String::from_utf8_lossy(body.collect().await.unwrap().to_bytes().as_ref()),
+            "direct"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_prerender_middleware_direct_not_bot() {
+        let cli = Arc::new(TestClientPrerender(
+            StatusCode::OK,
+            "pre-rendered".into(),
+            false,
+        ));
+
+        let router = create_router(cli);
+
+        let mut req = Request::new(Body::empty());
+        *req.uri_mut() = Uri::from_static("https://caffeine.xyz/foo/bar/baz?a=b&c=d");
+        req.headers_mut().insert(
+            USER_AGENT,
+            hval!("Mozilla/5.0 (Windows NT 6.3; WOW64; Trident/7.0; rv:11.0) like Gecko"),
+        );
+
+        let resp = router.oneshot(req).await.unwrap();
+        assert!(resp.status().is_success());
+        let body = resp.into_body();
+        assert_eq!(
+            String::from_utf8_lossy(body.collect().await.unwrap().to_bytes().as_ref()),
+            "direct"
         );
     }
 }
