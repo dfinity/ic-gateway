@@ -15,7 +15,7 @@ use axum::{
     response::{IntoResponse, Redirect},
     routing::{get, post},
 };
-use axum_extra::{either::Either, extract::Host, middleware::option_layer};
+use axum_extra::{either::Either, middleware::option_layer};
 use bytes::Bytes;
 use candid::Principal;
 use fqdn::FQDN;
@@ -24,7 +24,7 @@ use http_body_util::Full;
 use ic_bn_lib::{
     http::{
         cache::{CacheBuilder, KeyExtractorUriRange},
-        extract_host,
+        extract_authority, extract_host,
         middleware::waf::WafLayer,
         shed::{
             sharded::ShardedLittleLoadShedderLayer,
@@ -60,6 +60,7 @@ use crate::{
     cli::Cli,
     metrics::{self},
     routing::{
+        error_cause::ClientError,
         ic::subnets_info::SubnetsInfo,
         middleware::{
             canister_match, cors, geoip, headers,
@@ -580,9 +581,13 @@ pub async fn setup_router(
         .nest("/api/v3", router_api_v3)
         .nest("/api/v4", router_api_v4)
         .fallback(
-            |Host(host): Host, Extension(ctx): Extension<Arc<RequestCtx>>, request: Request| async move {
+            |Extension(ctx): Extension<Arc<RequestCtx>>, request: Request| async move {
+                let Some(host) = extract_authority(&request) else {
+                    return Ok(ErrorCause::Client(ClientError::NoAuthority).into_response());
+                };
+
                 // Check if the request's host matches API hostname
-                if api_hostname.zip(extract_host(&host)).map(|(a, b)| a == b) == Some(true) {
+                if api_hostname.zip(extract_host(host)).map(|(a, b)| a == b) == Some(true) {
                     return router_api.oneshot(request).await;
                 }
 
@@ -590,7 +595,10 @@ pub async fn setup_router(
                 let canister_id = request.extensions().get::<CanisterId>();
 
                 // If the custom domains are enabled and the request came to the base domain
-                if let Some(v) = custom_domains_router && ctx.is_base_domain() && path.starts_with("/custom-domains") {
+                if let Some(v) = custom_domains_router
+                    && ctx.is_base_domain()
+                    && path.starts_with("/custom-domains")
+                {
                     return v.oneshot(request).await;
                 }
 
