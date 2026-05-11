@@ -26,6 +26,12 @@ jobs:
 
       - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6
 
+      - name: Install repro-env
+        run: |
+          wget 'https://github.com/kpcyrd/repro-env/releases/download/v0.4.4/repro-env'
+          echo 'eaae57fbb51f6f802cb1c5ea4c07588feb18f8f533d7175b3cde599a974bb0d3  repro-env' | sha256sum -c -
+          sudo install -m755 repro-env -t /usr/bin
+
       - name: Install deps
         run: sudo apt-get update && sudo apt-get -y install protobuf-compiler && cargo install cargo-all-features
 

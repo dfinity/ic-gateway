@@ -25,8 +25,8 @@ jobs:
 
       - name: Install repro-env
         run: |
-          wget 'https://github.com/kpcyrd/repro-env/releases/download/v0.4.3/repro-env'
-          echo '2a00b21ac5e990e0c6a0ccbf3b91e34a073660d1f4553b5f3cda2b09cc4d4d8a  repro-env' | sha256sum -c -
+          wget 'https://github.com/kpcyrd/repro-env/releases/download/v0.4.4/repro-env'
+          echo 'eaae57fbb51f6f802cb1c5ea4c07588feb18f8f533d7175b3cde599a974bb0d3  repro-env' | sha256sum -c -
           sudo install -m755 repro-env -t /usr/bin
 
       - name: Install deps
