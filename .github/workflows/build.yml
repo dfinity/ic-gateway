@@ -25,15 +25,15 @@ jobs:
 
       - name: Install repro-env
         run: |
-          wget 'https://github.com/kpcyrd/repro-env/releases/download/v0.4.3/repro-env'
-          echo '2a00b21ac5e990e0c6a0ccbf3b91e34a073660d1f4553b5f3cda2b09cc4d4d8a  repro-env' | sha256sum -c -
+          wget 'https://github.com/kpcyrd/repro-env/releases/download/v0.4.4/repro-env'
+          echo 'eaae57fbb51f6f802cb1c5ea4c07588feb18f8f533d7175b3cde599a974bb0d3  repro-env' | sha256sum -c -
           sudo install -m755 repro-env -t /usr/bin
 
       - name: Install deps
         run: sudo apt-get update && sudo apt-get -y install protobuf-compiler podman
 
       - name: Build
-        run: repro-env build -- cargo build --features sev-snp --release --target x86_64-unknown-linux-musl
+        run: repro-env build --env CFLAGS="-fno-link-libatomic" -- cargo build --features sev-snp --release --target x86_64-unknown-linux-musl
 
       - name: Generate SHA checksum
         run: shasum target/x86_64-unknown-linux-musl/release/ic-gateway > ic-gateway.shasum
@@ -42,7 +42,7 @@ jobs:
         run: rm -rf target
 
       - name: Build again
-        run: repro-env build -- cargo build --features sev-snp --release --target x86_64-unknown-linux-musl
+        run: repro-env build --env CFLAGS="-fno-link-libatomic" -- cargo build --features sev-snp --release --target x86_64-unknown-linux-musl
 
       - name: Check SHA checksum
         run: shasum -c ic-gateway.shasum
