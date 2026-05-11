@@ -32,3 +32,6 @@ jobs:
       - name: Run all unit and integration tests
         run: |
           ./run-tests.sh
+
+      - name: Build using repro-env
+        run: repro-env build --env CFLAGS="-fno-link-libatomic" -- cargo build --features sev-snp --target x86_64-unknown-linux-musl
