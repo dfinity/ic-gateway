@@ -185,7 +185,12 @@ pub async fn setup(
 
     #[cfg(feature = "acme")]
     {
-        tls_opts.additional_alpn = if cli.acme.acme_challenge == Some(Challenge::Alpn) {
+        tls_opts.additional_alpn = if cli
+            .acme
+            .acme_challenge
+            .as_ref()
+            .is_some_and(|x| *x == Challenge::Alpn)
+        {
             use ic_bn_lib_common::types::http::ALPN_ACME;
 
             vec![ALPN_ACME.to_vec()]

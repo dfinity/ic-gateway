@@ -595,7 +595,7 @@ impl IntoResponse for ErrorClientFacing {
                 .as_ref()
                 .zip(ctx.authority.as_ref())
                 .map(|(alternate, authority)| authority.is_subdomain_of(alternate))
-                == Some(true)
+                .is_some_and(|x| x)
             {
                 match self {
                     Self::Client(ClientError::UnknownDomain(_)) => ALTERNATE_ERROR_UNKNOWN_DOMAIN,

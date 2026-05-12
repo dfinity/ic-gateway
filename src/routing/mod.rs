@@ -587,7 +587,10 @@ pub async fn setup_router(
                 };
 
                 // Check if the request's host matches API hostname
-                if api_hostname.zip(extract_host(host)).map(|(a, b)| a == b) == Some(true) {
+                if api_hostname
+                    .zip(extract_host(host))
+                    .is_some_and(|(a, b)| a == b)
+                {
                     return router_api.oneshot(request).await;
                 }
 
@@ -611,7 +614,8 @@ pub async fn setup_router(
                 // or to a bare "raw" subdomain w/o canister id.
                 // Do so only if canister id wasn't resolved.
                 if path == "/"
-                    && (ctx.is_base_domain() || ctx.authority.labels().next() == Some("raw"))
+                    && (ctx.is_base_domain()
+                        || ctx.authority.labels().next().is_some_and(|x| x == "raw"))
                     && canister_id.is_none()
                 {
                     return Ok(
