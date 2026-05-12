@@ -18,6 +18,7 @@ use http_body_util::Full;
 use ic_bn_lib::{hname, hval};
 use ic_bn_lib_common::traits::http::ClientHttp;
 use tokio::time::timeout;
+use tracing::info;
 
 use crate::routing::{
     RequestCtx,
@@ -103,7 +104,15 @@ impl PrerenderState {
             return false;
         }
 
-        if !self.domains.iter().any(|x| authority.is_subdomain_of(x)) {
+        // Check that authority is a subdomain of any of configured domains.
+        // It matches only if it's max 1 level deeper than a subdomain.
+        // E.g. if the configured domain is `bar` then `foo.bar` will match,
+        // while `baz.foo.bar` will not.
+        if !self
+            .domains
+            .iter()
+            .any(|x| authority.depth() <= (x.depth() + 1) && authority.is_subdomain_of(x))
+        {
             return false;
         }
 
@@ -151,6 +160,7 @@ impl PrerenderState {
         request: Request,
         next: Next,
     ) -> Response {
+        let uri = render_request.uri().clone();
         let render_result = timeout(self.timeout, self.client.execute(render_request)).await;
         match render_result {
             Ok(Ok(mut v)) => {
@@ -171,8 +181,15 @@ impl PrerenderState {
                 v
             }
 
-            // If we timed out or the request failed - forward as usual
-            Err(_) | Ok(Err(_)) => next.run(request).await,
+            Ok(Err(e)) => {
+                info!("{uri}: pre-render request failed: {e:#}");
+                next.run(request).await
+            }
+
+            Err(_) => {
+                info!("{uri}: pre-render request timed out");
+                next.run(request).await
+            }
         }
     }
 }
@@ -266,6 +283,12 @@ mod tests {
 
         // ok
         assert!(state.should_render(
+            &fqdn!("caffeine.xyz"),
+            &Uri::from_static("http://foo/script.php"),
+            &Method::GET,
+            true
+        ));
+        assert!(state.should_render(
             &fqdn!("foo.caffeine.xyz"),
             &Uri::from_static("http://foo/script.php"),
             &Method::GET,
@@ -281,6 +304,20 @@ mod tests {
         // wrong domain
         assert!(!state.should_render(
             &fqdn!("foo.caffeine.foo"),
+            &Uri::from_static("http://foo/script.php"),
+            &Method::GET,
+            true
+        ));
+        assert!(!state.should_render(
+            &fqdn!("xyz"),
+            &Uri::from_static("http://foo/script.php"),
+            &Method::GET,
+            true
+        ));
+
+        // too deep domain
+        assert!(!state.should_render(
+            &fqdn!("bar.foo.caffeine.xyz"),
             &Uri::from_static("http://foo/script.php"),
             &Method::GET,
             true
