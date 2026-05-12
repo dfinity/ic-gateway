@@ -1,3 +1,5 @@
+#![allow(clippy::missing_panics_doc)]
+
 use std::sync::Arc;
 
 use anyhow::Error;

@@ -1,6 +1,5 @@
 use std::{str::FromStr, sync::Arc};
 
-use anyhow::Error;
 use axum::{
     Router,
     extract::{Path, Request, State},
@@ -66,11 +65,7 @@ pub async fn log_handler(
             .into_response();
     };
     // Maintain hickory_proto::dnssec=error filter when changing log level
-    let env_filter = EnvFilter::new(format!(
-        "{},{}",
-        log_level,
-        crate::log::LOG_LEVEL_OVERRIDES
-    ));
+    let env_filter = EnvFilter::new(format!("{},{}", log_level, crate::log::LOG_LEVEL_OVERRIDES));
     let _ = state.log_handle.modify(|f| *f = env_filter);
 
     "Ok\n".into_response()
@@ -98,7 +93,7 @@ pub fn setup_api_router(
     healthy: Arc<dyn Healthy>,
     shutdown_token: CancellationToken,
     waf_layer: Option<WafLayer>,
-) -> Result<Router, Error> {
+) -> Router {
     let cors_layer = cors::layer(cli.cors.cors_max_age, cli.cors.cors_allow_origin.clone())
         .allow_methods([Method::HEAD, Method::GET]);
 
@@ -117,10 +112,10 @@ pub fn setup_api_router(
 
     // Enable WAF if requested
     if let Some(v) = waf_layer {
-        router = router.nest("/waf", waf::create_router(v).layer(auth))
+        router = router.nest("/waf", waf::create_router(v).layer(auth));
     }
 
-    Ok(router.layer(cors_layer).with_state(state))
+    router.layer(cors_layer).with_state(state)
 }
 
 #[cfg(test)]
@@ -144,8 +139,7 @@ mod test {
             crate::log::LOG_LEVEL_OVERRIDES
         )));
         let healthy = Arc::new(HealthManager::default());
-        let router =
-            setup_api_router(&cli, reload_handle, healthy, CancellationToken::new(), None).unwrap();
+        let router = setup_api_router(&cli, reload_handle, healthy, CancellationToken::new(), None);
 
         // Bad header
         let mut req = Request::builder()

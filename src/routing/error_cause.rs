@@ -113,13 +113,13 @@ pub enum BackendError {
 impl BackendError {
     pub fn details(&self) -> Option<String> {
         match self {
-            Self::Dns(x) => Some(x.clone()),
-            Self::Body(x) => Some(x.clone()),
-            Self::TLSOther(x) => Some(x.clone()),
-            Self::TLSCert(x) => Some(x.clone()),
-            Self::BoundaryNode(x) => Some(x.clone()),
-            Self::HttpGateway(x) => Some(x.clone()),
-            Self::Other(x) => Some(x.clone()),
+            Self::Dns(x)
+            | Self::Body(x)
+            | Self::TLSOther(x)
+            | Self::TLSCert(x)
+            | Self::BoundaryNode(x)
+            | Self::HttpGateway(x)
+            | Self::Other(x) => Some(x.clone()),
             _ => None,
         }
     }
@@ -142,8 +142,7 @@ pub enum ClientError {
 impl ClientError {
     pub fn details(&self) -> Option<String> {
         match self {
-            Self::Body(x) => Some(x.clone()),
-            Self::MalformedRequest(x) => Some(x.clone()),
+            Self::Body(x) | Self::MalformedRequest(x) => Some(x.clone()),
             Self::UnknownDomain(x) => Some(x.to_string()),
             Self::DomainCanisterMismatch(x) => {
                 Some(format!("The canister {x} is not served by this domain"))
@@ -179,9 +178,8 @@ impl ErrorCause {
         match self {
             Self::Client(x) => x.details(),
             Self::Backend(x) => x.details(),
-            Self::Canister(CanisterError::IdIncorrect(x)) => Some(x.clone()),
+            Self::Canister(CanisterError::IdIncorrect(x)) | Self::Other(x) => Some(x.clone()),
             Self::RateLimited(x) => Some(x.to_string()),
-            Self::Other(x) => Some(x.clone()),
             _ => None,
         }
     }
@@ -446,7 +444,7 @@ impl ErrorClientFacing {
             },
 
             // Canister errors
-            Self::Canister(CanisterError::NotFound(v)) | Self::Canister(CanisterError::RouteNotFound(v)) => {
+            Self::Canister(CanisterError::NotFound(v) | CanisterError::RouteNotFound(v)) => {
                 let canister_id = v.map(|x| x.to_string()).unwrap_or_else(|| "unknown".into());
 
                 ErrorData {
@@ -468,10 +466,10 @@ impl ErrorClientFacing {
             Self::Canister(CanisterError::Error(e)) => ErrorData {
                 status_code: StatusCode::SERVICE_UNAVAILABLE,
                 title: "Canister Error".into(),
-                description: r#"The canister failed to process your request.
+                description: r"The canister failed to process your request.
                     This may be due to an issue with the canister's program, the resources it has allocated, or its configuration.
                     This is not an ICP issue, but local to this specific canister. You might want to try again in a moment.
-                    If the problem persists, please reach out to the developers or check the ICP developer forum."#.trim().into(),
+                    If the problem persists, please reach out to the developers or check the ICP developer forum.".trim().into(),
                 details: Some(e.clone()),
                 icon: CANISTER_ERROR_SVG.into(),
                 ..Default::default()

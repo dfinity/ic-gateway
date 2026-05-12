@@ -1,8 +1,13 @@
 #![deny(clippy::all)]
-//#![warn(clippy::pedantic)]
+#![warn(clippy::pedantic)]
 #![warn(clippy::nursery)]
+#![allow(clippy::format_push_string)]
+#![allow(clippy::redundant_closure_for_method_calls)]
+#![allow(clippy::manual_string_new)]
 #![allow(clippy::too_many_lines)]
 #![allow(clippy::type_complexity)]
+#![allow(clippy::doc_markdown)]
+#![allow(clippy::similar_names)]
 // Needed for certain macros
 #![recursion_limit = "256"]
 

@@ -28,8 +28,7 @@ impl PreprocessState {
         self.ua_parser
             .parse(ua)
             // "mobilephone" are some (old?) japanese phone browsers it seems, but let's treat them as browsers too
-            .map(|x| ["pc", "smartphone", "mobilephone"].contains(&x.category))
-            .unwrap_or(false)
+            .is_some_and(|x| ["pc", "smartphone", "mobilephone"].contains(&x.category))
     }
 }
 

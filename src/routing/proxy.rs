@@ -40,7 +40,7 @@ fn url_join(mut base: Url, mut path: &str) -> Result<Url, url::ParseError> {
     // Add trailing slash to the base URL if it's not there
     if !base.as_str().ends_with('/') {
         base.path_segments_mut()
-            .map_err(|_| url::ParseError::SetHostOnCannotBeABaseUrl)?
+            .map_err(|()| url::ParseError::SetHostOnCannotBeABaseUrl)?
             .push("/");
     }
 
@@ -307,7 +307,7 @@ mod test {
             rp,
             5,
             Duration::ZERO,
-            100000,
+            100_000,
             Duration::from_secs(10),
         ));
 
@@ -330,7 +330,7 @@ mod test {
             rp,
             5,
             Duration::ZERO,
-            100000,
+            100_000,
             Duration::from_secs(10),
         ));
 
@@ -353,7 +353,7 @@ mod test {
             rp,
             5,
             Duration::ZERO,
-            100000,
+            100_000,
             Duration::from_secs(10),
         ));
 
@@ -376,7 +376,7 @@ mod test {
             rp,
             5,
             Duration::ZERO,
-            100000,
+            100_000,
             Duration::from_secs(10),
         ));
 

@@ -72,7 +72,7 @@ mod tests {
         ];
 
         for ua in bots {
-            assert!(state.is_bot(ua))
+            assert!(state.is_bot(ua));
         }
 
         let browsers = &[
@@ -83,7 +83,7 @@ mod tests {
         ];
 
         for ua in browsers {
-            assert!(!state.is_bot(ua))
+            assert!(!state.is_bot(ua));
         }
     }
 }

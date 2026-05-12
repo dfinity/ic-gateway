@@ -169,7 +169,7 @@ impl CustomDomainStorage {
         }
 
         // Store the new snapshot
-        *self.snapshot.write().unwrap() = snapshot.clone();
+        self.snapshot.write().unwrap().clone_from(&snapshot);
 
         let mut tree: BTreeMap<FQDN, DomainLookup> = BTreeMap::new();
 
@@ -208,8 +208,9 @@ impl CustomDomainStorage {
         );
 
         // Set metrics
+        #[allow(clippy::cast_possible_wrap)]
         self.metric_count.set(tree.len() as i64);
-        self.metric_dupes.set(dupes as i64);
+        self.metric_dupes.set(i64::from(dupes));
 
         // Store it
         let inner = CustomDomainStorageInner(tree);
@@ -392,7 +393,7 @@ mod test {
     const TEST_CANISTER_ID_3: &str = "oa7fk-maaaa-aaaam-abgka-cai";
 
     #[test]
-    fn test_canister_alias() -> Result<(), Error> {
+    fn test_canister_alias() {
         // Bad principal
         let a = CanisterAlias::from_str("foo:bar");
         assert!(a.is_err());
@@ -418,8 +419,6 @@ mod test {
         // All is good
         let a = CanisterAlias::from_str("foo:aaaaa-aa");
         assert!(a.is_ok());
-
-        Ok(())
     }
 
     #[derive(Debug)]
@@ -706,7 +705,7 @@ mod test {
     }
 
     #[test]
-    fn test_skip_authority_validation() -> Result<(), Error> {
+    fn test_skip_authority_validation() {
         let domains_base = vec![fqdn!("ic0.app")];
         let domains_api = vec![];
         let aliases = vec![];
@@ -760,7 +759,5 @@ mod test {
             lookup.canister_id,
             Some(Principal::from_text("aaaaa-aa").unwrap())
         );
-
-        Ok(())
     }
 }

@@ -231,8 +231,7 @@ pub async fn setup_router(
         health_manager.clone(),
         shutdown_token,
         waf_layer.clone(),
-    )
-    .context("unable to setup API Router")?;
+    );
 
     let custom_domain_storage =
         Arc::new(CustomDomainStorage::new(custom_domain_providers, registry));
@@ -511,7 +510,9 @@ pub async fn setup_router(
         cli.misc.disable_html_error_messages,
     ));
 
-    let prerender_mw = if !cli.prerender.prerender_domains.is_empty() {
+    let prerender_mw = if cli.prerender.prerender_domains.is_empty() {
+        None
+    } else {
         let url = cli
             .prerender
             .prerender_url
@@ -532,8 +533,6 @@ pub async fn setup_router(
         );
 
         Some(from_fn_with_state(Arc::new(state), prerender::middleware))
-    } else {
-        None
     };
 
     // Common layers for all routes

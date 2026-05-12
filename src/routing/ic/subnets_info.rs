@@ -6,9 +6,7 @@ use arc_swap::ArcSwapOption;
 use async_trait::async_trait;
 use candid::Principal;
 use ic_bn_lib::ic_agent::{
-    Agent,
-    agent::SubnetType as AgentSubnetType,
-    hash_tree::SubtreeLookupResult,
+    Agent, agent::SubnetType as AgentSubnetType, hash_tree::SubtreeLookupResult,
 };
 use ic_bn_lib_common::traits::{Healthy, Run};
 use tokio_util::sync::CancellationToken;
@@ -88,7 +86,7 @@ impl SubnetsInfo {
     /// to uphold the binary-search invariant required by [`Self::subnet_type`].
     pub(crate) fn new(
         canister_ranges: Vec<(Principal, Principal, Principal)>,
-        subnet_types: AHashMap<Principal, SubnetType>,
+        subnet_types: &AHashMap<Principal, SubnetType>,
     ) -> Self {
         let mut ranges: Vec<CanisterRange> = canister_ranges
             .into_iter()
@@ -97,6 +95,7 @@ impl SubnetsInfo {
                     .get(&subnet_id)
                     .copied()
                     .unwrap_or(SubnetType::Unknown);
+
                 CanisterRange {
                     range_start: lo,
                     range_end: hi,
@@ -105,7 +104,9 @@ impl SubnetsInfo {
                 }
             })
             .collect();
-        ranges.sort_unstable_by(|a, b| a.range_start.as_slice().cmp(b.range_start.as_slice()));
+
+        ranges.sort_by(|a, b| a.range_start.as_slice().cmp(b.range_start.as_slice()));
+
         Self { ranges }
     }
 }
@@ -154,13 +155,12 @@ impl SubnetsInfoFetcher {
             .await
             .context("failed to read /subnet from NNS")?;
 
-        let subnet_tree = match cert.tree.lookup_subtree([b"subnet".as_ref()]) {
-            SubtreeLookupResult::Found(t) => t,
-            _ => {
-                return Err(anyhow::anyhow!(
-                    "/subnet subtree not found in NNS state tree"
-                ));
-            }
+        let SubtreeLookupResult::Found(subnet_tree) =
+            cert.tree.lookup_subtree([b"subnet".as_ref()])
+        else {
+            return Err(anyhow::anyhow!(
+                "/subnet subtree not found in NNS state tree"
+            ));
         };
 
         // list_paths() returns one entry per leaf, so the same subnet ID appears
@@ -197,7 +197,9 @@ impl SubnetsInfoFetcher {
 
             let subnet_type = SubnetType::from(subnet.subnet_type());
             if subnet_type == SubnetType::Unknown {
-                return Err(anyhow::anyhow!("invalid subnet type for subnet {subnet_id}"));
+                return Err(anyhow::anyhow!(
+                    "invalid subnet type for subnet {subnet_id}"
+                ));
             }
 
             Ok::<_, Error>((subnet_id, ranges, subnet_type))
@@ -210,7 +212,7 @@ impl SubnetsInfoFetcher {
             subnet_types.insert(subnet_id, subnet_type);
         }
 
-        Ok(SubnetsInfo::new(canister_ranges, subnet_types))
+        Ok(SubnetsInfo::new(canister_ranges, &subnet_types))
     }
 }
 
@@ -276,22 +278,25 @@ mod tests {
         let lo_app = Principal::from_slice(&[0x20]);
         let hi_app = Principal::from_slice(&[0x2F]);
 
-        let ranges = vec![
-            (lo_sys, hi_sys, subnet_sys),
-            (lo_app, hi_app, subnet_app),
-        ];
+        let ranges = vec![(lo_sys, hi_sys, subnet_sys), (lo_app, hi_app, subnet_app)];
         let mut types = AHashMap::new();
         types.insert(subnet_sys, SubnetType::System);
         types.insert(subnet_app, SubnetType::Application);
 
         let store = ArcSwapOption::empty();
-        store.store(Some(Arc::new(SubnetsInfo::new(ranges, types))));
+        store.store(Some(Arc::new(SubnetsInfo::new(ranges, &types))));
         let info = store.load();
         let info = info.as_ref().unwrap();
 
         // mid-range hits
-        assert_eq!(info.subnet_type(Principal::from_slice(&[0x13])), Some(SubnetType::System));
-        assert_eq!(info.subnet_type(Principal::from_slice(&[0x25])), Some(SubnetType::Application));
+        assert_eq!(
+            info.subnet_type(Principal::from_slice(&[0x13])),
+            Some(SubnetType::System)
+        );
+        assert_eq!(
+            info.subnet_type(Principal::from_slice(&[0x25])),
+            Some(SubnetType::Application)
+        );
         // exact boundary hits
         assert_eq!(info.subnet_type(lo_sys), Some(SubnetType::System));
         assert_eq!(info.subnet_type(hi_sys), Some(SubnetType::System));
@@ -337,7 +342,7 @@ mod tests {
         let fetcher = make_fetcher(&server, root_id);
 
         // Seed a known snapshot directly, simulating a previously successful fetch.
-        let seed = SubnetsInfo::new(vec![], AHashMap::new());
+        let seed = SubnetsInfo::new(vec![], &AHashMap::new());
         fetcher.info.store(Some(Arc::new(seed)));
 
         assert!(fetcher.fetch().await.is_err(), "fetch must fail");

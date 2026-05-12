@@ -65,9 +65,8 @@ impl Denylist {
         }
 
         // Load the list
-        let list = match self.inner.load_full() {
-            None => return false,
-            Some(v) => v,
+        let Some(list) = self.inner.load_full() else {
+            return false;
         };
 
         // See if there's an entry

@@ -1,3 +1,6 @@
+#![allow(clippy::struct_field_names)]
+#![allow(clippy::struct_excessive_bools)]
+
 use std::{net::SocketAddr, path::PathBuf, time::Duration};
 
 use ::http::HeaderValue;
