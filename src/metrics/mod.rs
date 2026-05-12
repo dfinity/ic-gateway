@@ -243,15 +243,13 @@ pub async fn middleware(
     let response_verification_version = ic_status
         .as_ref()
         .and_then(|x| x.metadata.response_verification_version)
-        .map(|x| x.to_string())
-        .unwrap_or_else(|| "none".into());
+        .map_or_else(|| "none".into(), |x| x.to_string());
 
     let cache_status_str: &'static str = cache_status.into();
     // Strum IntoStaticStr doesn't respect to_string macro option, so fall back to allocation for now
     let request_type = ctx
         .as_ref()
-        .map(|x| x.request_type.to_string())
-        .unwrap_or_else(|| "unknown".into());
+        .map_or_else(|| "unknown".into(), |x| x.request_type.to_string());
 
     // By this time the channel should already have the data
     // since the response headers are already received -> request body was for sure read (or an error happened)
@@ -311,10 +309,12 @@ pub async fn middleware(
             .duration_full
             .with_label_values(labels)
             .observe(duration_full.as_secs_f64());
+        #[allow(clippy::cast_precision_loss)]
         state
             .request_size
             .with_label_values(labels)
             .observe(request_size as f64);
+        #[allow(clippy::cast_precision_loss)]
         state
             .response_size
             .with_label_values(labels)
