@@ -11,7 +11,7 @@ use derive_new::new;
 use fqdn::{FQDN, Fqdn};
 use http::{
     HeaderName, HeaderValue, Method, Uri,
-    header::{CONNECTION, CONTENT_ENCODING, TRANSFER_ENCODING, USER_AGENT},
+    header::{CONNECTION, CONTENT_ENCODING, SERVER, TRANSFER_ENCODING, USER_AGENT},
     uri::Authority,
 };
 use http_body_util::Full;
@@ -28,11 +28,17 @@ use crate::routing::{
 const HEADER_SECRET: HeaderName = hname!("x-worker-secret");
 const HEADER_X_PRE_RENDERED: HeaderName = hname!("x-pre-rendered");
 
-const HEADERS_TO_REMOVE: [HeaderName; 4] = [
+const HEADERS_TO_REMOVE: [HeaderName; 9] = [
     CONTENT_ENCODING,
     TRANSFER_ENCODING,
     CONNECTION,
+    SERVER,
     hname!("keep-alive"),
+    // Cloudflare-specific headers
+    hname!("report-to"),
+    hname!("nel"),
+    hname!("cf-ray"),
+    hname!("alt-svc"),
 ];
 
 const STATIC_ASSET_EXTENSIONS: &[&str] = &[
@@ -155,9 +161,9 @@ impl PrerenderState {
                 }
 
                 // Remove certain headers from the response
-                HEADERS_TO_REMOVE.iter().for_each(|x| {
+                for x in HEADERS_TO_REMOVE {
                     v.headers_mut().remove(x);
-                });
+                }
 
                 // Add marker to show that it was pre-rendered
                 v.headers_mut().insert(HEADER_X_PRE_RENDERED, hval!("1"));
