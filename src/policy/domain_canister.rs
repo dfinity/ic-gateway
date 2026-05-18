@@ -35,9 +35,9 @@ impl DomainCanisterMatcher {
         let domains = match subnet_type {
             Some(SubnetType::System) => &self.domains_system,
             Some(SubnetType::CloudEngine) => &self.domains_engine,
-            Some(SubnetType::Application)
-            | Some(SubnetType::VerifiedApplication)
-            | Some(SubnetType::Unknown)
+            Some(
+                SubnetType::Application | SubnetType::VerifiedApplication | SubnetType::Unknown,
+            )
             | None => &self.domains_app,
         };
 
@@ -89,7 +89,7 @@ mod tests {
         types.insert(subnet_engine, SubnetType::CloudEngine);
 
         Arc::new(ArcSwapOption::new(Some(Arc::new(SubnetsInfo::new(
-            ranges, types,
+            ranges, &types,
         )))))
     }
 

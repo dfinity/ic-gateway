@@ -231,8 +231,7 @@ pub async fn setup_router(
         health_manager.clone(),
         shutdown_token,
         waf_layer.clone(),
-    )
-    .context("unable to setup API Router")?;
+    );
 
     let custom_domain_storage =
         Arc::new(CustomDomainStorage::new(custom_domain_providers, registry));
@@ -511,7 +510,9 @@ pub async fn setup_router(
         cli.misc.disable_html_error_messages,
     ));
 
-    let prerender_mw = if !cli.prerender.prerender_domains.is_empty() {
+    let prerender_mw = if cli.prerender.prerender_domains.is_empty() {
+        None
+    } else {
         let url = cli
             .prerender
             .prerender_url
@@ -532,8 +533,6 @@ pub async fn setup_router(
         );
 
         Some(from_fn_with_state(Arc::new(state), prerender::middleware))
-    } else {
-        None
     };
 
     // Common layers for all routes
@@ -587,7 +586,10 @@ pub async fn setup_router(
                 };
 
                 // Check if the request's host matches API hostname
-                if api_hostname.zip(extract_host(host)).map(|(a, b)| a == b) == Some(true) {
+                if api_hostname
+                    .zip(extract_host(host))
+                    .is_some_and(|(a, b)| a == b)
+                {
                     return router_api.oneshot(request).await;
                 }
 
@@ -611,7 +613,8 @@ pub async fn setup_router(
                 // or to a bare "raw" subdomain w/o canister id.
                 // Do so only if canister id wasn't resolved.
                 if path == "/"
-                    && (ctx.is_base_domain() || ctx.authority.labels().next() == Some("raw"))
+                    && (ctx.is_base_domain()
+                        || ctx.authority.labels().next().is_some_and(|x| x == "raw"))
                     && canister_id.is_none()
                 {
                     return Ok(

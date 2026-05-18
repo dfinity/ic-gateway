@@ -13,7 +13,7 @@ use url::Url;
 
 use crate::Cli;
 
-/// Provides Healthy trait for the RouteProvider
+/// Provides Healthy trait for the `RouteProvider`
 #[derive(new, Debug)]
 pub struct RouteProviderWrapper(Arc<dyn RouteProvider>);
 

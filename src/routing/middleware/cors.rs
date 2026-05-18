@@ -103,11 +103,12 @@ impl CorsStateHttp {
         )?;
 
         // Concatenate provided headers with a separator
+        let allow_origin_len = allow_origin.len();
         let allow_origin = HeaderValue::from_bytes(
             allow_origin
-                .iter()
+                .into_iter()
                 .map(|x| x.as_bytes().to_vec())
-                .interleave(std::iter::repeat_n(b", ".to_vec(), allow_origin.len() - 1))
+                .interleave(std::iter::repeat_n(b", ".to_vec(), allow_origin_len - 1))
                 .flatten()
                 .collect::<Vec<_>>()
                 .as_slice(),
@@ -122,8 +123,8 @@ impl CorsStateHttp {
             .build();
 
         Ok(Self {
-            allow_headers,
             allow_methods,
+            allow_headers,
             allow_origin,
             expose_headers,
             max_age,
@@ -133,7 +134,7 @@ impl CorsStateHttp {
     }
 
     /// Applies missing CORS headers to the response
-    fn apply_cors(&self, method: Method, response: &mut Response) {
+    fn apply_cors(&self, method: &Method, response: &mut Response) {
         let hdr = response.headers_mut();
 
         // These go only to preflight response
@@ -215,12 +216,12 @@ pub async fn middleware(
         if method == Method::OPTIONS {
             // Return our standard preflight response
             return state.default_preflight_response();
-        } else {
-            let mut response = next.run(request).await;
-            // Apply relevant CORS headers to non-preflight response
-            state.apply_cors(method, &mut response);
-            return response;
         }
+
+        let mut response = next.run(request).await;
+        // Apply relevant CORS headers to non-preflight response
+        state.apply_cors(&method, &mut response);
+        return response;
     };
 
     // If the response is known to be invalid - respond with ours
@@ -238,7 +239,7 @@ pub async fn middleware(
         return state.default_preflight_response();
     }
 
-    state.apply_cors(method, &mut response);
+    state.apply_cors(&method, &mut response);
     response
 }
 

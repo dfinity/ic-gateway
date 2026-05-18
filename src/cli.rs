@@ -1,3 +1,6 @@
+#![allow(clippy::struct_field_names)]
+#![allow(clippy::struct_excessive_bools)]
+
 use std::{net::SocketAddr, path::PathBuf, time::Duration};
 
 use ::http::HeaderValue;
@@ -570,10 +573,14 @@ pub struct RateLimit {
 pub struct Prerender {
     /// Domains that are eligible for pre-prender.
     /// If no domains specified - pre-render is not active.
+    /// This also matches all subdomains one level below,
+    /// e.g. if domain "foo" is specified then "bar.foo" is also matched,
+    /// while "baz.bar.foo" is not.
     #[clap(env, long)]
     pub prerender_domains: Vec<FQDN>,
 
-    /// URL of the server-side renderer
+    /// URL of the server-side renderer.
+    /// Argument "?url=..." is appended to it with an encoded URL to pre-render.
     #[clap(env, long)]
     pub prerender_url: Option<Uri>,
 

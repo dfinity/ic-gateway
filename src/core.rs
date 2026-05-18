@@ -297,10 +297,10 @@ pub async fn main(
     .context("unable to setup Axum router")?;
 
     // Set up HTTP router (redirecting to HTTPS or serving all endpoints)
-    let http_router = if !cli.listen.listen_insecure_serve_http_only {
-        Router::new().fallback(redirect_to_https)
-    } else {
+    let http_router = if cli.listen.listen_insecure_serve_http_only {
         gateway_router.clone()
+    } else {
+        Router::new().fallback(redirect_to_https)
     };
 
     // Create HTTP server
