@@ -445,7 +445,7 @@ impl ErrorClientFacing {
 
             // Canister errors
             Self::Canister(CanisterError::NotFound(v) | CanisterError::RouteNotFound(v)) => {
-                let canister_id = v.map(|x| x.to_string()).unwrap_or_else(|| "unknown".into());
+                let canister_id = v.map_or_else(|| "unknown".into(), |x| x.to_string());
 
                 ErrorData {
                     status_code: StatusCode::NOT_FOUND,

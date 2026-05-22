@@ -36,7 +36,7 @@ use tracing_subscriber::{EnvFilter, reload};
 
 use crate::{
     Cli, log,
-    routing::{ic::subnets_info::SubnetsInfo, setup_router},
+    routing::{domain::CustomDomainStorage, ic::subnets_info::SubnetsInfo, setup_router},
 };
 
 /// The NNS (root) subnet ID for the test fixtures in src/routing/ic/testdata/.
@@ -154,9 +154,15 @@ pub async fn setup_test_router(tasks: &mut TaskManager) -> (Router, Vec<String>)
     let (_, reload_handle) =
         reload::Layer::new(EnvFilter::new(format!("warn,{}", log::LOG_LEVEL_OVERRIDES)));
 
+    let custom_domain_storage = CustomDomainStorage::new(
+        vec![Arc::new(FakeDomainProvider(custom_domains))],
+        &Registry::new(),
+    );
+    custom_domain_storage.refresh().await;
+
     let router = setup_router(
         &cli,
-        vec![Arc::new(FakeDomainProvider(custom_domains))],
+        Arc::new(custom_domain_storage),
         reload_handle,
         tasks,
         health_manager,

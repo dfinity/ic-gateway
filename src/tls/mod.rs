@@ -95,11 +95,7 @@ async fn setup_acme(
             };
 
             let acme_dns = Arc::new(AcmeDns::new(opts).await.context("unable to init AcmeDns")?);
-            tasks.add_interval(
-                "acme_dns_runner",
-                acme_dns.clone(),
-                Duration::from_secs(600),
-            );
+            tasks.add_interval("acme_dns_runner", acme_dns.clone(), Duration::from_mins(10));
 
             acme_dns
         }
