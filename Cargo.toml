@@ -24,7 +24,7 @@ async-trait = "0.1.83"
 axum = { version = "0.8.1", features = ["macros"] }
 candid = "0.10.10"
 clap = { version = "4.5.20", features = ["derive", "string", "env"] }
-cloudflare = { version = "0.14.0", default-features = false, features = [
+cloudflare = { git = "https://github.com/dfinity/cloudflare-rs", rev = "7d10dca3b339e8a29cb663341dbc802fe51bf322", default-features = false, features = [
     "rustls-tls",
 ] }
 console-subscriber = { version = "0.5.0", optional = true }
@@ -33,9 +33,9 @@ derive-new = "0.7.0"
 fqdn = { version = "0.5.2", features = ["serde"] }
 futures = "0.3.31"
 hickory-resolver = { version = "0.25.1", features = [
-    "tls-ring",
-    "https-ring",
-    "dnssec-ring",
+    "tls-aws-lc-rs",
+    "https-aws-lc-rs",
+    "dnssec-aws-lc-rs",
     "webpki-roots",
 ] }
 hostname = "0.4.0"
@@ -43,17 +43,17 @@ http = "1.3.1"
 http-body = "1.0.1"
 http-body-util = "0.1.2"
 humantime = "2.2.0"
-ic-bn-lib = { version = "0.1.18", features = [
+ic-bn-lib = { git = "https://github.com/dfinity/ic-bn-lib", rev = "43c60f0810c8c110ad69f1ea67337538a365faea", features = [
     "acme",
     "vector",
     "cert-providers",
     "clients-hyper",
 ] }
-ic-bn-lib-common = "0.1"
-ic-custom-domains-backend = "0.1"
-ic-custom-domains-base = "0.1"
+ic-bn-lib-common = { git = "https://github.com/dfinity/ic-bn-lib", rev = "43c60f0810c8c110ad69f1ea67337538a365faea" }
+ic-custom-domains-backend = { git = "https://github.com/dfinity/custom-domains", rev = "152876decb8ceb308df3f488ca1e58fd0a7c8768" }
+ic-custom-domains-base = { git = "https://github.com/dfinity/custom-domains", rev = "152876decb8ceb308df3f488ca1e58fd0a7c8768" }
 ic-http-certification = { version = "3.1.0", optional = true }
-ic-transport-types = "0.47"
+ic-transport-types = "0.47.3"
 ic-http-gateway-protocol = { package = "ic-http-gateway-protocol", git = "https://github.com/dfinity/ic-http-gateway-protocol", tag = "v0.5.1" }
 isbot = "0.1"
 itertools = "0.14.0"
@@ -72,7 +72,7 @@ reqwest = { version = "0.13.2", default-features = false, features = [
     "stream",
 ] }
 rustls = { version = "0.23.18", default-features = false, features = [
-    "ring",
+    "aws-lc-rs",
     "std",
     "brotli",
 ] }
