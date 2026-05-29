@@ -102,7 +102,7 @@ pub async fn main(
 
     // DNS resolver
     let dns_options: DnsOptions = (&cli.dns).into();
-    let dns_resolver = bnhttp::dns::Resolver::new(dns_options.clone());
+    let dns_resolver = bnhttp::dns::Resolver::new(dns_options.clone())?;
 
     // HTTP client
     let mut http_client_opts: ClientOptions = (&cli.http_client).into();
