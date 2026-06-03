@@ -11,7 +11,7 @@ use ic_bn_lib::{
     tasks::TaskManager,
     tls::{prepare_client_config, verify::NoopServerCertVerifier},
     utils::health_manager::HealthManager,
-    vector::client::Vector,
+    vector::{self, VectorOptions, client::Vector},
 };
 use ic_bn_lib_common::{
     principal,
@@ -155,12 +155,17 @@ pub async fn main(
     ));
 
     // Event sinks
-    let vector = cli
-        .log
-        .vector
-        .log_vector_url
-        .as_ref()
-        .map(|_| Arc::new(Vector::new(&cli.log.vector, http_client.clone(), &registry)));
+    let vector_metrics = vector::client::Metrics::new(&registry);
+    let vector_opts =
+        VectorOptions::try_from(&cli.log.vector).context("unable to parse Vector options")?;
+    let vector_http = cli.log.vector.log_vector_url.as_ref().map(|_| {
+        Arc::new(Vector::new_with_metrics(
+            vector_opts,
+            http_client.clone(),
+            "http",
+            vector_metrics.clone(),
+        ))
+    });
 
     // List of cancellable tasks to execute & track
     let mut tasks = TaskManager::new();
@@ -302,7 +307,7 @@ pub async fn main(
         route_provider.clone(),
         &registry,
         shutdown_token.clone(),
-        vector.clone(),
+        vector_http.clone(),
         waf_layer,
         custom_domains_router,
         subnets_info,
@@ -374,6 +379,8 @@ pub async fn main(
             http_client,
             custom_domain_storage,
             &mut tasks,
+            &registry,
+            vector_metrics,
         )
         .context("unable to setup SMTP server")?;
     }
@@ -406,7 +413,7 @@ pub async fn main(
     tasks.stop().await;
 
     // Vector should stop last to ensure that all requests are finished & flushed
-    if let Some(v) = vector {
+    if let Some(v) = vector_http {
         v.stop().await;
     }
 

@@ -640,7 +640,7 @@ pub async fn setup_router(
                 )?),
         );
 
-        router = router.merge(router_sev_snp)
+        router = router.merge(router_sev_snp);
     }
 
     Ok(router)
@@ -657,11 +657,11 @@ mod test {
     use axum::body::{Body, to_bytes};
     use http::{HeaderValue, Uri};
     use ic_bn_lib::http::headers::{X_REAL_IP, X_REQUEST_ID};
+    use ic_bn_lib::uuid::Uuid;
     use ic_bn_lib_common::types::http::ConnInfo;
     use rand::{seq::SliceRandom, thread_rng};
     use std::str::FromStr;
     use tower::Service;
-    use uuid::Uuid;
 
     #[test]
     fn test_request_type() {

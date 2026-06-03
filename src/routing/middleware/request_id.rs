@@ -8,8 +8,10 @@ use axum::{
 use bytes::Bytes;
 use derive_new::new;
 use http::header::HeaderValue;
-use ic_bn_lib::http::{headers::X_REQUEST_ID, middleware::extract_ip_from_request};
-use uuid::Uuid;
+use ic_bn_lib::{
+    http::{headers::X_REQUEST_ID, middleware::extract_ip_from_request},
+    uuid::Uuid,
+};
 
 use crate::routing::RemoteAddr;
 
@@ -81,7 +83,7 @@ pub async fn middleware(
 #[cfg(test)]
 mod test {
     use axum::body::Body;
-    use uuid::uuid;
+    use ic_bn_lib::uuid::uuid;
 
     use super::*;
 
