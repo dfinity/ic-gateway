@@ -156,16 +156,19 @@ pub async fn main(
 
     // Event sinks
     let vector_metrics = vector::client::Metrics::new(&registry);
-    let vector_opts =
-        VectorOptions::try_from(&cli.log.vector).context("unable to parse Vector options")?;
-    let vector_http = cli.log.vector.log_vector_url.as_ref().map(|_| {
-        Arc::new(Vector::new_with_metrics(
+    let vector_http = if cli.log.vector.log_vector_url.is_some() {
+        let vector_opts =
+            VectorOptions::try_from(&cli.log.vector).context("unable to parse Vector options")?;
+
+        Some(Arc::new(Vector::new_with_metrics(
             vector_opts,
             http_client.clone(),
             "http",
             vector_metrics.clone(),
-        ))
-    });
+        )))
+    } else {
+        None
+    };
 
     // List of cancellable tasks to execute & track
     let mut tasks = TaskManager::new();
