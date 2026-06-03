@@ -297,7 +297,7 @@ mod test {
 
     #[tokio::test]
     async fn test_api_proxy() {
-        let _ = rustls::crypto::ring::default_provider().install_default();
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 
         // Test eventual success after 4 failures with 5xx
         let client = Arc::new(TestClient(AtomicUsize::new(0)));

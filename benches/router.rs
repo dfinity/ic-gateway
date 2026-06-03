@@ -20,7 +20,7 @@ fn create_request(domain: &str, path: &str) -> Request {
 }
 
 fn criterion_benchmark(c: &mut Criterion) {
-    rustls::crypto::ring::default_provider()
+    rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .unwrap();
 
