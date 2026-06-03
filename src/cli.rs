@@ -8,6 +8,7 @@ use clap::{Args, Parser};
 use fqdn::FQDN;
 use http::Uri;
 use humantime::parse_duration;
+#[cfg(feature = "smtp")]
 use ic_bn_lib::smtp::cli::SmtpServerCli;
 #[cfg(feature = "acme")]
 use ic_bn_lib_common::types::acme::{AcmeUrl, Challenge, DnsBackend};
@@ -105,6 +106,7 @@ pub struct Cli {
     #[command(flatten, next_help_heading = "Prerender")]
     pub prerender: Prerender,
 
+    #[cfg(feature = "smtp")]
     #[command(flatten, next_help_heading = "SMTP Server")]
     pub smtp_server: SmtpServerCli,
 
