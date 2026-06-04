@@ -1,9 +1,11 @@
 use bytes::BytesMut;
 use criterion::{Criterion, criterion_group, criterion_main};
-use ic_bn_lib::vector::client::{encode_batch, encode_event};
+use ic_bn_lib::{
+    uuid::Uuid,
+    vector::client::{encode_batch, encode_event},
+};
 use rand::{Rng, prelude::Distribution, rngs::ThreadRng, seq::SliceRandom, thread_rng};
 use serde_json::{Value, json};
-use uuid::Uuid;
 
 fn create_event(
     rng: &mut ThreadRng,

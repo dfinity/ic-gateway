@@ -39,7 +39,6 @@ use ic_bn_lib::{
 };
 use ic_bn_lib_common::{
     traits::{
-        custom_domains::ProvidesCustomDomains,
         http::{Client, ClientHttp},
         shed::TypeExtractor,
     },
@@ -210,7 +209,7 @@ impl Deref for RemoteAddr {
 #[allow(clippy::cognitive_complexity)]
 pub async fn setup_router(
     cli: &Cli,
-    custom_domain_providers: Vec<Arc<dyn ProvidesCustomDomains>>,
+    custom_domain_storage: Arc<CustomDomainStorage>,
     log_handle: Handle<EnvFilter, tracing_subscriber::registry::Registry>,
     tasks: &mut TaskManager,
     health_manager: Arc<HealthManager>,
@@ -231,14 +230,6 @@ pub async fn setup_router(
         health_manager.clone(),
         shutdown_token,
         waf_layer.clone(),
-    );
-
-    let custom_domain_storage =
-        Arc::new(CustomDomainStorage::new(custom_domain_providers, registry));
-    tasks.add_interval(
-        "custom_domain_storage",
-        custom_domain_storage.clone(),
-        cli.domain.domain_custom_provider_poll_interval,
     );
 
     // Check custom domains health if requested
@@ -649,7 +640,7 @@ pub async fn setup_router(
                 )?),
         );
 
-        router = router.merge(router_sev_snp)
+        router = router.merge(router_sev_snp);
     }
 
     Ok(router)
@@ -666,11 +657,11 @@ mod test {
     use axum::body::{Body, to_bytes};
     use http::{HeaderValue, Uri};
     use ic_bn_lib::http::headers::{X_REAL_IP, X_REQUEST_ID};
+    use ic_bn_lib::uuid::Uuid;
     use ic_bn_lib_common::types::http::ConnInfo;
     use rand::{seq::SliceRandom, thread_rng};
     use std::str::FromStr;
     use tower::Service;
-    use uuid::Uuid;
 
     #[test]
     fn test_request_type() {
@@ -773,7 +764,7 @@ mod test {
 
     #[tokio::test]
     async fn test_setup_router() {
-        let _ = rustls::crypto::ring::default_provider().install_default();
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 
         let mut rng = thread_rng();
 

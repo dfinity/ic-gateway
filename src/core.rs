@@ -11,7 +11,7 @@ use ic_bn_lib::{
     tasks::TaskManager,
     tls::{prepare_client_config, verify::NoopServerCertVerifier},
     utils::health_manager::HealthManager,
-    vector::client::Vector,
+    vector::{self, VectorOptions, client::Vector},
 };
 use ic_bn_lib_common::{
     principal,
@@ -30,13 +30,14 @@ use tracing_subscriber::{EnvFilter, reload::Handle};
 use crate::{
     cli::Cli,
     metrics,
-    routing::ic::subnets_info::SubnetsInfoFetcher,
     routing::{
         self,
+        domain::CustomDomainStorage,
         ic::{
             MAINNET_ROOT_SUBNET_ID, create_agent,
             http_service::AgentHttpService,
             route_provider::{RouteProviderWrapper, setup_route_provider},
+            subnets_info::SubnetsInfoFetcher,
         },
     },
     tls::{self},
@@ -86,7 +87,7 @@ pub async fn main(
     );
 
     // Install crypto-provider
-    rustls::crypto::ring::default_provider()
+    rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .map_err(|_| anyhow!("unable to install Rustls crypto provider"))?;
 
@@ -102,7 +103,8 @@ pub async fn main(
 
     // DNS resolver
     let dns_options: DnsOptions = (&cli.dns).into();
-    let dns_resolver = bnhttp::dns::Resolver::new(dns_options.clone());
+    let dns_resolver =
+        bnhttp::dns::Resolver::new(dns_options.clone()).context("unable to create DNS Resolver")?;
 
     // HTTP client
     let mut http_client_opts: ClientOptions = (&cli.http_client).into();
@@ -131,13 +133,14 @@ pub async fn main(
     let route_provider = setup_route_provider(cli, reqwest_client.clone()).await?;
     health_manager.add(Arc::new(RouteProviderWrapper::new(route_provider.clone())));
 
-    // Create a separate Agent backed by Reqwest client that will be used for the resolver only.
+    // Create a separate Agent backed by Reqwest to use solely with Resolver.
     // This way we avoid a chicken-and-egg problem:
     // - Hyper client needs resolver
     // - Resolver needs Agent
     // - Agent needs Hyper client
-    let agent = create_agent(cli, Arc::new(reqwest_client), route_provider.clone()).await?;
-    let api_bn_resolver = ApiBnResolver::new(dns_resolver.clone(), agent);
+    let ic_agent_resolver =
+        create_agent(cli, Arc::new(reqwest_client), route_provider.clone()).await?;
+    let api_bn_resolver = ApiBnResolver::new(dns_resolver.clone(), ic_agent_resolver);
 
     let http_client = Arc::new(bnhttp::ReqwestClient::new(
         http_client_opts.clone(),
@@ -152,19 +155,27 @@ pub async fn main(
     ));
 
     // Event sinks
-    let vector = cli
-        .log
-        .vector
-        .log_vector_url
-        .as_ref()
-        .map(|_| Arc::new(Vector::new(&cli.log.vector, http_client.clone(), &registry)));
+    let vector_metrics = vector::client::Metrics::new(&registry);
+    let vector_http = if cli.log.vector.log_vector_url.is_some() {
+        let vector_opts =
+            VectorOptions::try_from(&cli.log.vector).context("unable to parse Vector options")?;
+
+        Some(Arc::new(Vector::new_with_metrics(
+            vector_opts,
+            http_client.clone(),
+            "http",
+            vector_metrics.clone(),
+        )))
+    } else {
+        None
+    };
 
     // List of cancellable tasks to execute & track
     let mut tasks = TaskManager::new();
     tasks.add_interval(
         "api_bn_resolver",
         Arc::new(api_bn_resolver),
-        Duration::from_secs(60),
+        Duration::from_mins(1),
     );
 
     // Handle SIGTERM/SIGHUP and Ctrl+C
@@ -241,20 +252,23 @@ pub async fn main(
         );
     }
 
-    // Subnet info: periodically fetch the full NNS routing table and subnet
-    // types.  Required for both system-subnet and engine-subnet routing
-    // decisions in DomainCanisterMatcher.
+    // Create IC Agent for use by SubnetsInfoFetcher / SMTP
     let http_service = Arc::new(AgentHttpService::new(
         http_client_hyper.clone(),
         cli.ic.ic_request_retry_interval,
     ));
-    let agent = create_agent(cli, http_service, route_provider.clone())
+    let ic_agent = create_agent(cli, http_service, route_provider.clone())
         .await
         .context("unable to create agent for subnets info fetcher")?;
 
+    // Subnet info: periodically fetch the full NNS routing table and subnet
+    // types.  Required for both system-subnet and engine-subnet routing
+    // decisions in DomainCanisterMatcher.
     let root_subnet_id = principal!(MAINNET_ROOT_SUBNET_ID);
-
-    let fetcher = Arc::new(SubnetsInfoFetcher::new(Arc::new(agent), root_subnet_id));
+    let fetcher = Arc::new(SubnetsInfoFetcher::new(
+        Arc::new(ic_agent.clone()),
+        root_subnet_id,
+    ));
     let subnets_info = fetcher.info.clone();
 
     health_manager.add(fetcher.clone());
@@ -276,10 +290,18 @@ pub async fn main(
         None
     };
 
+    let custom_domain_storage =
+        Arc::new(CustomDomainStorage::new(custom_domain_providers, &registry));
+    tasks.add_interval(
+        "custom_domain_storage",
+        custom_domain_storage.clone(),
+        cli.domain.domain_custom_provider_poll_interval,
+    );
+
     // Create gateway router to serve all endpoints
     let gateway_router = routing::setup_router(
         cli,
-        custom_domain_providers,
+        custom_domain_storage.clone(),
         log_handle,
         &mut tasks,
         health_manager.clone(),
@@ -288,7 +310,7 @@ pub async fn main(
         route_provider.clone(),
         &registry,
         shutdown_token.clone(),
-        vector.clone(),
+        vector_http.clone(),
         waf_layer,
         custom_domains_router,
         subnets_info,
@@ -314,35 +336,59 @@ pub async fn main(
     );
     tasks.add("http_server", http_server);
 
-    // Create HTTPS server
-    if !cli.listen.listen_insecure_serve_http_only {
-        // Prepare TLS related stuff
-        let rustls_cfg = tls::setup(
-            cli,
-            &mut tasks,
-            health_manager,
-            #[cfg(feature = "acme")]
-            domains.clone(),
-            #[cfg(feature = "acme")]
-            Arc::new(dns_resolver),
-            certificate_providers,
-            &registry,
+    // Prepare TLS config
+    let rustls_cfg = if cli.listen.listen_insecure_serve_http_only {
+        None
+    } else {
+        Some(
+            tls::setup(
+                cli,
+                &mut tasks,
+                health_manager,
+                #[cfg(feature = "acme")]
+                domains.clone(),
+                #[cfg(feature = "acme")]
+                Arc::new(dns_resolver),
+                certificate_providers,
+                &registry,
+            )
+            .await
+            .context("unable to setup TLS")?,
         )
-        .await
-        .context("unable to setup TLS")?;
+    };
 
+    // Create HTTPS server
+    if let Some(v) = rustls_cfg.clone() {
         let https_server = Arc::new(
             bnhttp::ServerBuilder::new(gateway_router)
                 .listen_tcp(cli.listen.listen_tls)
                 .with_options((&cli.http_server).into())
                 .with_metrics(http_metrics.clone())
-                .with_rustls_config(rustls_cfg)
+                .with_rustls_config(v)
                 .build()
                 .unwrap(),
         );
 
         tasks.add("https_server", https_server);
     }
+
+    // Setup SMTP server
+    #[cfg(feature = "smtp")]
+    let vector_smtp = if cli.smtp_server.smtp_server_listen.is_some() {
+        crate::smtp::setup_smtp_server(
+            cli,
+            rustls_cfg.map(Arc::new),
+            ic_agent,
+            http_client,
+            custom_domain_storage,
+            &mut tasks,
+            &registry,
+            vector_metrics,
+        )
+        .context("unable to setup SMTP server")?
+    } else {
+        None
+    };
 
     // Setup metrics
     if let Some(addr) = cli.metrics.metrics_listen {
@@ -372,7 +418,12 @@ pub async fn main(
     tasks.stop().await;
 
     // Vector should stop last to ensure that all requests are finished & flushed
-    if let Some(v) = vector {
+    if let Some(v) = vector_http {
+        v.stop().await;
+    }
+
+    #[cfg(feature = "smtp")]
+    if let Some(v) = vector_smtp {
         v.stop().await;
     }
 

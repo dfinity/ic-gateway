@@ -12,12 +12,14 @@ pub mod log;
 pub mod metrics;
 mod policy;
 pub mod routing;
+#[cfg(feature = "smtp")]
+mod smtp;
 #[cfg(any(test, feature = "bench"))]
 pub mod test;
 mod tls;
 
 pub use crate::cli::Cli;
-pub use ic_bn_lib_common::traits::custom_domains::ProvidesCustomDomains;
+pub use ic_bn_lib::ic_bn_lib_common::traits::custom_domains::ProvidesCustomDomains;
 
 pub use core::main;
 pub use routing::setup_router;

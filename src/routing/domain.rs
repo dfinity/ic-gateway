@@ -9,6 +9,7 @@ use arc_swap::ArcSwapOption;
 use async_trait::async_trait;
 use candid::Principal;
 use fqdn::{FQDN, Fqdn, fqdn};
+use ic_bn_lib::custom_domains::LooksUpCustomDomain;
 use ic_bn_lib_common::{
     traits::{Healthy, Run, custom_domains::ProvidesCustomDomains},
     types::CustomDomain,
@@ -230,6 +231,16 @@ impl Run for CustomDomainStorage {
 impl ResolvesDomain for CustomDomainStorage {
     fn resolve(&self, host: &Fqdn) -> Option<DomainLookup> {
         self.inner.load_full()?.0.get(host).cloned()
+    }
+}
+
+impl LooksUpCustomDomain for CustomDomainStorage {
+    fn lookup_custom_domain(&self, host: &Fqdn) -> Option<Principal> {
+        self.inner
+            .load_full()?
+            .0
+            .get(host)
+            .and_then(|x| x.canister_id)
     }
 }
 

@@ -46,9 +46,7 @@ pub async fn middleware(
     let mut lookup = state
         .resolver
         .resolve(&authority)
-        .ok_or(ErrorCause::Client(ClientError::UnknownDomain(
-            authority.clone(),
-        )))?;
+        .ok_or_else(|| ErrorCause::Client(ClientError::UnknownDomain(authority.clone())))?;
 
     // If configured - try to resolve canister id from query params
     if state.canister_id_from_query_params && lookup.canister_id.is_none() {

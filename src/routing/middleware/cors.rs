@@ -273,9 +273,9 @@ mod test {
         let s = Arc::new(
             CorsStateHttp::new(
                 10,
-                Duration::from_secs(600),
+                Duration::from_mins(10),
                 vec![hval!("foo"), hval!("bar")],
-                Duration::from_secs(7200),
+                Duration::from_hours(2),
             )
             .unwrap(),
         );

@@ -4,9 +4,9 @@ use crate::routing::{CONTENT_TYPE_JSON, RequestType};
 use axum::response::{IntoResponse, Response};
 use candid::Principal;
 use fqdn::FQDN;
-use hickory_resolver::ResolveError;
 use http::{HeaderValue, StatusCode, header::CONTENT_TYPE};
 use ic_bn_lib::{
+    hickory_resolver::net::NetError,
     http::headers::{CONTENT_TYPE_HTML, X_IC_ERROR_CAUSE},
     ic_agent::AgentError,
 };
@@ -311,7 +311,7 @@ impl From<HttpGatewayError> for ErrorCause {
 impl From<anyhow::Error> for ErrorCause {
     fn from(e: anyhow::Error) -> Self {
         // Check if it's a DNS error
-        if let Some(e) = error_infer::<ResolveError>(&e) {
+        if let Some(e) = error_infer::<NetError>(&e) {
             return Self::Backend(BackendError::Dns(e.to_string()));
         }
 
@@ -445,7 +445,7 @@ impl ErrorClientFacing {
 
             // Canister errors
             Self::Canister(CanisterError::NotFound(v) | CanisterError::RouteNotFound(v)) => {
-                let canister_id = v.map(|x| x.to_string()).unwrap_or_else(|| "unknown".into());
+                let canister_id = v.map_or_else(|| "unknown".into(), |x| x.to_string());
 
                 ErrorData {
                     status_code: StatusCode::NOT_FOUND,

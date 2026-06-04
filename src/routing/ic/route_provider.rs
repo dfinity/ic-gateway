@@ -73,7 +73,7 @@ pub async fn setup_route_provider(
     };
 
     let wrapper = RouteProviderWrapper::new(route_provider.clone());
-    if timeout(Duration::from_secs(120), async {
+    if timeout(Duration::from_mins(2), async {
         while !wrapper.healthy() {
             sleep(Duration::from_secs(1)).await;
         }

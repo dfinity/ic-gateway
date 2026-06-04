@@ -21,11 +21,11 @@ use ic_bn_lib::{
         Agent, AgentError,
         agent::{HttpService, route_provider::RoundRobinRouteProvider},
     },
+    uuid::Uuid,
 };
 use ic_bn_lib_common::{principal, types::http::ConnInfo};
 use ic_http_certification::HttpRequest;
 use ic_http_gateway_protocol::{CanisterRequest, HttpGatewayClientBuilder};
-use uuid::Uuid;
 
 use ic_gateway::{
     routing::{
@@ -144,7 +144,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     group.significance_level(0.1);
     group.sample_size(250);
 
-    rustls::crypto::ring::default_provider()
+    rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .unwrap();
 

@@ -25,6 +25,8 @@ mod log;
 mod metrics;
 mod policy;
 mod routing;
+#[cfg(feature = "smtp")]
+mod smtp;
 #[cfg(any(test, feature = "bench"))]
 pub mod test;
 mod tls;
