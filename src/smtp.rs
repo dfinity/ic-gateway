@@ -194,7 +194,7 @@ pub fn setup_smtp_server(
     tasks: &mut TaskManager,
     registry: &Registry,
     vector_metrics: Metrics,
-) -> Result<(), anyhow::Error> {
+) -> Result<Option<Arc<Vector>>, anyhow::Error> {
     let mut cfg = SessionConfig::try_from(&cli.smtp_server)?;
     if let Some(v) = tls_config {
         if cli.smtp_server.smtp_server_tls_required {
@@ -204,7 +204,7 @@ pub fn setup_smtp_server(
         }
     }
 
-    let notification_handler = if let Some(v) = &cli.smtp_server.smtp_server_vector_url {
+    let vector = if let Some(v) = &cli.smtp_server.smtp_server_vector_url {
         let mut opts =
             VectorOptions::try_from(&cli.log.vector).context("unable to parse Vector options")?;
         opts.url = v.clone();
@@ -220,13 +220,17 @@ pub fn setup_smtp_server(
             vector_metrics,
         ));
 
-        let notification_handler = Arc::new(SmtpNotificationHandler::new(vector));
-        cfg.notifications_handler = Some(notification_handler.clone());
-
-        Some(notification_handler as Arc<dyn ReceivesIcSmtpNotifications>)
+        Some(vector)
     } else {
         None
     };
+
+    let notification_handler = vector.as_ref().map(|x| {
+        let handler = Arc::new(SmtpNotificationHandler::new(x.clone()));
+        cfg.notifications_handler = Some(handler.clone());
+
+        handler as Arc<dyn ReceivesIcSmtpNotifications>
+    });
 
     let authenticator =
         MessageAuthenticator::new(ResolverConfig::from(&cli.dns), ResolverOpts::from(&cli.dns))
@@ -255,5 +259,5 @@ pub fn setup_smtp_server(
     .context("unable to create SMTP server")?;
     tasks.add("smtp_server", Arc::new(smtp_server));
 
-    Ok(())
+    Ok(vector)
 }

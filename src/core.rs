@@ -374,7 +374,7 @@ pub async fn main(
 
     // Setup SMTP server
     #[cfg(feature = "smtp")]
-    if cli.smtp_server.smtp_server_listen.is_some() {
+    let vector_smtp = if cli.smtp_server.smtp_server_listen.is_some() {
         crate::smtp::setup_smtp_server(
             cli,
             rustls_cfg.map(Arc::new),
@@ -385,8 +385,10 @@ pub async fn main(
             &registry,
             vector_metrics,
         )
-        .context("unable to setup SMTP server")?;
-    }
+        .context("unable to setup SMTP server")?
+    } else {
+        None
+    };
 
     // Setup metrics
     if let Some(addr) = cli.metrics.metrics_listen {
@@ -417,6 +419,11 @@ pub async fn main(
 
     // Vector should stop last to ensure that all requests are finished & flushed
     if let Some(v) = vector_http {
+        v.stop().await;
+    }
+
+    #[cfg(feature = "smtp")]
+    if let Some(v) = vector_smtp {
         v.stop().await;
     }
 
