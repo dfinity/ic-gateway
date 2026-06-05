@@ -1,3 +1,5 @@
+#![allow(clippy::significant_drop_tightening)]
+
 use std::{
     fmt,
     sync::{Arc, Mutex},
@@ -16,7 +18,7 @@ use ic_bn_lib::ic_agent::{
 use ic_bn_lib_common::traits::{Healthy, Run};
 use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
-use tracing::warn;
+use tracing::{info, warn};
 
 /// Retry interval used when no snapshot has been fetched yet and we are in the
 /// aggressive boot-strap loop.
@@ -140,7 +142,7 @@ struct SubnetData {
 
 /// A single NNS routing entry: a contiguous canister ID range assigned to a
 /// specific subnet, with the subnet's type embedded to avoid a secondary lookup.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct RoutingEntry {
     range: CanisterRange,
     subnet_type: SubnetType,
@@ -149,6 +151,7 @@ struct RoutingEntry {
 /// Snapshot of the NNS routing table and subnet types.
 ///
 /// Populated from the NNS state tree by [`RoutingTableManager`].
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct SubnetsRoutingTable {
     /// Must be sorted by `range.start` for binary-search lookups.
     ranges: Vec<RoutingEntry>,
@@ -258,7 +261,7 @@ impl RoutingTableManager {
     }
 
     /// Update the local snapshot with the fresh per-subnet data
-    async fn refresh_snapshot(&self, subnet_ids: &AHashSet<Principal>) -> Result<(), Error> {
+    async fn refresh_snapshot(&self, subnet_ids: &AHashSet<Principal>) {
         // Fetch the per-subnet data concurrently
         let futures = subnet_ids.iter().map(|subnet_id| async move {
             self.subnet_info_fetcher
@@ -275,9 +278,11 @@ impl RoutingTableManager {
 
         // Insert/update the new data that was fetched.
         // If there was an error - the older data will stay in the snapshot.
+        let mut ok = 0;
         for r in results {
             match r {
                 Ok((subnet_id, data)) => {
+                    ok += 1;
                     snapshot.insert(subnet_id, data);
                 }
 
@@ -286,9 +291,11 @@ impl RoutingTableManager {
                 }
             }
         }
-        drop(snapshot);
 
-        Ok(())
+        info!(
+            "{self}: Succesfully loaded data for {ok}/{} subnets",
+            subnet_ids.len()
+        );
     }
 
     /// Tries to update the routing table by refreshing the per-subnet data
@@ -301,9 +308,9 @@ impl RoutingTableManager {
             .await
             .context("unable to fetch subnet IDs")?;
 
-        self.refresh_snapshot(&subnet_ids)
-            .await
-            .context("unable to refresh snapshot")?;
+        info!("{self}: Got a list of {} subnets", subnet_ids.len());
+
+        self.refresh_snapshot(&subnet_ids).await;
         let snapshot = self.snapshot.lock().unwrap();
 
         // Check if we already have enough valid subnet data
@@ -314,9 +321,21 @@ impl RoutingTableManager {
             ));
         }
 
-        let routing_table = SubnetsRoutingTable::new(snapshot.clone().into_values().collect());
-        self.routing_table.store(Some(Arc::new(routing_table)));
-        drop(snapshot);
+        // Construct new routing table
+        let routing_table = Arc::new(SubnetsRoutingTable::new(
+            snapshot.clone().into_values().collect(),
+        ));
+
+        // Check if the new table is different
+        if let Some(v) = self.routing_table.load_full()
+            && routing_table == v
+        {
+            info!("{self}: Routing table unchanged");
+            return Ok(());
+        }
+
+        self.routing_table.store(Some(routing_table));
+        warn!("{self}: New routing table applied");
 
         Ok(())
     }
@@ -325,6 +344,11 @@ impl RoutingTableManager {
 #[async_trait]
 impl Run for RoutingTableManager {
     async fn run(&self, token: CancellationToken) -> Result<(), Error> {
+        warn!(
+            "{self}: Bootstrapping: polling every {}s",
+            AGGRESSIVE_RETRY_INTERVAL.as_secs()
+        );
+
         // Initially poll using an aggressive interval
         let mut int = interval(AGGRESSIVE_RETRY_INTERVAL);
         int.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -335,12 +359,14 @@ impl Run for RoutingTableManager {
                     // We have bootstrapped - switch to the normal polling interval
                     if int.period() != self.interval {
                         warn!(
-                            "{self}: Bootstrapped: got {} subnets",
-                            self.snapshot.lock().unwrap().len()
+                            "{self}: Bootstrapped: got {} subnets, will poll now every {}s",
+                            self.snapshot.lock().unwrap().len(),
+                            self.interval.as_secs()
                         );
 
                         int = interval(self.interval);
                         int.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                        int.reset();
                     }
                 }
                 Err(e) => {
@@ -369,6 +395,47 @@ mod tests {
 
     use super::*;
 
+    fn create_data() -> AHashMap<Principal, SubnetData> {
+        AHashMap::from_iter([
+            (
+                principal!("uqzsh-gqaaa-aaaaq-qaada-cai"),
+                SubnetData {
+                    ranges: vec![
+                        CanisterRange {
+                            start: Principal::from_slice(&[0x10]),
+                            end: Principal::from_slice(&[0x15]),
+                        },
+                        CanisterRange {
+                            start: Principal::from_slice(&[0x20]),
+                            end: Principal::from_slice(&[0x25]),
+                        },
+                    ],
+                    subnet_type: SubnetType::Application,
+                },
+            ),
+            (
+                principal!("gjxif-ryaaa-aaaad-ae4ka-cai"),
+                SubnetData {
+                    ranges: vec![CanisterRange {
+                        start: Principal::from_slice(&[0x30]),
+                        end: Principal::from_slice(&[0x35]),
+                    }],
+                    subnet_type: SubnetType::System,
+                },
+            ),
+            (
+                principal!("6hsbt-vqaaa-aaaaf-aaafq-cai"),
+                SubnetData {
+                    ranges: vec![CanisterRange {
+                        start: Principal::from_slice(&[0x40]),
+                        end: Principal::from_slice(&[0x45]),
+                    }],
+                    subnet_type: SubnetType::CloudEngine,
+                },
+            ),
+        ])
+    }
+
     #[derive(Default)]
     struct TestSubnetInfoFetcher(AtomicUsize);
 
@@ -386,10 +453,17 @@ mod tests {
                 Ok(AHashSet::from_iter([
                     principal!("uqzsh-gqaaa-aaaaq-qaada-cai"),
                     principal!("gjxif-ryaaa-aaaad-ae4ka-cai"),
-                    principal!("6hsbt-vqaaa-aaaaf-aaafq-cai"),
+                    principal!("aaaaa-aa"),
                     principal!("lusdn-iiaaa-aaaam-qivpa-cai"),
                 ]))
             } else if v == 2 {
+                Ok(AHashSet::from_iter([
+                    principal!("uqzsh-gqaaa-aaaaq-qaada-cai"),
+                    principal!("gjxif-ryaaa-aaaad-ae4ka-cai"),
+                    principal!("6hsbt-vqaaa-aaaaf-aaafq-cai"),
+                    principal!("lusdn-iiaaa-aaaam-qivpa-cai"),
+                ]))
+            } else if v == 3 {
                 Ok(AHashSet::from_iter([
                     principal!("uqzsh-gqaaa-aaaaq-qaada-cai"),
                     principal!("gjxif-ryaaa-aaaad-ae4ka-cai"),
@@ -401,39 +475,10 @@ mod tests {
         }
 
         async fn fetch_subnet_data(&self, subnet_id: &Principal) -> Result<SubnetData, Error> {
-            if *subnet_id == principal!("uqzsh-gqaaa-aaaaq-qaada-cai") {
-                Ok(SubnetData {
-                    ranges: vec![
-                        CanisterRange {
-                            start: Principal::from_slice(&[0x10]),
-                            end: Principal::from_slice(&[0x15]),
-                        },
-                        CanisterRange {
-                            start: Principal::from_slice(&[0x20]),
-                            end: Principal::from_slice(&[0x25]),
-                        },
-                    ],
-                    subnet_type: SubnetType::Application,
-                })
-            } else if *subnet_id == principal!("gjxif-ryaaa-aaaad-ae4ka-cai") {
-                Ok(SubnetData {
-                    ranges: vec![CanisterRange {
-                        start: Principal::from_slice(&[0x30]),
-                        end: Principal::from_slice(&[0x35]),
-                    }],
-                    subnet_type: SubnetType::System,
-                })
-            } else if *subnet_id == principal!("6hsbt-vqaaa-aaaaf-aaafq-cai") {
-                Ok(SubnetData {
-                    ranges: vec![CanisterRange {
-                        start: Principal::from_slice(&[0x40]),
-                        end: Principal::from_slice(&[0x45]),
-                    }],
-                    subnet_type: SubnetType::CloudEngine,
-                })
-            } else {
-                Err(anyhow!("foo"))
-            }
+            create_data()
+                .get(subnet_id)
+                .cloned()
+                .ok_or_else(|| anyhow!("foo"))
         }
     }
 
@@ -498,6 +543,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)] // clippy is stupid
     async fn test_routing_table_manager() {
         let fetcher = TestSubnetInfoFetcher::default();
         let manager = RoutingTableManager::new_with_fetcher(
@@ -508,58 +554,34 @@ mod tests {
 
         // 1st update should fail due to failed fetch_subnet_ids
         assert!(manager.update_routing_table().await.is_err());
+        // 2nd update should also fail due to only 50% of subnets data fetched
+        assert!(manager.update_routing_table().await.is_err());
 
-        // 2nd should succeed for 3/4 of subnets
+        // 3rd should succeed for 3/4 of subnets
         manager.update_routing_table().await.unwrap();
 
-        let data1 = SubnetData {
-            ranges: vec![
-                CanisterRange {
-                    start: Principal::from_slice(&[0x10]),
-                    end: Principal::from_slice(&[0x15]),
-                },
-                CanisterRange {
-                    start: Principal::from_slice(&[0x20]),
-                    end: Principal::from_slice(&[0x25]),
-                },
-            ],
-            subnet_type: SubnetType::Application,
-        };
-        let data2 = SubnetData {
-            ranges: vec![CanisterRange {
-                start: Principal::from_slice(&[0x30]),
-                end: Principal::from_slice(&[0x35]),
-            }],
-            subnet_type: SubnetType::System,
-        };
-        let data3 = SubnetData {
-            ranges: vec![CanisterRange {
-                start: Principal::from_slice(&[0x40]),
-                end: Principal::from_slice(&[0x45]),
-            }],
-            subnet_type: SubnetType::CloudEngine,
-        };
+        let data = create_data();
 
         // Check first that the snapshot is correct
         let snap = manager.snapshot.lock().unwrap();
         assert_eq!(snap.len(), 3);
         assert_eq!(
             snap.get(&principal!("uqzsh-gqaaa-aaaaq-qaada-cai"))
-                .unwrap()
-                .clone(),
-            data1,
+                .unwrap(),
+            data.get(&principal!("uqzsh-gqaaa-aaaaq-qaada-cai"))
+                .unwrap(),
         );
         assert_eq!(
             snap.get(&principal!("gjxif-ryaaa-aaaad-ae4ka-cai"))
+                .unwrap(),
+            data.get(&principal!("gjxif-ryaaa-aaaad-ae4ka-cai"))
                 .unwrap()
-                .clone(),
-            data2,
         );
         assert_eq!(
             snap.get(&principal!("6hsbt-vqaaa-aaaaf-aaafq-cai"))
+                .unwrap(),
+            data.get(&principal!("6hsbt-vqaaa-aaaaf-aaafq-cai"))
                 .unwrap()
-                .clone(),
-            data3,
         );
 
         // Check that the lookups are ok
@@ -584,7 +606,7 @@ mod tests {
         }
         drop(snap);
 
-        // 3rd should also succeed, but yields one subnet less
+        // 4th should also succeed, but yields one subnet less
         manager.update_routing_table().await.unwrap();
 
         // Check first that the snapshot is correct - only 2 subnets
@@ -592,15 +614,15 @@ mod tests {
         assert_eq!(snap.len(), 2);
         assert_eq!(
             snap.get(&principal!("uqzsh-gqaaa-aaaaq-qaada-cai"))
-                .unwrap()
-                .clone(),
-            data1,
+                .unwrap(),
+            data.get(&principal!("uqzsh-gqaaa-aaaaq-qaada-cai"))
+                .unwrap(),
         );
         assert_eq!(
             snap.get(&principal!("gjxif-ryaaa-aaaad-ae4ka-cai"))
+                .unwrap(),
+            data.get(&principal!("gjxif-ryaaa-aaaad-ae4ka-cai"))
                 .unwrap()
-                .clone(),
-            data2,
         );
 
         // Check that the lookups are ok
@@ -623,7 +645,7 @@ mod tests {
 
         drop(snap);
 
-        // 4th update should fail the fetch_subnet_ids,
+        // 5th update should fail the fetch_subnet_ids,
         // but we should still be able to use the same old data.
         assert!(manager.update_routing_table().await.is_err());
 
@@ -632,58 +654,18 @@ mod tests {
         assert_eq!(snap.len(), 2);
         assert_eq!(
             snap.get(&principal!("uqzsh-gqaaa-aaaaq-qaada-cai"))
-                .unwrap()
-                .clone(),
-            data1,
+                .unwrap(),
+            data.get(&principal!("uqzsh-gqaaa-aaaaq-qaada-cai"))
+                .unwrap(),
         );
         assert_eq!(
             snap.get(&principal!("gjxif-ryaaa-aaaad-ae4ka-cai"))
+                .unwrap(),
+            data.get(&principal!("gjxif-ryaaa-aaaad-ae4ka-cai"))
                 .unwrap()
-                .clone(),
-            data2,
         );
 
         // Check that the lookups are ok
-        for (canister, typ) in [
-            (Principal::from_slice(&[0x09]), None),
-            (
-                Principal::from_slice(&[0x10]),
-                Some(SubnetType::Application),
-            ),
-            (
-                Principal::from_slice(&[0x20]),
-                Some(SubnetType::Application),
-            ),
-            (Principal::from_slice(&[0x30]), Some(SubnetType::System)),
-            // 3rd subnet is gone
-            (Principal::from_slice(&[0x40]), None),
-        ] {
-            assert_eq!(manager.lookup_subnet_type(&canister), typ);
-        }
-
-        drop(snap);
-
-        // 5th update should give use a new subnet aaaaa-aa for which the fetch_subnet_data will fail.
-        // But we should still be able to use the same old data.
-        assert!(manager.update_routing_table().await.is_err());
-
-        // Check first that the snapshot is correct - only 2 subnets
-        let snap = manager.snapshot.lock().unwrap();
-        assert_eq!(
-            snap.get(&principal!("uqzsh-gqaaa-aaaaq-qaada-cai"))
-                .unwrap()
-                .clone(),
-            data1,
-        );
-        assert_eq!(
-            snap.get(&principal!("gjxif-ryaaa-aaaad-ae4ka-cai"))
-                .unwrap()
-                .clone(),
-            data2,
-        );
-        assert!(!snap.contains_key(&principal!("6hsbt-vqaaa-aaaaf-aaafq-cai")));
-
-        // Check that lookups are ok
         for (canister, typ) in [
             (Principal::from_slice(&[0x09]), None),
             (
