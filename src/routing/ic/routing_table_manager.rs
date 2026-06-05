@@ -251,6 +251,11 @@ impl RoutingTableManager {
         root_subnet_id: Principal,
         interval: Duration,
     ) -> Self {
+        assert!(
+            interval > Duration::ZERO,
+            "Refresh interval should not be zero"
+        );
+
         Self {
             subnet_info_fetcher: fetcher,
             root_subnet_id,
@@ -293,7 +298,7 @@ impl RoutingTableManager {
         }
 
         info!(
-            "{self}: Succesfully loaded data for {ok}/{} subnets",
+            "{self}: Successfully loaded data for {ok}/{} subnets",
             subnet_ids.len()
         );
     }
@@ -309,6 +314,10 @@ impl RoutingTableManager {
             .context("unable to fetch subnet IDs")?;
 
         info!("{self}: Got a list of {} subnets", subnet_ids.len());
+
+        if subnet_ids.is_empty() {
+            return Err(anyhow!("no subnet ids were fetched"));
+        }
 
         self.refresh_snapshot(&subnet_ids).await;
         let snapshot = self.snapshot.lock().unwrap();
