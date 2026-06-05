@@ -4,7 +4,7 @@
 pub mod handler;
 pub mod http_service;
 pub mod route_provider;
-pub mod subnets_info;
+pub mod routing_table_manager;
 
 pub const MAINNET_ROOT_SUBNET_ID: &str =
     "tdb26-jop6k-aogll-7ltgs-eruif-6kk7m-qpktf-gdiqx-mxtrf-vb5e6-eqe";

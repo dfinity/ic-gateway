@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use ahash::AHashSet;
 use anyhow::{Context, Error};
-use arc_swap::ArcSwapOption;
 use axum::{
     extract::{Extension, Request, State},
     middleware::Next,
@@ -12,8 +11,10 @@ use axum::{
 use crate::{
     cli::Cli,
     policy::{domain_canister::DomainCanisterMatcher, load_principal_list},
-    routing::ic::subnets_info::SubnetsInfo,
-    routing::{CanisterId, ErrorCause, RequestCtx, error_cause::ClientError},
+    routing::{
+        CanisterId, ErrorCause, RequestCtx, error_cause::ClientError,
+        ic::routing_table_manager::LooksUpSubnetType,
+    },
 };
 
 #[derive(Clone)]
@@ -22,7 +23,7 @@ pub struct CanisterMatcherState {
 }
 
 impl CanisterMatcherState {
-    pub fn new(cli: &Cli, subnets_info: Arc<ArcSwapOption<SubnetsInfo>>) -> Result<Self, Error> {
+    pub fn new(cli: &Cli, subnet_type_lookup: Arc<dyn LooksUpSubnetType>) -> Result<Self, Error> {
         let pre_isolation_canisters =
             if let Some(v) = cli.policy.policy_pre_isolation_canisters.as_ref() {
                 load_principal_list(v).context("unable to load pre-isolation canisters")?
@@ -35,7 +36,7 @@ impl CanisterMatcherState {
             cli.domain.domain_app.clone(),
             cli.domain.domain_system.clone(),
             cli.domain.domain_engine.clone(),
-            subnets_info,
+            subnet_type_lookup,
         );
 
         Ok(Self {

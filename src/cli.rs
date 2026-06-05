@@ -205,6 +205,10 @@ pub struct Ic {
     /// Since the responses' certificates are anyway validated - it makes the signed queries redundant.
     #[clap(env, long)]
     pub ic_enable_replica_signed_queries: bool,
+
+    /// How frequently to poll the NNS for subnet routing table and type information
+    #[clap(env, long, default_value = "1m", value_parser = parse_duration)]
+    pub ic_routing_table_poll_interval: Duration,
 }
 
 #[derive(Args)]
@@ -255,10 +259,6 @@ pub struct Domain {
     /// List of domains that serve cloud engines only
     #[clap(env, long, requires = "domain_app", value_delimiter = ',')]
     pub domain_engine: Vec<FQDN>,
-
-    /// How frequently to poll the NNS for subnet routing table and type information
-    #[clap(env, long, default_value = "1m", value_parser = parse_duration)]
-    pub subnets_info_poll_interval: Duration,
 
     /// List of canister aliases in format '<alias>:<canister_id>'
     #[clap(env, long, value_delimiter = ',')]
