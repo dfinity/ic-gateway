@@ -51,12 +51,6 @@ mod tests {
     use super::*;
     use crate::routing::ic::routing_table_manager::SubnetType;
 
-    use crate::test::TEST_ROOT_SUBNET_ID;
-
-    // Principals used as subnet IDs in the test snapshot
-    const SUBNET_SYSTEM: &str = TEST_ROOT_SUBNET_ID;
-    const SUBNET_ENGINE: &str = "nl6hn-ja4yw-wvmpy-3z2jx-ymc34-pisx3-3cp5z-3oj4a-qzzny-jbsv3-4qe";
-
     // Canisters that fall inside the ranges defined below
     const CANISTER_SYSTEM: &str = "qoctq-giaaa-aaaaa-aaaea-cai"; // NNS
     const CANISTER_ENGINE: &str = "s6hwe-laaaa-aaaab-qaeba-cai";
@@ -66,9 +60,9 @@ mod tests {
     struct TestSubnetTypeLookuper;
     impl LooksUpSubnetType for TestSubnetTypeLookuper {
         fn lookup_subnet_type(&self, canister_id: &Principal) -> Option<SubnetType> {
-            if canister_id == &principal!(SUBNET_SYSTEM) {
+            if canister_id == &principal!(CANISTER_SYSTEM) {
                 Some(SubnetType::System)
-            } else if canister_id == &principal!(SUBNET_ENGINE) {
+            } else if canister_id == &principal!(CANISTER_ENGINE) {
                 Some(SubnetType::CloudEngine)
             } else {
                 None
