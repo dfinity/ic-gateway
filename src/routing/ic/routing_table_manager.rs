@@ -3,7 +3,7 @@
 use std::{
     fmt,
     sync::{Arc, Mutex},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use ahash::{AHashMap, AHashSet};
@@ -268,6 +268,7 @@ impl RoutingTableManager {
     /// Update the local snapshot with the fresh per-subnet data
     async fn refresh_snapshot(&self, subnet_ids: &AHashSet<Principal>) {
         // Fetch the per-subnet data concurrently
+        let start = Instant::now();
         let futures = subnet_ids.iter().map(|subnet_id| async move {
             self.subnet_info_fetcher
                 .fetch_subnet_data(subnet_id)
@@ -276,6 +277,7 @@ impl RoutingTableManager {
                 .map_err(|e| (*subnet_id, e))
         });
         let results = join_all(futures).await;
+        let dur = start.elapsed();
 
         let mut snapshot = self.snapshot.lock().unwrap();
         // Remove any subnets that are already gone from the list
@@ -298,8 +300,9 @@ impl RoutingTableManager {
         }
 
         info!(
-            "{self}: Successfully loaded data for {ok}/{} subnets",
-            subnet_ids.len()
+            "{self}: Successfully loaded data for {ok}/{} subnets in {}s",
+            subnet_ids.len(),
+            dur.as_secs_f64()
         );
     }
 
@@ -307,13 +310,18 @@ impl RoutingTableManager {
     #[allow(clippy::cast_precision_loss)]
     async fn update_routing_table(&self) -> Result<(), Error> {
         // Get the list of all subnet's IDs
+        let start = Instant::now();
         let subnet_ids = self
             .subnet_info_fetcher
             .fetch_subnet_ids(self.root_subnet_id)
             .await
             .context("unable to fetch subnet IDs")?;
 
-        info!("{self}: Got a list of {} subnets", subnet_ids.len());
+        info!(
+            "{self}: Got a list of {} subnets in {}s",
+            subnet_ids.len(),
+            start.elapsed().as_secs_f64()
+        );
 
         if subnet_ids.is_empty() {
             return Err(anyhow!("no subnet ids were fetched"));
@@ -322,7 +330,11 @@ impl RoutingTableManager {
         self.refresh_snapshot(&subnet_ids).await;
         let snapshot = self.snapshot.lock().unwrap();
 
-        // Check if we already have enough valid subnet data
+        // Check if we already have enough valid subnet data.
+        // We consider even the older data, fetched in the previous cycles, good enough.
+        // That is, if we have *some* info for at least SUCCESS_FRACTION subnets,
+        // then we're good to publish a new routing table.
+        // Some info is better than no info in this case, since it anyway changes very rarely.
         let fraction = (snapshot.len() as f64) / (subnet_ids.len() as f64);
         if fraction < SUCCESS_FRACTION {
             return Err(anyhow!(
@@ -343,9 +355,12 @@ impl RoutingTableManager {
             return Ok(());
         }
 
-        self.routing_table.store(Some(routing_table));
-        warn!("{self}: New routing table applied");
+        warn!(
+            "{self}: New routing table applied ({} ranges)",
+            routing_table.ranges.len()
+        );
 
+        self.routing_table.store(Some(routing_table));
         Ok(())
     }
 }
@@ -378,16 +393,18 @@ impl Run for RoutingTableManager {
                         int.reset();
                     }
                 }
+
                 Err(e) => {
-                    warn!("{self}: update failed: {e:#}");
+                    warn!("{self}: Update failed: {e:#}");
                 }
             }
 
             tokio::select! {
                 () = token.cancelled() => {
-                    warn!("{self}: shutting down");
+                    warn!("{self}: Shutting down");
                     return Ok(());
                 }
+
                 _ = int.tick() => {}
             }
         }
@@ -558,7 +575,7 @@ mod tests {
         let manager = RoutingTableManager::new_with_fetcher(
             Arc::new(fetcher),
             principal!(MAINNET_ROOT_SUBNET_ID),
-            Duration::ZERO,
+            Duration::MAX,
         );
 
         // 1st update should fail due to failed fetch_subnet_ids

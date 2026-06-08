@@ -49,7 +49,9 @@ mod tests {
     use ic_bn_lib_common::principal;
 
     use super::*;
-    use crate::routing::ic::routing_table_manager::SubnetType;
+    use crate::{
+        routing::ic::routing_table_manager::SubnetType, test::TestSubnetTypeLookuperEmpty,
+    };
 
     // Canisters that fall inside the ranges defined below
     const CANISTER_SYSTEM: &str = "qoctq-giaaa-aaaaa-aaaea-cai"; // NNS
@@ -67,13 +69,6 @@ mod tests {
             } else {
                 None
             }
-        }
-    }
-
-    struct TestSubnetTypeLookuperEmpty;
-    impl LooksUpSubnetType for TestSubnetTypeLookuperEmpty {
-        fn lookup_subnet_type(&self, _canister_id: &Principal) -> Option<SubnetType> {
-            None
         }
     }
 

@@ -107,8 +107,8 @@ impl ClientHttp<AxumBody> for TestClient {
     }
 }
 
-struct TestSubnetTypeLookuper;
-impl LooksUpSubnetType for TestSubnetTypeLookuper {
+pub(crate) struct TestSubnetTypeLookuperEmpty;
+impl LooksUpSubnetType for TestSubnetTypeLookuperEmpty {
     fn lookup_subnet_type(&self, _canister_id: &Principal) -> Option<SubnetType> {
         None
     }
@@ -185,7 +185,7 @@ pub async fn setup_test_router(tasks: &mut TaskManager) -> (Router, Vec<String>)
         None,
         None,
         None,
-        Arc::new(TestSubnetTypeLookuper),
+        Arc::new(TestSubnetTypeLookuperEmpty),
     )
     .await
     .unwrap();
