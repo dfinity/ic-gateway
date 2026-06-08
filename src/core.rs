@@ -37,7 +37,7 @@ use crate::{
             MAINNET_ROOT_SUBNET_ID, create_agent,
             http_service::AgentHttpService,
             route_provider::{RouteProviderWrapper, setup_route_provider},
-            subnets_info::SubnetsInfoFetcher,
+            routing_table_manager::RoutingTableManager,
         },
     },
     tls::{self},
@@ -252,7 +252,7 @@ pub async fn main(
         );
     }
 
-    // Create IC Agent for use by SubnetsInfoFetcher / SMTP
+    // Create IC Agent for use by RoutingTableManager / SMTP
     let http_service = Arc::new(AgentHttpService::new(
         http_client_hyper.clone(),
         cli.ic.ic_request_retry_interval,
@@ -261,22 +261,14 @@ pub async fn main(
         .await
         .context("unable to create agent for subnets info fetcher")?;
 
-    // Subnet info: periodically fetch the full NNS routing table and subnet
-    // types.  Required for both system-subnet and engine-subnet routing
-    // decisions in DomainCanisterMatcher.
-    let root_subnet_id = principal!(MAINNET_ROOT_SUBNET_ID);
-    let fetcher = Arc::new(SubnetsInfoFetcher::new(
-        Arc::new(ic_agent.clone()),
-        root_subnet_id,
+    // Create a routing table manager that handles per-subnet information fetching
+    let routing_table_manager = Arc::new(RoutingTableManager::new(
+        ic_agent.clone(),
+        principal!(MAINNET_ROOT_SUBNET_ID),
+        cli.ic.ic_routing_table_poll_interval,
     ));
-    let subnets_info = fetcher.info.clone();
-
-    health_manager.add(fetcher.clone());
-    tasks.add_interval(
-        "subnets_info_fetcher",
-        fetcher,
-        cli.domain.subnets_info_poll_interval,
-    );
+    health_manager.add(routing_table_manager.clone());
+    tasks.add("subnets_info_fetcher", routing_table_manager.clone());
 
     // Setup WAF
     let waf_layer = if cli.waf.waf_enable {
@@ -313,7 +305,7 @@ pub async fn main(
         vector_http.clone(),
         waf_layer,
         custom_domains_router,
-        subnets_info,
+        routing_table_manager,
     )
     .await
     .context("unable to setup Axum router")?;

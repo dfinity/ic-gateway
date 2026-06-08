@@ -1,11 +1,10 @@
 use std::sync::Arc;
 
 use ahash::AHashSet;
-use arc_swap::ArcSwapOption;
 use candid::Principal;
 use fqdn::{FQDN, Fqdn};
 
-use crate::routing::ic::subnets_info::{SubnetType, SubnetsInfo};
+use crate::routing::ic::routing_table_manager::{LooksUpSubnetType, SubnetType};
 
 /// Things needed to verify domain-canister match
 #[derive(derive_new::new)]
@@ -14,15 +13,14 @@ pub struct DomainCanisterMatcher {
     domains_app: Vec<FQDN>,
     domains_system: Vec<FQDN>,
     domains_engine: Vec<FQDN>,
-    subnets_info: Arc<ArcSwapOption<SubnetsInfo>>,
+    subnet_types: Arc<dyn LooksUpSubnetType>,
 }
 
 impl DomainCanisterMatcher {
     /// Check if given canister id and host match from policy perspective.
     pub fn check(&self, canister_id: Principal, host: &Fqdn) -> bool {
-        let guard = self.subnets_info.load();
-        // Compute subnet type once; `None` when no snapshot has been stored yet.
-        let subnet_type = guard.as_deref().and_then(|si| si.subnet_type(canister_id));
+        // Lookup subnet type
+        let subnet_type = self.subnet_types.lookup_subnet_type(&canister_id);
 
         // Pre-isolation canisters are exempt from domain checks, unless they are
         // on a CloudEngine subnet, where the normal domain policy still applies.
@@ -47,19 +45,13 @@ impl DomainCanisterMatcher {
 
 #[cfg(test)]
 mod tests {
-    use ahash::AHashMap;
-    use arc_swap::ArcSwapOption;
     use fqdn::fqdn;
     use ic_bn_lib_common::principal;
 
     use super::*;
-    use crate::routing::ic::subnets_info::SubnetType;
-
-    use crate::test::TEST_ROOT_SUBNET_ID;
-
-    // Principals used as subnet IDs in the test snapshot
-    const SUBNET_SYSTEM: &str = TEST_ROOT_SUBNET_ID;
-    const SUBNET_ENGINE: &str = "nl6hn-ja4yw-wvmpy-3z2jx-ymc34-pisx3-3cp5z-3oj4a-qzzny-jbsv3-4qe";
+    use crate::{
+        routing::ic::routing_table_manager::SubnetType, test::TestSubnetTypeLookuperEmpty,
+    };
 
     // Canisters that fall inside the ranges defined below
     const CANISTER_SYSTEM: &str = "qoctq-giaaa-aaaaa-aaaea-cai"; // NNS
@@ -67,30 +59,17 @@ mod tests {
     const CANISTER_APP: &str = "oydqf-haaaa-aaaao-afpsa-cai";
     const CANISTER_PIC: &str = "2dcn6-oqaaa-aaaai-abvoq-cai"; // pre-isolation
 
-    fn test_snapshot() -> Arc<ArcSwapOption<SubnetsInfo>> {
-        let subnet_system = principal!(SUBNET_SYSTEM);
-        let subnet_engine = principal!(SUBNET_ENGINE);
-
-        let ranges = vec![
-            (
-                principal!(CANISTER_SYSTEM),
-                principal!(CANISTER_SYSTEM),
-                subnet_system,
-            ),
-            (
-                principal!(CANISTER_ENGINE),
-                principal!(CANISTER_ENGINE),
-                subnet_engine,
-            ),
-        ];
-
-        let mut types = AHashMap::new();
-        types.insert(subnet_system, SubnetType::System);
-        types.insert(subnet_engine, SubnetType::CloudEngine);
-
-        Arc::new(ArcSwapOption::new(Some(Arc::new(SubnetsInfo::new(
-            ranges, &types,
-        )))))
+    struct TestSubnetTypeLookuper;
+    impl LooksUpSubnetType for TestSubnetTypeLookuper {
+        fn lookup_subnet_type(&self, canister_id: &Principal) -> Option<SubnetType> {
+            if canister_id == &principal!(CANISTER_SYSTEM) {
+                Some(SubnetType::System)
+            } else if canister_id == &principal!(CANISTER_ENGINE) {
+                Some(SubnetType::CloudEngine)
+            } else {
+                None
+            }
+        }
     }
 
     fn matcher() -> DomainCanisterMatcher {
@@ -102,7 +81,7 @@ mod tests {
             vec![fqdn!("icp0.io")],   // app
             vec![fqdn!("ic0.app")],   // system
             vec![fqdn!("engine.io")], // engine
-            test_snapshot(),
+            Arc::new(TestSubnetTypeLookuper),
         )
     }
 
@@ -156,7 +135,7 @@ mod tests {
             vec![fqdn!("icp0.io")],
             vec![fqdn!("ic0.app")],
             vec![fqdn!("engine.io")],
-            test_snapshot(),
+            Arc::new(TestSubnetTypeLookuper),
         );
         assert!(m.check(principal!(CANISTER_ENGINE), &fqdn!("engine.io")));
         assert!(!m.check(principal!(CANISTER_ENGINE), &fqdn!("icp0.io")));
@@ -165,7 +144,6 @@ mod tests {
 
     #[test]
     fn empty_snapshot_falls_through_to_app_domain() {
-        let empty = Arc::new(ArcSwapOption::<SubnetsInfo>::empty());
         let mut pic = AHashSet::new();
         pic.insert(principal!(CANISTER_PIC));
         let m = DomainCanisterMatcher::new(
@@ -173,7 +151,7 @@ mod tests {
             vec![fqdn!("icp0.io")],
             vec![fqdn!("ic0.app")],
             vec![fqdn!("engine.io")],
-            empty,
+            Arc::new(TestSubnetTypeLookuperEmpty),
         );
         // With no snapshot, subnet type is unknown → app domain for everything
         assert!(m.check(principal!(CANISTER_APP), &fqdn!("icp0.io")));
