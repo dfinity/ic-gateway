@@ -264,7 +264,7 @@ pub async fn main(
     // Create a routing table manager that handles per-subnet information fetching
     let routing_table_manager = Arc::new(RoutingTableManager::new(
         ic_agent.clone(),
-        principal!(MAINNET_ROOT_SUBNET_ID),
+        MAINNET_ROOT_SUBNET_ID,
         cli.ic.ic_routing_table_poll_interval,
     ));
     health_manager.add(routing_table_manager.clone());

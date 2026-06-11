@@ -6,13 +6,11 @@ pub mod http_service;
 pub mod route_provider;
 pub mod routing_table_manager;
 
-pub const MAINNET_ROOT_SUBNET_ID: &str =
-    "tdb26-jop6k-aogll-7ltgs-eruif-6kk7m-qpktf-gdiqx-mxtrf-vb5e6-eqe";
-
 use std::{fs, sync::Arc};
 
 use anyhow::{Context, Error};
 use bytes::Bytes;
+use candid::Principal;
 use http::{HeaderMap, StatusCode, header::HeaderName};
 use http_body_util::{Either, Full};
 use ic_bn_lib::{
@@ -33,6 +31,12 @@ use ic_http_gateway_protocol::{
 use tracing::warn;
 
 use crate::Cli;
+
+/// tdb26-jop6k-aogll-7ltgs-eruif-6kk7m-qpktf-gdiqx-mxtrf-vb5e6-eqe
+pub const MAINNET_ROOT_SUBNET_ID: Principal = Principal::from_slice(&[
+    207, 242, 128, 227, 45, 127, 92, 205, 34, 70, 136, 47, 148, 175, 178, 15, 84, 202, 97, 162, 23,
+    101, 231, 18, 212, 61, 39, 137, 2,
+]);
 
 /// Metadata about the request to an API Boundary Node (ic-boundary)
 #[derive(Clone, Debug, Default)]

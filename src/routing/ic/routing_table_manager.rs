@@ -574,7 +574,7 @@ mod tests {
         let fetcher = TestSubnetInfoFetcher::default();
         let manager = RoutingTableManager::new_with_fetcher(
             Arc::new(fetcher),
-            principal!(MAINNET_ROOT_SUBNET_ID),
+            MAINNET_ROOT_SUBNET_ID,
             Duration::MAX,
         );
 
