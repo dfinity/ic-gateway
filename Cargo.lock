@@ -2963,9 +2963,9 @@ dependencies = [
 
 [[package]]
 name = "ic-custom-domains-backend"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "970d5702f22fce9f3f5dc3b8ffd989e4f12529c991d46bd07d90c4244b7775c4"
+checksum = "e6655ea076ea14144139cc38e0a75907016bd68b9af4a795ac2e3da712bf6084"
 dependencies = [
  "anyhow",
  "axum",
@@ -2995,9 +2995,9 @@ dependencies = [
 
 [[package]]
 name = "ic-custom-domains-base"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6927820a8979ae5d4bbf5c2b48e254d1455a99e5ac7a8b49d2f78837ddf40f4b"
+checksum = "78a38ca829cb19a17ba4041a30299db3473c3d43fb1079bf5115047d33032f80"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3026,9 +3026,9 @@ dependencies = [
 
 [[package]]
 name = "ic-custom-domains-canister-api"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd62cd6225d8751c4150387e0c78ff819ea0fe559989a4ebef8b90fa15236cb5"
+checksum = "9bf7c8f8bcf2b8661db6ec0e4c4d834343c54d3245c9677be8da1e333a509eac"
 dependencies = [
  "candid",
  "derive-new",
@@ -3039,9 +3039,9 @@ dependencies = [
 
 [[package]]
 name = "ic-custom-domains-canister-client"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2eba2c92f418999fbc7d6bed7f589afa64766fe6a2c037da99deaeb7ee7ccdb8"
+checksum = "d025de4e47c44c0462057c9b71f1b1a8110536f0ef479d413376ff022ebcdf77"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -4825,7 +4825,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "27c6023962132f4b30eb4c172c91ce92d933da334c59c23cddee82358ddafb0b"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.10.5",
  "proc-macro2",
  "quote",
  "syn 2.0.117",
