@@ -12,7 +12,7 @@ use ic_bn_lib::ic_agent::{
     AgentError,
     agent::route_provider::{RouteProvider, RoutesStats},
 };
-use tokio::{runtime::Handle, select, sync::watch};
+use tokio::{select, sync::watch};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::{info, warn};
 use url::Url;
@@ -97,9 +97,22 @@ impl DynamicRouteProvider {
         reliability_weight: f64,
         node_fetch_interval: Duration,
         health_check_interval: Duration,
+        idle_period: Duration,
     ) -> Result<Arc<Self>, RouteError> {
         if seed_list.is_empty() {
             return Err(RouteError::Other(anyhow!("Seed list should not be empty")));
+        }
+
+        if !(0.0..=1.0).contains(&ewma_alpha) {
+            return Err(RouteError::Other(anyhow!(
+                "ewma_alpha must be in 0.0..=1.0 range"
+            )));
+        }
+
+        if !(0.0..=1.0).contains(&reliability_weight) {
+            return Err(RouteError::Other(anyhow!(
+                "reliability_weight must be in 0.0..=1.0 range"
+            )));
         }
 
         let token = CancellationToken::new();
@@ -132,7 +145,7 @@ impl DynamicRouteProvider {
         let health_check_manager = HealthCheckManager::new(
             health_checker,
             health_check_interval,
-            Duration::from_secs(5),
+            idle_period,
             node_list_rx,
             healthy_nodes_tx,
             ewma_alpha,
@@ -146,20 +159,12 @@ impl DynamicRouteProvider {
 
         Ok(route_provider)
     }
-
-    pub async fn stop(&self) {
-        self.token.cancel();
-        self.tracker.close();
-        self.tracker.wait().await;
-    }
 }
 
 impl Drop for DynamicRouteProvider {
     fn drop(&mut self) {
-        // TODO: Not sure it'a good idea, it also panics on a single-threaded runtime.
-        // Async Drop is still experimental (https://doc.rust-lang.org/std/future/trait.AsyncDrop.html)
-        // It works, but better refactor it later to explicitly stop when shutting down.
-        tokio::task::block_in_place(move || Handle::current().block_on(self.stop()));
+        self.token.cancel();
+        self.tracker.close();
     }
 }
 
@@ -284,6 +289,7 @@ mod test {
             0.9,
             Duration::from_millis(1),
             Duration::from_millis(1),
+            Duration::from_secs(5),
         )
         .unwrap();
 

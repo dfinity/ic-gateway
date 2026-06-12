@@ -75,7 +75,7 @@ impl ChecksHealth for HttpHealthChecker {
     }
 }
 
-/// Runs health checks agains a single node and sends back the results
+/// Runs health checks against a single node and sends back the results
 #[derive(Debug, new)]
 pub struct HealthCheckActor {
     node: Arc<Node>,

@@ -204,6 +204,7 @@ pub async fn setup_route_provider(
             0.9,
             Duration::from_mins(10),
             Duration::from_secs(1),
+            cli.ic.ic_discovery_idle_interval,
         )? as Arc<dyn RouteProvider>
     } else {
         Arc::new(RoundRobinRouteProvider::new(cli.ic.ic_url.clone())?)

@@ -162,6 +162,10 @@ pub struct Ic {
     #[clap(env, long)]
     pub ic_use_k_top_api_nodes: Option<usize>,
 
+    /// Dynamic routing mode: how frequently to update healthy node list when no health state changes occurs.
+    #[clap(env, long, default_value = "5s", value_parser = parse_duration)]
+    pub ic_discovery_idle_interval: Duration,
+
     /// Path to an IC root key. Must be DER-encoded.
     /// If not specified - hardcoded or fetched (see `--ic-unsafe-root-key-fetch`) will be used.
     #[clap(env, long)]

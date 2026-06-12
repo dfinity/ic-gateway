@@ -1,21 +1,23 @@
 use std::sync::Mutex;
 
-/// Calculates Greatest Common Denominator
+/// Calculates Greatest Common Divisor
 #[allow(clippy::many_single_char_names)]
-const fn calc_gcd(x: isize, y: isize) -> isize {
-    let mut t: isize;
-    let mut a = x;
-    let mut b = y;
-
-    loop {
-        t = a % b;
-        if t > 0 {
-            a = b;
-            b = t;
-        } else {
-            return b;
-        }
+const fn calc_gcd(mut x: isize, mut y: isize) -> isize {
+    if x == 0 {
+        return y;
     }
+
+    if y == 0 {
+        return x;
+    }
+
+    while y != 0 {
+        let t = x % y;
+        x = y;
+        y = t;
+    }
+
+    x
 }
 
 #[derive(Debug)]
