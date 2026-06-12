@@ -14,7 +14,6 @@ use ic_bn_lib::{
     vector::{self, VectorOptions, client::Vector},
 };
 use ic_bn_lib_common::{
-    principal,
     traits::{custom_domains::ProvidesCustomDomains, tls::ProvidesCertificates},
     types::{
         dns::Options as DnsOptions,
@@ -124,22 +123,27 @@ pub async fn main(
 
     http_client_opts.tls_config = Some(tls_config);
 
-    // Bare reqwest client is for now needed for the Route Provider and 2nd Agent
-    // TODO improve
-    let reqwest_client =
-        bnhttp::client::clients_reqwest::new(http_client_opts.clone(), Some(dns_resolver.clone()))?;
-
     // Create route provider
-    let route_provider = setup_route_provider(cli, reqwest_client.clone()).await?;
+    let http_client_hyper = Arc::new(bnhttp::HyperClient::new(
+        http_client_opts.clone(),
+        dns_resolver.clone(),
+    ));
+
+    // HTTP service for the agents
+    let http_service = Arc::new(AgentHttpService::new(
+        http_client_hyper.clone(),
+        cli.ic.ic_request_retry_interval,
+    ));
+
+    let route_provider = setup_route_provider(cli, http_client_hyper, http_service.clone()).await?;
     health_manager.add(Arc::new(RouteProviderWrapper::new(route_provider.clone())));
 
-    // Create a separate Agent backed by Reqwest to use solely with Resolver.
+    // Create a separate Agent to use solely with Resolver.
     // This way we avoid a chicken-and-egg problem:
     // - Hyper client needs resolver
     // - Resolver needs Agent
     // - Agent needs Hyper client
-    let ic_agent_resolver =
-        create_agent(cli, Arc::new(reqwest_client), route_provider.clone()).await?;
+    let ic_agent_resolver = create_agent(cli, http_service, route_provider.clone()).await?;
     let api_bn_resolver = ApiBnResolver::new(dns_resolver.clone(), ic_agent_resolver);
 
     let http_client = Arc::new(bnhttp::ReqwestClient::new(
@@ -147,11 +151,17 @@ pub async fn main(
         Some(dns_resolver.clone()),
     )?);
 
-    let http_client_hyper = Arc::new(bnhttp::HyperClientLeastLoaded::new(
+    let http_client_hyper_ll = Arc::new(bnhttp::HyperClientLeastLoaded::new(
         http_client_opts,
         api_bn_resolver.clone(),
         cli.network.network_http_client_count as usize,
         Some(&registry),
+    ));
+
+    // HTTP service for the agents
+    let http_service_ll = Arc::new(AgentHttpService::new(
+        http_client_hyper_ll.clone(),
+        cli.ic.ic_request_retry_interval,
     ));
 
     // Event sinks
@@ -253,11 +263,7 @@ pub async fn main(
     }
 
     // Create IC Agent for use by RoutingTableManager / SMTP
-    let http_service = Arc::new(AgentHttpService::new(
-        http_client_hyper.clone(),
-        cli.ic.ic_request_retry_interval,
-    ));
-    let ic_agent = create_agent(cli, http_service, route_provider.clone())
+    let ic_agent = create_agent(cli, http_service_ll, route_provider.clone())
         .await
         .context("unable to create agent for subnets info fetcher")?;
 
@@ -298,7 +304,7 @@ pub async fn main(
         &mut tasks,
         health_manager.clone(),
         http_client.clone(),
-        http_client_hyper,
+        http_client_hyper_ll,
         route_provider.clone(),
         &registry,
         shutdown_token.clone(),
@@ -384,7 +390,7 @@ pub async fn main(
 
     // Setup metrics
     if let Some(addr) = cli.metrics.metrics_listen {
-        let router = metrics::setup(&registry, &mut tasks, route_provider);
+        let router = metrics::setup(&registry, &mut tasks, route_provider.clone());
         let mut opts = ServerOptions::from(&cli.http_server);
         opts.proxy_protocol_mode = cli.metrics.metrics_proxy_protocol_mode;
 

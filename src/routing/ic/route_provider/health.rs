@@ -1,17 +1,19 @@
 use std::{
-    fmt::Display,
+    fmt::{Debug, Display},
     sync::Arc,
     time::{Duration, Instant},
 };
 
 use ahash::AHashMap;
 use async_trait::async_trait;
+use bytes::Bytes;
 use derive_new::new;
 use fqdn::FQDN;
 use futures::future::join_all;
 use http::Method;
+use http_body_util::Full;
 use ic_bn_lib::http::shed::ewma::EWMA;
-use ic_bn_lib_common::traits::http::Client;
+use ic_bn_lib_common::traits::http::ClientHttp;
 use tokio::{
     select,
     sync::{mpsc, watch},
@@ -25,9 +27,9 @@ use crate::routing::ic::route_provider::{
     ChecksHealth, HealthCheckResult, HealthyNode, Node, NodeList,
 };
 
-#[derive(Debug)]
+#[derive(Debug, new)]
 pub struct HttpHealthChecker {
-    client: Arc<dyn Client>,
+    client: Arc<dyn ClientHttp<Full<Bytes>>>,
 }
 
 impl Display for HttpHealthChecker {
@@ -39,7 +41,13 @@ impl Display for HttpHealthChecker {
 #[async_trait]
 impl ChecksHealth for HttpHealthChecker {
     async fn health_check(&self, node: &Node) -> HealthCheckResult {
-        let req = reqwest::Request::new(Method::GET, node.url_health.clone());
+        // SAFETY: This should never fail in our case
+        let req = http::Request::builder()
+            .method(Method::GET)
+            .uri(node.uri_health.clone())
+            .body(Full::default())
+            .unwrap();
+
         let start = Instant::now();
         let resp = self.client.execute(req).await;
         let latency = start.elapsed();
@@ -144,8 +152,14 @@ impl Display for HealthCheckManager {
     }
 }
 
+impl Debug for HealthCheckManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self}")
+    }
+}
+
 impl HealthCheckManager {
-    fn new(
+    pub fn new(
         checker: Arc<dyn ChecksHealth>,
         check_interval: Duration,
         idle_period: Duration,
@@ -278,8 +292,9 @@ impl HealthCheckManager {
         join_all(self.nodes.into_values().map(|x| x.stop_actor())).await;
     }
 
-    async fn run(mut self, token: CancellationToken) {
-        info!("{self}: Started");
+    pub async fn run(mut self, token: CancellationToken) {
+        warn!("{self}: Started");
+
         loop {
             select! {
                 // Process updates to the node list

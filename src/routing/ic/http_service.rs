@@ -3,6 +3,7 @@ use std::{cell::RefCell, sync::Arc, time::Duration};
 use anyhow::anyhow;
 use async_trait::async_trait;
 use bytes::Bytes;
+use derive_new::new;
 use http::{Request, Response, StatusCode};
 use http_body_util::{BodyExt, Full, Limited};
 use ic_bn_lib::ic_agent::{AgentError, agent::HttpService};
@@ -32,7 +33,7 @@ task_local! {
 }
 
 /// Service that executes requests on IC-Agent's behalf
-#[derive(Debug, derive_new::new)]
+#[derive(Debug, new)]
 pub struct AgentHttpService {
     client: Arc<dyn ClientHttp<Full<Bytes>>>,
     retry_interval: Duration,

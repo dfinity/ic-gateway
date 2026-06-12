@@ -44,19 +44,14 @@ impl AgentFetcher {
 
 #[async_trait]
 impl FetchesNodes for AgentFetcher {
-    async fn fetch_nodes(&self) -> Result<NodeList, RouteError> {
+    async fn fetch_nodes(&self) -> Result<Vec<String>, RouteError> {
         let api_bns = self
             .agent
             .fetch_api_boundary_nodes_by_subnet_id(MAINNET_ROOT_SUBNET_ID)
             .await
             .map_err(|e| RouteError::UnableToFetchNodes(format!("{e:#}")))?;
 
-        Ok(NodeList::new(
-            // Filter out the API BNs with incorrect domains
-            api_bns
-                .into_iter()
-                .filter_map(|x| FQDN::from_str(&x.domain).ok()),
-        ))
+        Ok(api_bns.into_iter().map(|x| x.domain).collect())
     }
 }
 
@@ -74,7 +69,7 @@ impl Display for FetcherManager {
 }
 
 impl FetcherManager {
-    fn new(fetcher: Arc<dyn FetchesNodes>, tx: watch::Sender<NodeList>) -> Self {
+    pub fn new(fetcher: Arc<dyn FetchesNodes>, tx: watch::Sender<NodeList>) -> Self {
         Self {
             fetcher,
             tx,
@@ -84,30 +79,41 @@ impl FetcherManager {
 
     async fn refresh(&mut self) -> Result<(), RouteError> {
         let nodes = self.fetcher.fetch_nodes().await?;
-        info!("{self}: Got a list of API BNs: {nodes}");
+
+        let node_list = NodeList::new(nodes.iter().filter_map(|x| {
+            // Hostname should be a valid FQDN & have at least one label
+            let hostname = FQDN::from_str(x).ok()?;
+            (hostname.depth() > 0).then_some(hostname)
+        }));
+
+        info!(
+            "{self}: Got a list of API BNs ({} invalid): {node_list:?}",
+            nodes.len() - node_list.len()
+        );
 
         // Check if the new list is different
-        if self.snapshot != nodes {
+        if self.snapshot != node_list {
             warn!(
-                "{self}: List of API BNs changed ({}), publishing",
-                nodes.len()
+                "{self}: List of API BNs changed (old: {}, new: {node_list}), publishing",
+                self.snapshot,
             );
-            warn!("{self}: New node list: {nodes}");
-            self.snapshot.clone_from(&nodes);
-            self.tx.send_replace(nodes);
+
+            warn!("{self}: New node list: {node_list}");
+            self.snapshot.clone_from(&node_list);
+            self.tx.send_replace(node_list);
         }
 
         Ok(())
     }
 
-    async fn run(&mut self, interval: Duration, token: CancellationToken) {
+    pub async fn run(mut self, interval: Duration, token: CancellationToken) {
         let mut int = tokio::time::interval(interval);
         int.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         loop {
             if let Err(e) = self.refresh().await {
                 warn!("{self}: Refresh error: {e:#}");
-            };
+            }
 
             select! {
                 _ = int.tick() => {}
@@ -125,6 +131,7 @@ mod test {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use fqdn::fqdn;
+    use tokio_util::time::FutureExt;
 
     use super::*;
     use crate::routing::ic::route_provider::{FetchesNodes, RouteError};
@@ -134,17 +141,17 @@ mod test {
 
     #[async_trait]
     impl FetchesNodes for TestFetcher {
-        async fn fetch_nodes(&self) -> Result<NodeList, RouteError> {
+        async fn fetch_nodes(&self) -> Result<Vec<String>, RouteError> {
             let v = self.0.fetch_add(1, Ordering::SeqCst);
 
             if v == 0 {
-                Ok(NodeList::new(vec![fqdn!("foo.bar")]))
+                Ok(vec!["foo.bar".into(), ".".into()])
             } else if v == 1 {
                 Err(RouteError::UnableToFetchNodes("foo".into()))
             } else if v == 2 {
-                Ok(NodeList::new(vec![fqdn!("dead.beef"), fqdn!("bar.baz")]))
+                Ok(vec!["dead.beef".into(), "bar.baz".into()])
             } else {
-                Ok(NodeList::new(vec![fqdn!("bar.baz"), fqdn!("dead.beef")]))
+                Ok(vec!["bar.baz".into(), "dead.beef".into()])
             }
         }
     }
@@ -158,7 +165,7 @@ mod test {
         // Consume the initial value
         assert!(rx.borrow_and_update().is_empty());
 
-        // 1st run 1 node
+        // 1st run 1 node, "." is skipped
         manager.refresh().await.unwrap();
         rx.changed().await.unwrap();
         assert_eq!(
@@ -184,6 +191,12 @@ mod test {
 
         // 4th run data is the same, so shouldn't send over channel
         manager.refresh().await.unwrap();
+        assert!(
+            rx.changed()
+                .timeout(Duration::from_millis(50))
+                .await
+                .is_err()
+        );
         assert!(!rx.has_changed().unwrap());
         assert_eq!(
             rx.borrow_and_update().clone(),
