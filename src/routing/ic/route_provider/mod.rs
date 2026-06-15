@@ -48,15 +48,15 @@ pub enum RouteError {
 pub struct HealthyNode {
     node: Arc<Node>,
     reliability: f64,
-    latency: f64,
+    latency_us: f64,
 }
 
 impl Display for HealthyNode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{}({:.2}/{:.2}s)",
-            self.node, self.reliability, self.latency
+            "{}({:.2}/{:.2}us)",
+            self.node, self.reliability, self.latency_us
         )
     }
 }
@@ -178,7 +178,10 @@ pub async fn setup_route_provider(
     http_client: Arc<dyn ClientHttp<Full<Bytes>>>,
     http_service: Arc<dyn HttpService>,
 ) -> anyhow::Result<Arc<dyn RouteProvider>> {
-    let health_checker = Arc::new(HttpHealthChecker::new(http_client.clone()));
+    let health_checker = Arc::new(HttpHealthChecker::new(
+        http_client.clone(),
+        cli.ic.ic_discovery_health_check_timeout,
+    ));
 
     let route_provider = if cli.ic.ic_use_discovery {
         let root_key = if let Some(v) = &cli.ic.ic_root_key {
@@ -200,10 +203,10 @@ pub async fn setup_route_provider(
             health_checker,
             |x| Ok(Arc::new(AgentFetcher::new(x, http_service, root_key)?)),
             cli.ic.ic_use_k_top_api_nodes,
-            0.5,
-            0.9,
-            Duration::from_mins(10),
-            Duration::from_secs(1),
+            cli.ic.ic_discovery_ewma_alpha,
+            cli.ic.ic_discovery_reliability_weight,
+            cli.ic.ic_discovery_node_fetch_interval,
+            cli.ic.ic_discovery_health_check_interval,
             cli.ic.ic_discovery_idle_interval,
         )? as Arc<dyn RouteProvider>
     } else {

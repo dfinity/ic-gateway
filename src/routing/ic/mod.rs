@@ -6,7 +6,7 @@ pub mod http_service;
 pub mod route_provider;
 pub mod routing_table_manager;
 
-use std::{fs, sync::Arc};
+use std::sync::Arc;
 
 use anyhow::{Context, Error};
 use bytes::Bytes;
@@ -127,7 +127,9 @@ pub async fn create_agent(
         .context("unable to build Agent")?;
 
     if let Some(v) = &cli.ic.ic_root_key {
-        let key = fs::read(v).context("unable to read IC root key")?;
+        let key = tokio::fs::read(v)
+            .await
+            .context("unable to read IC root key")?;
         agent.set_root_key(key);
     } else if cli.ic.ic_unsafe_root_key_fetch {
         warn!("Fetching IC root key (UNSAFE)");

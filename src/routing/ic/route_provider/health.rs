@@ -20,7 +20,7 @@ use tokio::{
     task::JoinHandle,
     time::Interval,
 };
-use tokio_util::sync::CancellationToken;
+use tokio_util::{sync::CancellationToken, time::FutureExt};
 use tracing::{info, warn};
 
 use crate::routing::ic::route_provider::{
@@ -30,6 +30,7 @@ use crate::routing::ic::route_provider::{
 #[derive(Debug, new)]
 pub struct HttpHealthChecker {
     client: Arc<dyn ClientHttp<Full<Bytes>>>,
+    timeout: Duration,
 }
 
 impl Display for HttpHealthChecker {
@@ -49,16 +50,21 @@ impl ChecksHealth for HttpHealthChecker {
             .unwrap();
 
         let start = Instant::now();
-        let resp = self.client.execute(req).await;
+        let resp = self.client.execute(req).timeout(self.timeout).await;
         let latency = start.elapsed();
 
         let healthy = match resp {
-            Err(e) => {
+            Err(_) => {
+                info!("{self}: {node}: Health check failed: timed out");
+                false
+            }
+
+            Ok(Err(e)) => {
                 info!("{self}: {node}: Health check failed: {e:#}");
                 false
             }
 
-            Ok(v) => {
+            Ok(Ok(v)) => {
                 if v.status().is_success() {
                     true
                 } else {
@@ -121,7 +127,7 @@ pub struct NodeState {
     node: Arc<Node>,
     healthy: Option<bool>,
     reliability: EWMA,
-    latency: EWMA,
+    latency_us: EWMA,
     token: CancellationToken,
     handle: JoinHandle<()>,
 }
@@ -194,7 +200,7 @@ impl HealthCheckManager {
             node: node.clone(),
             healthy: None,
             reliability: EWMA::new(self.ewma_alpha),
-            latency: EWMA::new(self.ewma_alpha),
+            latency_us: EWMA::new(self.ewma_alpha),
             token,
             handle,
         };
@@ -258,7 +264,7 @@ impl HealthCheckManager {
                 x.healthy.is_some_and(|x| x).then_some(HealthyNode {
                     node: x.node.clone(),
                     reliability: x.reliability.get().unwrap_or(0.0),
-                    latency: x.latency.get().unwrap_or(f64::MAX),
+                    latency_us: x.latency_us.get().unwrap_or(f64::MAX),
                 })
             })
             .collect();
@@ -268,6 +274,7 @@ impl HealthCheckManager {
         self.idle_interval.reset();
     }
 
+    #[allow(clippy::cast_precision_loss)]
     fn update_node_state(&mut self, node: &Arc<Node>, status: &HealthCheckResult) -> bool {
         // Ignore messages from missing nodes (might be buffered from actors that are stopped already)
         let Some(state) = self.nodes.get_mut(&node.hostname) else {
@@ -278,7 +285,7 @@ impl HealthCheckManager {
 
         state.healthy = Some(status.healthy);
         state.reliability.add(f64::from(status.healthy));
-        state.latency.add(status.latency.as_secs_f64());
+        state.latency_us.add(status.latency.as_micros() as f64);
 
         state_changed
     }

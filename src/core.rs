@@ -123,18 +123,25 @@ pub async fn main(
 
     http_client_opts.tls_config = Some(tls_config);
 
-    // Create route provider
+    // Reqwest-based HTTP client
+    let http_client = Arc::new(bnhttp::ReqwestClient::new(
+        http_client_opts.clone(),
+        Some(dns_resolver.clone()),
+    )?);
+
+    // Simple Hyper-based HTTP client & an HTTP-service for the Agents backed by it.
+    // Used by lower-load tasks like RouteProvider
     let http_client_hyper = Arc::new(bnhttp::HyperClient::new(
         http_client_opts.clone(),
         dns_resolver.clone(),
     ));
 
-    // HTTP service for the agents
     let http_service = Arc::new(AgentHttpService::new(
         http_client_hyper.clone(),
         cli.ic.ic_request_retry_interval,
     ));
 
+    // Create route provider
     let route_provider = setup_route_provider(cli, http_client_hyper, http_service.clone()).await?;
     health_manager.add(Arc::new(RouteProviderWrapper::new(route_provider.clone())));
 
@@ -146,11 +153,7 @@ pub async fn main(
     let ic_agent_resolver = create_agent(cli, http_service, route_provider.clone()).await?;
     let api_bn_resolver = ApiBnResolver::new(dns_resolver.clone(), ic_agent_resolver);
 
-    let http_client = Arc::new(bnhttp::ReqwestClient::new(
-        http_client_opts.clone(),
-        Some(dns_resolver.clone()),
-    )?);
-
+    // Least-load Hyper-based HTTP Client
     let http_client_hyper_ll = Arc::new(bnhttp::HyperClientLeastLoaded::new(
         http_client_opts,
         api_bn_resolver.clone(),

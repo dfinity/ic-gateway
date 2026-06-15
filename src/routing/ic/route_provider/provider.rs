@@ -349,9 +349,10 @@ mod test {
                 .or_insert(1);
         }
 
-        // Make sure that we get the distribution according to the weights
-        assert_eq!(hits["https://node3/"], 352);
-        assert_eq!(hits["https://node2/"], 332);
-        assert_eq!(hits["https://node1/"], 316);
+        // Make sure that we get the distribution according to the weights.
+        // Should be roughly 3:2:1 ratio.
+        assert_eq!(hits["https://node3/"], 510);
+        assert_eq!(hits["https://node2/"], 330);
+        assert_eq!(hits["https://node1/"], 160);
     }
 }

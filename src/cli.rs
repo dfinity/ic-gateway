@@ -157,14 +157,36 @@ pub struct Ic {
     #[clap(env, long)]
     pub ic_use_discovery: bool,
 
-    /// In dynamic routing mode, limits routing to the top K API nodes with best score (ranked by latency and availability).
+    /// Dynamic routing mode: limits routing to the K top-scored API nodes (ranked by latency and availability).
     /// If not set, routing uses all healthy API nodes.
     #[clap(env, long)]
     pub ic_use_k_top_api_nodes: Option<usize>,
 
-    /// Dynamic routing mode: how frequently to update healthy node list when no health state changes occurs.
+    /// Dynamic routing mode: how frequently to update healthy node list when no health state changes occur.
     #[clap(env, long, default_value = "5s", value_parser = parse_duration)]
     pub ic_discovery_idle_interval: Duration,
+
+    /// Dynamic routing mode: how frequently to health check each node
+    #[clap(env, long, default_value = "1s", value_parser = parse_duration)]
+    pub ic_discovery_health_check_interval: Duration,
+
+    /// Dynamic routing mode: health check timeout
+    #[clap(env, long, default_value = "3s", value_parser = parse_duration)]
+    pub ic_discovery_health_check_timeout: Duration,
+
+    /// Dynamic routing mode: how frequently to fetch a fresh list of API BNs
+    #[clap(env, long, default_value = "5m", value_parser = parse_duration)]
+    pub ic_discovery_node_fetch_interval: Duration,
+
+    /// Dynamic routing mode: EWMA alpha parameter, should be between 0.0 and 1.0.
+    /// The lower the value - the higher recent observations are valued over older ones.
+    #[clap(env, long, default_value = "0.5")]
+    pub ic_discovery_ewma_alpha: f64,
+
+    /// Dynamic routing mode: weight of the reliability metric, relative to the latency,
+    /// should be between 0.0 and 1.0. The weight of the latency metric will be (1.0 - reliability_weight).
+    #[clap(env, long, default_value = "0.9")]
+    pub ic_discovery_reliability_weight: f64,
 
     /// Path to an IC root key. Must be DER-encoded.
     /// If not specified - hardcoded or fetched (see `--ic-unsafe-root-key-fetch`) will be used.

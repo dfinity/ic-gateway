@@ -1,6 +1,7 @@
 use std::{
     fmt::{Debug, Display},
     sync::Arc,
+    vec,
 };
 
 use arc_swap::ArcSwapOption;
@@ -16,6 +17,15 @@ use crate::routing::ic::route_provider::{HealthyNode, wrr::Wrr};
 pub struct RouteSnapshot {
     pub urls: Vec<Url>,
     pub wrr: Wrr<Url>,
+}
+
+impl RouteSnapshot {
+    pub fn new(items: Vec<(usize, Url)>) -> Self {
+        Self {
+            urls: items.iter().map(|x| x.1.clone()).collect(),
+            wrr: Wrr::new(items),
+        }
+    }
 }
 
 /// A single route & its weight
@@ -58,48 +68,91 @@ impl Display for RoutesManager {
     }
 }
 
+/// Calculates standard deviation
+#[allow(clippy::cast_precision_loss)]
+fn calc_stddev(data: impl ExactSizeIterator<Item = f64> + Clone) -> Option<f64> {
+    let len = data.len();
+    if len < 2 {
+        return None; // Standard deviation requires at least two data points
+    }
+
+    let mean: f64 = data.clone().sum::<f64>() / len as f64;
+
+    let variance: f64 = data
+        .map(|x| {
+            let diff = x - mean;
+            diff * diff
+        })
+        .sum::<f64>()
+        / (len - 1) as f64;
+
+    Some(variance.sqrt())
+}
+
 impl RoutesManager {
     #[allow(clippy::cast_sign_loss)]
     #[allow(clippy::cast_possible_truncation)]
+    #[allow(clippy::cast_precision_loss)]
     fn update_routes(&self, mut list: Vec<HealthyNode>) {
         if list.is_empty() {
             self.routes.store(None);
             return;
         }
 
-        let min_latency = list
-            .iter()
-            .map(|x| x.latency)
-            .reduce(f64::min)
-            .unwrap_or(0.0);
+        // Scale the latency into the 0.0..1.0 range
         let max_latency = list
             .iter()
-            .map(|x| x.latency)
+            .map(|x| x.latency_us)
             .reduce(f64::max)
             .unwrap_or(f64::MAX);
 
+        for x in &mut list {
+            x.latency_us /= max_latency;
+        }
+
+        // Compute the stddev
+        let (Some(stddev_latency), Some(stddev_reliability)) = (
+            calc_stddev(list.iter().map(|x| x.latency_us)),
+            calc_stddev(list.iter().map(|x| x.reliability)),
+        ) else {
+            // If we can't calculate stddev, then there's exactly one node in the list
+            // (case with zero nodes is handled earlier) - just use it.
+            let snapshot = RouteSnapshot::new(vec![(1, list[0].node.url.clone())]);
+            self.routes.store(Some(Arc::new(snapshot)));
+            return;
+        };
+
+        // Calculate dynamic weights
+        let reliability_weight = self.reliability_weight * stddev_reliability;
+        let latency_weight = (1.0 - self.reliability_weight) * stddev_latency;
+
+        for x in &mut list {
+            // Compute weighted score while inverting the reliability so that it follows the same
+            // direction as latency (lower - better).
+            // Store the score in `reliability` to avoid allocating a separate vector.
+            x.reliability =
+                (1.0 - x.reliability).mul_add(reliability_weight, x.latency_us * latency_weight);
+        }
+
+        // Sum-normalize the scores & compute the weight in 0..100 range.
+        let score_sum = list.iter().map(|x| x.reliability).sum::<f64>();
         let mut routes = Vec::with_capacity(list.len());
         for x in &mut list {
-            // Normalize latency to 0.0..1.0 range
-            if max_latency - min_latency > 0.0 {
-                x.latency = (x.latency - min_latency) / (max_latency - min_latency);
-            }
-
-            // Compute weighted score.
-            // Invert reliability so that 0.0 is the most reliable - to match latency.
-            let score = self.reliability_weight.mul_add(
-                1.0 - x.reliability,
-                (1.0 - self.reliability_weight) * x.latency,
-            );
-
-            // Convert score to an integer weight and scale it to the inverted 0..100 range.
-            // That is - the higher the weight the more preffered the route is.
-            let weight = 100 - (score * 100.0) as usize;
+            let weight = ((x.reliability / score_sum) * 100.0) as usize;
 
             routes.push(Route {
                 url: x.node.url.clone(),
                 weight,
             });
+        }
+
+        // Invert the weights so that the node with the better score gets the highest weight
+        let (min_weight, max_weight) = (
+            routes.iter().map(|x| x.weight).min().unwrap_or(0),
+            routes.iter().map(|x| x.weight).max().unwrap_or(usize::MAX),
+        );
+        for x in &mut routes {
+            x.weight = max_weight + min_weight - x.weight;
         }
 
         // Sort routes by weight in descending order
@@ -111,18 +164,9 @@ impl RoutesManager {
         }
 
         // Create & store the snapshot
-        let urls = routes.clone().into_iter().map(|x| x.url).collect();
-        let urls_weights = routes
-            .clone()
-            .into_iter()
-            .map(|x| (x.weight, x.url))
-            .collect();
-
-        let snapshot = RouteSnapshot {
-            urls,
-            wrr: Wrr::new(urls_weights),
-        };
-
+        info!("{self}: New route snapshot stored: {routes:?}");
+        let urls_weights = routes.into_iter().map(|x| (x.weight, x.url)).collect();
+        let snapshot = RouteSnapshot::new(urls_weights);
         self.routes.store(Some(Arc::new(snapshot)));
     }
 
@@ -165,27 +209,27 @@ mod test {
             HealthyNode {
                 node: Arc::new(Node::new(fqdn!("node1"))),
                 reliability: 1.0,
-                latency: 0.1,
+                latency_us: 100.0,
             },
             HealthyNode {
                 node: Arc::new(Node::new(fqdn!("node2"))),
                 reliability: 0.8,
-                latency: 0.11,
+                latency_us: 110.0,
             },
             HealthyNode {
                 node: Arc::new(Node::new(fqdn!("node3"))),
                 reliability: 0.9,
-                latency: 0.12,
+                latency_us: 120.0,
             },
             HealthyNode {
                 node: Arc::new(Node::new(fqdn!("node4"))),
                 reliability: 1.0,
-                latency: 0.15,
+                latency_us: 130.0,
             },
             HealthyNode {
                 node: Arc::new(Node::new(fqdn!("node5"))),
                 reliability: 1.0,
-                latency: 0.5,
+                latency_us: 500.0,
             },
         ];
 
@@ -240,11 +284,43 @@ mod test {
                         "https://node1/".parse().unwrap(),
                         "https://node4/".parse().unwrap(),
                         "https://node3/".parse().unwrap(),
-                        "https://node5/".parse().unwrap(),
                         "https://node2/".parse().unwrap(),
+                        "https://node5/".parse().unwrap(),
                     ]
                 );
 
+                break;
+            }
+
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+
+        // Check a single node edge case
+        routes.store(None);
+
+        tx.send_replace(vec![HealthyNode {
+            node: Arc::new(Node::new(fqdn!("lonely"))),
+            reliability: 1.0,
+            latency_us: 100.0,
+        }]);
+
+        // Poll for routes publishing
+        loop {
+            if let Some(v) = routes.load_full() {
+                assert_eq!(*v.urls, vec!["https://lonely/".parse().unwrap(),]);
+
+                break;
+            }
+
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+
+        // Check the edge case when there are no healhy nodes
+        tx.send_replace(vec![]);
+
+        // Poll for routes publishing - should become None
+        loop {
+            if routes.load_full().is_none() {
                 break;
             }
 

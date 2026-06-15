@@ -87,18 +87,19 @@ impl FetcherManager {
         }));
 
         info!(
-            "{self}: Got a list of API BNs ({} invalid): {node_list:?}",
+            "{self}: Got a list of API BNs ({}, {} invalid skipped): {node_list:?}",
+            node_list.len(),
             nodes.len() - node_list.len()
         );
 
         // Check if the new list is different
         if self.snapshot != node_list {
             warn!(
-                "{self}: List of API BNs changed (old: {}, new: {node_list}), publishing",
+                "{self}: List of API BNs changed: {} nodes, (old: {}, new: {node_list}), publishing",
+                node_list.len(),
                 self.snapshot,
             );
 
-            warn!("{self}: New node list: {node_list}");
             self.snapshot.clone_from(&node_list);
             self.tx.send_replace(node_list);
         }
@@ -107,12 +108,17 @@ impl FetcherManager {
     }
 
     pub async fn run(mut self, interval: Duration, token: CancellationToken) {
-        let mut int = tokio::time::interval(interval);
+        // Run the fetches aggressively until bootstrapped
+        let mut int = tokio::time::interval(Duration::from_secs(1));
         int.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         loop {
             if let Err(e) = self.refresh().await {
                 warn!("{self}: Refresh error: {e:#}");
+            } else if int.period() != interval {
+                // We've got our first successful fetch, use normal interval now
+                int = tokio::time::interval(interval);
+                int.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             }
 
             select! {
