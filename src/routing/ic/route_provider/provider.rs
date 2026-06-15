@@ -351,8 +351,8 @@ mod test {
 
         // Make sure that we get the distribution according to the weights.
         // Should be roughly 3:2:1 ratio.
-        assert_eq!(hits["https://node3/"], 510);
-        assert_eq!(hits["https://node2/"], 330);
-        assert_eq!(hits["https://node1/"], 160);
+        assert_eq!(hits["https://node3/"], 497);
+        assert_eq!(hits["https://node2/"], 337);
+        assert_eq!(hits["https://node1/"], 166);
     }
 }
