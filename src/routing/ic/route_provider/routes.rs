@@ -100,11 +100,15 @@ impl RoutesManager {
         }
 
         // Scale the latency into the 0.0..1.0 range
-        let max_latency = list
+        let mut max_latency = list
             .iter()
             .map(|x| x.latency_us)
             .reduce(f64::max)
             .unwrap_or(f64::MAX);
+
+        if !max_latency.is_finite() || max_latency <= 0.0 {
+            max_latency = 1.0;
+        }
 
         for x in &mut list {
             x.latency_us /= max_latency;
@@ -138,7 +142,12 @@ impl RoutesManager {
         let score_sum = list.iter().map(|x| x.reliability).sum::<f64>();
         let mut routes = Vec::with_capacity(list.len());
         for x in &mut list {
-            let weight = ((x.reliability / score_sum) * 100.0) as usize;
+            let weight = if score_sum.is_finite() && score_sum > 0.0 {
+                ((x.reliability / score_sum) * 100.0).round().max(1.0) as usize
+            } else {
+                // Just use constant weight if all scores are equal (sum is zero)
+                1
+            };
 
             routes.push(Route {
                 url: x.node.url.clone(),

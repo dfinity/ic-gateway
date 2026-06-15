@@ -41,6 +41,10 @@ pub struct Wrr<T> {
 
 impl<T> Wrr<T> {
     pub fn new(items: Vec<(usize, T)>) -> Self {
+        // This should never happen in our case since when there are no healthy nodes we publish None
+        // and do not construct Wrr
+        assert!(!items.is_empty(), "Wrr::new requires at least one item");
+
         let mut gcd = 0;
         let mut max_weight = 0;
 
