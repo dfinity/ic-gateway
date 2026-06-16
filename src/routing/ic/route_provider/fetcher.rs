@@ -108,7 +108,8 @@ impl FetcherManager {
     }
 
     pub async fn run(mut self, interval: Duration, token: CancellationToken) {
-        // Run the fetches aggressively until bootstrapped
+        // Run the fetches aggressively until bootstrapped.
+        // This usually takes only a few seconds to succeed.
         let mut int = tokio::time::interval(Duration::from_secs(1));
         int.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 

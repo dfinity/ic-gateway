@@ -230,7 +230,7 @@ impl HealthCheckManager {
             to_stop.len()
         );
 
-        // If we removed some nodes & didn't add anything - trigger an implicit update of healthy nodes.
+        // If we removed some nodes & didn't add anything - trigger an explicit update of healthy nodes.
         // Otherwise removed nodes will be still available until some other node changes health status.
         // If some nodes were added - then the update will come in order once their healthchecks are done.
         if !to_stop.is_empty() && to_start.is_empty() {
@@ -269,11 +269,14 @@ impl HealthCheckManager {
             })
             .collect();
 
-        self.healthy_nodes_tx.send_replace(healthy_nodes);
         // Reset the idle timer so that we don't update too soon again
         self.idle_interval.reset();
+
+        self.healthy_nodes_tx.send_replace(healthy_nodes);
     }
 
+    /// Update the state of the given node.
+    /// Returns whether the state has changed.
     #[allow(clippy::cast_precision_loss)]
     fn update_node_state(&mut self, node: &Arc<Node>, status: &HealthCheckResult) -> bool {
         // Ignore messages from missing nodes (might be buffered from actors that are stopped already)
@@ -285,7 +288,13 @@ impl HealthCheckManager {
 
         state.healthy = Some(status.healthy);
         state.reliability.add(f64::from(status.healthy));
-        state.latency_us.add(status.latency.as_micros() as f64);
+
+        // Update the latency only if the node is healthy.
+        // Otherwise e.g. the request timeout that leads to a failed health check would
+        // impact the latency calculations in EWMA.
+        if status.healthy {
+            state.latency_us.add(status.latency.as_micros() as f64);
+        }
 
         state_changed
     }

@@ -55,8 +55,10 @@ impl Display for HealthyNode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{}({:.2}/{:.2}us)",
-            self.node, self.reliability, self.latency_us
+            "{}({:.2}/{:.2}ms)",
+            self.node,
+            self.reliability,
+            self.latency_us / 1000.0
         )
     }
 }
@@ -130,6 +132,7 @@ pub struct Node {
 impl Node {
     fn new(hostname: FQDN) -> Self {
         // SAFETY: This always succeeds for an FQDN if it is not empty
+        // (and this is checked separately)
         let url = format!("https://{hostname}").parse().unwrap();
         let uri_health = format!("https://{hostname}/health").parse().unwrap();
 

@@ -37,7 +37,7 @@ struct Route {
 
 impl Display for Route {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}({})", self.url.as_str(), self.weight)
+        write!(f, "{} ({})", self.url.as_str(), self.weight)
     }
 }
 
@@ -141,11 +141,12 @@ impl RoutesManager {
         // Sum-normalize the scores & compute the weight in 0..100 range.
         let score_sum = list.iter().map(|x| x.reliability).sum::<f64>();
         let mut routes = Vec::with_capacity(list.len());
-        for x in &mut list {
+        for x in list {
             let weight = if score_sum.is_finite() && score_sum > 0.0 {
                 ((x.reliability / score_sum) * 100.0).round().max(1.0) as usize
             } else {
-                // Just use constant weight if all scores are equal (sum is zero)
+                // Just use constant weight if all latencies/reliability scores are equal (sum is zero).
+                // Very unlikely case.
                 1
             };
 
