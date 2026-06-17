@@ -27,7 +27,7 @@ use crate::routing::ic::route_provider::{
     ChecksHealth, HealthCheckResult, HealthyNode, Node, NodeList,
 };
 
-#[derive(Debug, new)]
+#[derive(new)]
 pub struct HttpHealthChecker {
     client: Arc<dyn ClientHttp<Full<Bytes>>>,
     timeout: Duration,
@@ -36,6 +36,12 @@ pub struct HttpHealthChecker {
 impl Display for HttpHealthChecker {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "HttpHealthChecker")
+    }
+}
+
+impl Debug for HttpHealthChecker {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self}")
     }
 }
 
@@ -82,7 +88,7 @@ impl ChecksHealth for HttpHealthChecker {
 }
 
 /// Runs health checks against a single node and sends back the results
-#[derive(Debug, new)]
+#[derive(new)]
 pub struct HealthCheckActor {
     node: Arc<Node>,
     checker: Arc<dyn ChecksHealth>,
@@ -92,6 +98,12 @@ pub struct HealthCheckActor {
 impl Display for HealthCheckActor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "HealthCheckActor({})", self.node.hostname)
+    }
+}
+
+impl Debug for HealthCheckActor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self}")
     }
 }
 

@@ -56,15 +56,15 @@ pub struct RoutesManager {
     reliability_weight: f64,
 }
 
-impl Debug for RoutesManager {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{self}")
-    }
-}
-
 impl Display for RoutesManager {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "RoutesManager")
+    }
+}
+
+impl Debug for RoutesManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self}")
     }
 }
 

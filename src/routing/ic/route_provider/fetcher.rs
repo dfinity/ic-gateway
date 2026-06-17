@@ -1,4 +1,9 @@
-use std::{fmt::Display, str::FromStr, sync::Arc, time::Duration};
+use std::{
+    fmt::{Debug, Display},
+    str::FromStr,
+    sync::Arc,
+    time::Duration,
+};
 
 use anyhow::Context;
 use async_trait::async_trait;
@@ -55,7 +60,6 @@ impl FetchesNodes for AgentFetcher {
     }
 }
 
-#[derive(Debug)]
 pub struct FetcherManager {
     fetcher: Arc<dyn FetchesNodes>,
     tx: watch::Sender<NodeList>,
@@ -65,6 +69,12 @@ pub struct FetcherManager {
 impl Display for FetcherManager {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "FetcherManager")
+    }
+}
+
+impl Debug for FetcherManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self}")
     }
 }
 
@@ -82,7 +92,7 @@ impl FetcherManager {
 
         // Safeguard against a case when (for whatever reason) an empty node list is fetched.
         // If we remove all nodes, then we'll end up in a deadlock situation: we can't fetch a new (correct)
-        // list because there are no nodes anymore to handle the fetch request.
+        // list because there are no nodes anymore to handle the next fetch request.
         if nodes.is_empty() {
             return Err(RouteError::EmptyNodeList);
         }
