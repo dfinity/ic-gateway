@@ -80,6 +80,13 @@ impl FetcherManager {
     async fn refresh(&mut self) -> Result<(), RouteError> {
         let nodes = self.fetcher.fetch_nodes().await?;
 
+        // Safeguard against a case when (for whatever reason) an empty node list is fetched.
+        // If we remove all nodes, then we'll end up in a deadlock situation: we can't fetch a new (correct)
+        // list because there are no nodes anymore to handle the fetch request.
+        if nodes.is_empty() {
+            return Err(RouteError::EmptyNodeList);
+        }
+
         let node_list = NodeList::new(nodes.iter().filter_map(|x| {
             // Hostname should be a valid FQDN & have at least one label
             let hostname = FQDN::from_str(x).ok()?;
@@ -138,7 +145,6 @@ mod test {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use fqdn::fqdn;
-    use tokio_util::time::FutureExt;
 
     use super::*;
     use crate::routing::ic::route_provider::{FetchesNodes, RouteError};
@@ -157,8 +163,10 @@ mod test {
                 Err(RouteError::UnableToFetchNodes("foo".into()))
             } else if v == 2 {
                 Ok(vec!["dead.beef".into(), "bar.baz".into()])
-            } else {
+            } else if v == 3 {
                 Ok(vec!["bar.baz".into(), "dead.beef".into()])
+            } else {
+                Ok(vec![])
             }
         }
     }
@@ -198,12 +206,15 @@ mod test {
 
         // 4th run data is the same, so shouldn't send over channel
         manager.refresh().await.unwrap();
-        assert!(
-            rx.changed()
-                .timeout(Duration::from_millis(50))
-                .await
-                .is_err()
+        assert!(!rx.has_changed().unwrap());
+        assert_eq!(
+            rx.borrow_and_update().clone(),
+            NodeList::new(vec![fqdn!("bar.baz"), fqdn!("dead.beef")])
         );
+
+        // 5th run empty list, should fail the refresh.
+        // data should remain the same.
+        assert!(manager.refresh().await.is_err());
         assert!(!rx.has_changed().unwrap());
         assert_eq!(
             rx.borrow_and_update().clone(),

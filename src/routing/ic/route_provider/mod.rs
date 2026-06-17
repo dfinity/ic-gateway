@@ -39,6 +39,8 @@ pub mod wrr;
 pub enum RouteError {
     #[error("Unable to fetch nodes: {0}")]
     UnableToFetchNodes(String),
+    #[error("Empty node list received")]
+    EmptyNodeList,
     #[error("{0}")]
     Other(#[from] anyhow::Error),
 }
