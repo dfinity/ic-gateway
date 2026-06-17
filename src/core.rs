@@ -142,7 +142,8 @@ pub async fn main(
     ));
 
     // Create route provider
-    let route_provider = setup_route_provider(cli, http_client_hyper, http_service.clone()).await?;
+    let (route_provider, dynamic_route_provider) =
+        setup_route_provider(cli, http_client_hyper, http_service.clone()).await?;
     health_manager.add(Arc::new(RouteProviderWrapper::new(route_provider.clone())));
 
     // Create a separate Agent to use solely with Resolver.
@@ -417,6 +418,10 @@ pub async fn main(
 
     warn!("Shutdown signal received, cleaning up");
     tasks.stop().await;
+
+    if let Some(v) = &dynamic_route_provider {
+        v.stop().await;
+    }
 
     // Vector should stop last to ensure that all requests are finished & flushed
     if let Some(v) = vector_http {

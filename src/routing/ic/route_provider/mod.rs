@@ -180,13 +180,13 @@ pub async fn setup_route_provider(
     cli: &Cli,
     http_client: Arc<dyn ClientHttp<Full<Bytes>>>,
     http_service: Arc<dyn HttpService>,
-) -> anyhow::Result<Arc<dyn RouteProvider>> {
+) -> anyhow::Result<(Arc<dyn RouteProvider>, Option<Arc<DynamicRouteProvider>>)> {
     let health_checker = Arc::new(HttpHealthChecker::new(
         http_client.clone(),
         cli.ic.ic_discovery_health_check_timeout,
     ));
 
-    let route_provider = if cli.ic.ic_use_discovery {
+    if cli.ic.ic_use_discovery {
         let root_key = if let Some(v) = &cli.ic.ic_root_key {
             Some(fs::read(v).await.context("unable to read IC root key")?)
         } else {
@@ -201,7 +201,7 @@ pub async fn setup_route_provider(
             .map(|x| FQDN::from_ascii_str(x.authority()))
             .collect::<Result<Vec<_>, _>>()?;
 
-        DynamicRouteProvider::new(
+        let rp = DynamicRouteProvider::new(
             seed_list,
             health_checker,
             |x| Ok(Arc::new(AgentFetcher::new(x, http_service, root_key)?)),
@@ -211,12 +211,15 @@ pub async fn setup_route_provider(
             cli.ic.ic_discovery_node_fetch_interval,
             cli.ic.ic_discovery_health_check_interval,
             cli.ic.ic_discovery_idle_interval,
-        )? as Arc<dyn RouteProvider>
-    } else {
-        Arc::new(RoundRobinRouteProvider::new(cli.ic.ic_url.clone())?)
-    };
+        )?;
 
-    Ok(route_provider)
+        Ok((rp.clone() as Arc<dyn RouteProvider>, Some(rp)))
+    } else {
+        Ok((
+            Arc::new(RoundRobinRouteProvider::new(cli.ic.ic_url.clone())?),
+            None,
+        ))
+    }
 }
 
 /// Provides Healthy trait for the `RouteProvider`

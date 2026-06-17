@@ -160,12 +160,12 @@ impl DynamicRouteProvider {
 
         Ok(route_provider)
     }
-}
 
-impl Drop for DynamicRouteProvider {
-    fn drop(&mut self) {
+    /// Tells all actors to stop & waits for them to finish
+    pub async fn stop(&self) {
         self.token.cancel();
         self.tracker.close();
+        self.tracker.wait().await;
     }
 }
 
