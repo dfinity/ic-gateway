@@ -394,7 +394,7 @@ pub async fn main(
 
     // Setup metrics
     if let Some(addr) = cli.metrics.metrics_listen {
-        let router = metrics::setup(&registry, &mut tasks, route_provider.clone());
+        let router = metrics::setup(&registry, &mut tasks, route_provider);
         let mut opts = ServerOptions::from(&cli.http_server);
         opts.proxy_protocol_mode = cli.metrics.metrics_proxy_protocol_mode;
 
