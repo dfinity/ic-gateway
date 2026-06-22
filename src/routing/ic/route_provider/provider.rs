@@ -12,7 +12,7 @@ use ic_bn_lib::ic_agent::{
     AgentError,
     agent::route_provider::{RouteProvider, RoutesStats},
 };
-use prometheus::Registry;
+use prometheus::{IntCounterVec, Registry, register_int_counter_vec_with_registry};
 use tokio::{select, sync::watch};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::{info, warn};
@@ -24,6 +24,25 @@ use crate::routing::ic::route_provider::{
     health::HealthCheckManager,
     routes::{RouteSnapshot, RoutesManager},
 };
+
+#[derive(Clone)]
+pub struct Metrics {
+    nodes_picked: IntCounterVec,
+}
+
+impl Metrics {
+    pub fn new(registry: &Registry) -> Self {
+        Self {
+            nodes_picked: register_int_counter_vec_with_registry!(
+                format!("route_provider_nodes_picked"),
+                format!("Counts the number of times each node was picked as a route"),
+                &["node"],
+                registry
+            )
+            .unwrap(),
+        }
+    }
+}
 
 /// Handles incoming updates of the node list on behalf of [`DynamicRouteProvider`]
 #[derive(new)]
@@ -73,6 +92,7 @@ pub struct DynamicRouteProvider {
     routes: Arc<ArcSwapOption<RouteSnapshot>>,
     token: CancellationToken,
     tracker: TaskTracker,
+    metrics: Metrics,
 }
 
 impl Display for DynamicRouteProvider {
@@ -128,6 +148,7 @@ impl DynamicRouteProvider {
             routes: routes.clone(),
             token: token.clone(),
             tracker: tracker.clone(),
+            metrics: Metrics::new(registry),
         });
 
         // [`NodeList`] distribution channels - initialize with a seed list & mark it as changed to trigger updates
@@ -204,7 +225,14 @@ impl RouteProvider for DynamicRouteProvider {
             ));
         };
 
-        Ok(snapshot.wrr.next().clone())
+        let url = snapshot.wrr.next().clone();
+        let hostname = url.authority();
+        self.metrics
+            .nodes_picked
+            .with_label_values(&[hostname])
+            .inc();
+
+        Ok(url)
     }
 
     fn routes_stats(&self) -> RoutesStats {
