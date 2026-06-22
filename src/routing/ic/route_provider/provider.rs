@@ -12,6 +12,7 @@ use ic_bn_lib::ic_agent::{
     AgentError,
     agent::route_provider::{RouteProvider, RoutesStats},
 };
+use prometheus::Registry;
 use tokio::{select, sync::watch};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::{info, warn};
@@ -99,6 +100,7 @@ impl DynamicRouteProvider {
         node_fetch_interval: Duration,
         health_check_interval: Duration,
         idle_period: Duration,
+        registry: &Registry,
     ) -> Result<Arc<Self>, RouteError> {
         if seed_list.is_empty() {
             return Err(RouteError::Other(anyhow!("Seed list should not be empty")));
@@ -133,8 +135,11 @@ impl DynamicRouteProvider {
         node_list_rx.mark_changed();
 
         // Start node fetcher
-        let fetcher_manager =
-            FetcherManager::new(fetcher_factory(route_provider.clone())?, node_list_tx);
+        let fetcher_manager = FetcherManager::new(
+            fetcher_factory(route_provider.clone())?,
+            node_list_tx,
+            registry,
+        );
         tracker.spawn(fetcher_manager.run(node_fetch_interval, token.child_token()));
 
         // Start route provider manager
@@ -150,12 +155,18 @@ impl DynamicRouteProvider {
             node_list_rx,
             healthy_nodes_tx,
             ewma_alpha,
+            registry,
         );
         tracker.spawn(health_check_manager.run(token.child_token()));
 
         // Start route manager
-        let routes_manager =
-            RoutesManager::new(healthy_nodes_rx, routes, k_top, reliability_weight);
+        let routes_manager = RoutesManager::new(
+            healthy_nodes_rx,
+            routes,
+            k_top,
+            reliability_weight,
+            registry,
+        );
         tracker.spawn(routes_manager.run(token.child_token()));
 
         Ok(route_provider)
@@ -291,6 +302,7 @@ mod test {
             Duration::from_millis(1),
             Duration::from_millis(1),
             Duration::from_secs(5),
+            &Registry::new(),
         )
         .unwrap();
 

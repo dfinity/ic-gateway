@@ -12,8 +12,12 @@ use fqdn::FQDN;
 use futures::future::join_all;
 use http::Method;
 use http_body_util::Full;
-use ic_bn_lib::http::shed::ewma::EWMA;
+use ic_bn_lib::{BoolYesNo, http::shed::ewma::EWMA};
 use ic_bn_lib_common::traits::http::ClientHttp;
+use prometheus::{
+    HistogramVec, IntCounterVec, IntGauge, Registry, register_histogram_vec_with_registry,
+    register_int_counter_vec_with_registry, register_int_gauge_with_registry,
+};
 use tokio::{
     select,
     sync::{mpsc, watch},
@@ -23,9 +27,55 @@ use tokio::{
 use tokio_util::{sync::CancellationToken, time::FutureExt};
 use tracing::{info, warn};
 
-use crate::routing::ic::route_provider::{
-    ChecksHealth, HealthCheckResult, HealthyNode, Node, NodeList,
+use crate::{
+    metrics::HTTP_DURATION_BUCKETS,
+    routing::ic::route_provider::{ChecksHealth, HealthCheckResult, HealthyNode, Node, NodeList},
 };
+
+#[derive(Clone)]
+pub struct Metrics {
+    nodes: IntGauge,
+    healthy_nodes: IntGauge,
+    checks: IntCounterVec,
+    check_duration: HistogramVec,
+}
+
+impl Metrics {
+    pub fn new(registry: &Registry) -> Self {
+        Self {
+            nodes: register_int_gauge_with_registry!(
+                format!("route_provider_health_nodes"),
+                format!("How many nodes are there"),
+                registry
+            )
+            .unwrap(),
+
+            healthy_nodes: register_int_gauge_with_registry!(
+                format!("route_provider_health_healthy_nodes"),
+                format!("How many healthy nodes are there"),
+                registry
+            )
+            .unwrap(),
+
+            checks: register_int_counter_vec_with_registry!(
+                format!("route_provider_health_checks"),
+                format!("Counts number of health checks per node and their outcome"),
+                &["node", "success"],
+                registry
+            )
+            .unwrap(),
+
+            check_duration: register_histogram_vec_with_registry!(
+                format!("route_provider_health_check_duration"),
+                format!("Records the duration of node health checks in seconds"),
+                &["node", "success"],
+                HTTP_DURATION_BUCKETS.to_vec(),
+                registry
+            )
+            .unwrap(),
+        }
+    }
+}
 
 #[derive(new)]
 pub struct HttpHealthChecker {
@@ -93,6 +143,7 @@ pub struct HealthCheckActor {
     node: Arc<Node>,
     checker: Arc<dyn ChecksHealth>,
     tx: mpsc::Sender<(Arc<Node>, HealthCheckResult)>,
+    metrics: Metrics,
 }
 
 impl Display for HealthCheckActor {
@@ -108,6 +159,21 @@ impl Debug for HealthCheckActor {
 }
 
 impl HealthCheckActor {
+    async fn health_check(&self) {
+        let start = Instant::now();
+        let res = self.checker.health_check(&self.node).await;
+        let success = res.healthy.yesno();
+        self.metrics
+            .checks
+            .with_label_values(&[&self.node.name, success])
+            .inc();
+        self.metrics
+            .check_duration
+            .with_label_values(&[&self.node.name, success])
+            .observe(start.elapsed().as_secs_f64());
+        self.tx.send((self.node.clone(), res)).await.ok();
+    }
+
     async fn run(self, interval: Duration, token: CancellationToken) {
         let mut int = tokio::time::interval(interval);
         int.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -115,9 +181,7 @@ impl HealthCheckActor {
         info!("{self}: Started");
         loop {
             select! {
-                res = self.checker.health_check(&self.node) => {
-                    self.tx.send((self.node.clone(), res)).await.ok();
-                }
+                () = self.health_check() => {}
                 () = token.cancelled() => {
                     break;
                 }
@@ -162,6 +226,7 @@ pub struct HealthCheckManager {
     healthy_nodes_tx: watch::Sender<Vec<HealthyNode>>,
     idle_interval: Interval,
     ewma_alpha: f64,
+    metrics: Metrics,
 }
 
 impl Display for HealthCheckManager {
@@ -184,6 +249,7 @@ impl HealthCheckManager {
         node_list_rx: watch::Receiver<NodeList>,
         healthy_nodes_tx: watch::Sender<Vec<HealthyNode>>,
         ewma_alpha: f64,
+        registry: &Registry,
     ) -> Self {
         let (tx, rx) = mpsc::channel(1024);
         let mut idle_interval = tokio::time::interval(idle_period);
@@ -199,12 +265,18 @@ impl HealthCheckManager {
             healthy_nodes_tx,
             idle_interval,
             ewma_alpha,
+            metrics: Metrics::new(registry),
         }
     }
 
     fn start_actor(&mut self, node: FQDN) {
         let node = Arc::new(Node::new(node));
-        let actor = HealthCheckActor::new(node.clone(), self.checker.clone(), self.tx.clone());
+        let actor = HealthCheckActor::new(
+            node.clone(),
+            self.checker.clone(),
+            self.tx.clone(),
+            self.metrics.clone(),
+        );
         let token = CancellationToken::new();
         let handle = tokio::spawn(actor.run(self.check_interval, token.child_token()));
 
@@ -221,7 +293,10 @@ impl HealthCheckManager {
     }
 
     /// Starts & stops actors to match the new list of nodes
+    #[allow(clippy::cast_possible_wrap)]
     async fn update_node_list(&mut self, node_list: NodeList) {
+        self.metrics.nodes.set(node_list.len() as i64);
+
         let start = Instant::now();
         // First extract the nodes that are gone and we need to stop the actors
         let to_stop = self
@@ -262,6 +337,7 @@ impl HealthCheckManager {
     }
 
     /// Sends an updated list of healthy nodes to the receiver
+    #[allow(clippy::cast_possible_wrap)]
     fn send_healthy_nodes(&mut self) {
         // Do not send a list if we haven't yet got initial health check results
         // from all nodes
@@ -279,7 +355,9 @@ impl HealthCheckManager {
                     latency_us: x.latency_us.get().unwrap_or(f64::MAX),
                 })
             })
-            .collect();
+            .collect::<Vec<_>>();
+
+        self.metrics.healthy_nodes.set(healthy_nodes.len() as i64);
 
         // Reset the idle timer so that we don't update too soon again
         self.idle_interval.reset();
@@ -410,6 +488,7 @@ mod test {
             node_list_rx,
             healthy_nodes_tx,
             0.5,
+            &Registry::new(),
         );
         let token = CancellationToken::new();
         let handle = tokio::spawn(manager.run(token.child_token()));

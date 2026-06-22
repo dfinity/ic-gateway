@@ -2,24 +2,71 @@ use std::{
     fmt::{Debug, Display},
     str::FromStr,
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use anyhow::Context;
 use async_trait::async_trait;
 use fqdn::FQDN;
-use ic_bn_lib::ic_agent::{
-    Agent,
-    agent::{HttpService, route_provider::RouteProvider},
+use ic_bn_lib::{
+    BoolYesNo,
+    ic_agent::{
+        Agent,
+        agent::{HttpService, route_provider::RouteProvider},
+    },
+};
+use prometheus::{
+    HistogramVec, IntCounterVec, IntGauge, Registry, register_histogram_vec_with_registry,
+    register_int_counter_vec_with_registry, register_int_gauge_with_registry,
 };
 use tokio::{select, sync::watch};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
-use crate::routing::ic::{
-    MAINNET_ROOT_SUBNET_ID,
-    route_provider::{FetchesNodes, NodeList, RouteError},
+use crate::{
+    metrics::HTTP_DURATION_BUCKETS,
+    routing::ic::{
+        MAINNET_ROOT_SUBNET_ID,
+        route_provider::{FetchesNodes, NodeList, RouteError},
+    },
 };
+
+#[derive(Clone)]
+pub struct Metrics {
+    nodes: IntGauge,
+    fetches: IntCounterVec,
+    duration: HistogramVec,
+}
+
+impl Metrics {
+    pub fn new(registry: &Registry) -> Self {
+        Self {
+            nodes: register_int_gauge_with_registry!(
+                format!("route_provider_fetcher_nodes"),
+                format!("How many nodes were fetched"),
+                registry
+            )
+            .unwrap(),
+
+            fetches: register_int_counter_vec_with_registry!(
+                format!("route_provider_fetcher_count"),
+                format!("Counts number of fetches and their outcome"),
+                &["success"],
+                registry
+            )
+            .unwrap(),
+
+            duration: register_histogram_vec_with_registry!(
+                format!("route_provider_fetcher_duration"),
+                format!("Records the duration of node fetching in seconds"),
+                &["success"],
+                HTTP_DURATION_BUCKETS.to_vec(),
+                registry
+            )
+            .unwrap(),
+        }
+    }
+}
 
 /// Fetches a list of API BN nodes using an IC Agent
 #[derive(Debug)]
@@ -64,6 +111,7 @@ pub struct FetcherManager {
     fetcher: Arc<dyn FetchesNodes>,
     tx: watch::Sender<NodeList>,
     snapshot: NodeList,
+    metrics: Metrics,
 }
 
 impl Display for FetcherManager {
@@ -79,16 +127,33 @@ impl Debug for FetcherManager {
 }
 
 impl FetcherManager {
-    pub fn new(fetcher: Arc<dyn FetchesNodes>, tx: watch::Sender<NodeList>) -> Self {
+    pub fn new(
+        fetcher: Arc<dyn FetchesNodes>,
+        tx: watch::Sender<NodeList>,
+        registry: &Registry,
+    ) -> Self {
         Self {
             fetcher,
             tx,
             snapshot: NodeList::default(),
+            metrics: Metrics::new(registry),
         }
     }
 
+    #[allow(clippy::cast_possible_wrap)]
     async fn refresh(&mut self) -> Result<(), RouteError> {
-        let nodes = self.fetcher.fetch_nodes().await?;
+        let start = Instant::now();
+        let res = self.fetcher.fetch_nodes().await;
+        let success = res.is_ok().yesno();
+
+        self.metrics
+            .duration
+            .with_label_values(&[success])
+            .observe(start.elapsed().as_secs_f64());
+        self.metrics.fetches.with_label_values(&[success]).inc();
+
+        let nodes = res?;
+        self.metrics.nodes.set(nodes.len() as i64);
 
         // Safeguard against a case when (for whatever reason) an empty node list is fetched.
         // If we remove all nodes, then we'll end up in a deadlock situation: we can't fetch a new (correct)
@@ -185,7 +250,7 @@ mod test {
     async fn test_fetcher() {
         let fetcher = TestFetcher::default();
         let (tx, mut rx) = watch::channel(NodeList::new(vec![]));
-        let mut manager = FetcherManager::new(Arc::new(fetcher), tx);
+        let mut manager = FetcherManager::new(Arc::new(fetcher), tx, &Registry::new());
 
         // Consume the initial value
         assert!(rx.borrow_and_update().is_empty());

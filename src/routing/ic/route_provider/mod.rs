@@ -19,6 +19,7 @@ use ic_bn_lib::ic_agent::agent::{
     route_provider::{RoundRobinRouteProvider, RouteProvider},
 };
 use ic_bn_lib_common::traits::{Healthy, http::ClientHttp};
+use prometheus::Registry;
 use tokio::fs;
 use url::Url;
 
@@ -126,6 +127,7 @@ impl IntoIterator for NodeList {
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct Node {
+    name: String,
     hostname: FQDN,
     url: Url,
     uri_health: Uri,
@@ -139,6 +141,7 @@ impl Node {
         let uri_health = format!("https://{hostname}/health").parse().unwrap();
 
         Self {
+            name: hostname.to_string(),
             hostname,
             url,
             uri_health,
@@ -182,6 +185,7 @@ pub async fn setup_route_provider(
     cli: &Cli,
     http_client: Arc<dyn ClientHttp<Full<Bytes>>>,
     http_service: Arc<dyn HttpService>,
+    registry: &Registry,
 ) -> anyhow::Result<(Arc<dyn RouteProvider>, Option<Arc<DynamicRouteProvider>>)> {
     let health_checker = Arc::new(HttpHealthChecker::new(
         http_client.clone(),
@@ -213,6 +217,7 @@ pub async fn setup_route_provider(
             cli.ic.ic_discovery_node_fetch_interval,
             cli.ic.ic_discovery_health_check_interval,
             cli.ic.ic_discovery_idle_interval,
+            registry,
         )?;
 
         Ok((rp.clone() as Arc<dyn RouteProvider>, Some(rp)))

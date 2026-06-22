@@ -143,7 +143,7 @@ pub async fn main(
 
     // Create route provider
     let (route_provider, dynamic_route_provider) =
-        setup_route_provider(cli, http_client_hyper, http_service.clone()).await?;
+        setup_route_provider(cli, http_client_hyper, http_service.clone(), &registry).await?;
     health_manager.add(Arc::new(RouteProviderWrapper::new(route_provider.clone())));
 
     // Create a separate Agent to use solely with Resolver.
@@ -276,6 +276,7 @@ pub async fn main(
         ic_agent.clone(),
         MAINNET_ROOT_SUBNET_ID,
         cli.ic.ic_routing_table_poll_interval,
+        &registry,
     ));
     health_manager.add(routing_table_manager.clone());
     tasks.add("subnets_info_fetcher", routing_table_manager.clone());
