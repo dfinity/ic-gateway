@@ -15,8 +15,9 @@ use http_body_util::Full;
 use ic_bn_lib::{BoolYesNo, http::shed::ewma::EWMA};
 use ic_bn_lib_common::traits::http::ClientHttp;
 use prometheus::{
-    HistogramVec, IntCounterVec, IntGauge, Registry, register_histogram_vec_with_registry,
-    register_int_counter_vec_with_registry, register_int_gauge_with_registry,
+    HistogramVec, IntCounterVec, IntGauge, IntGaugeVec, Registry,
+    register_histogram_vec_with_registry, register_int_counter_vec_with_registry,
+    register_int_gauge_vec_with_registry, register_int_gauge_with_registry,
 };
 use tokio::{
     select,
@@ -36,6 +37,8 @@ use crate::{
 pub struct Metrics {
     nodes: IntGauge,
     healthy_nodes: IntGauge,
+    node_states: IntGaugeVec,
+    node_latencies: IntGaugeVec,
     checks: IntCounterVec,
     check_duration: HistogramVec,
 }
@@ -53,6 +56,22 @@ impl Metrics {
             healthy_nodes: register_int_gauge_with_registry!(
                 format!("route_provider_health_healthy_nodes"),
                 format!("How many healthy nodes are there"),
+                registry
+            )
+            .unwrap(),
+
+            node_states: register_int_gauge_vec_with_registry!(
+                format!("route_provider_health_node_states"),
+                format!("Per-node health states (1 - healthy, 0 - not)"),
+                &["node"],
+                registry
+            )
+            .unwrap(),
+
+            node_latencies: register_int_gauge_vec_with_registry!(
+                format!("route_provider_health_node_latencies"),
+                format!("Per-node latencies in msec"),
+                &["node"],
                 registry
             )
             .unwrap(),
@@ -324,6 +343,19 @@ impl HealthCheckManager {
             self.send_healthy_nodes();
         }
 
+        // Set the metrics to -1 to indicate that the node is gone.
+        // TODO: Create a process to clean the timeseries from the Registry.
+        for state in &to_stop {
+            self.metrics
+                .node_states
+                .with_label_values(&[&state.node.name])
+                .set(-1);
+            self.metrics
+                .node_latencies
+                .with_label_values(&[&state.node.name])
+                .set(-1);
+        }
+
         // Start & stop actors
         join_all(to_stop.into_iter().map(|x| x.stop_actor())).await;
         for node in to_start {
@@ -368,6 +400,7 @@ impl HealthCheckManager {
     /// Update the state of the given node.
     /// Returns whether the state has changed.
     #[allow(clippy::cast_precision_loss)]
+    #[allow(clippy::cast_possible_truncation)]
     fn update_node_state(&mut self, node: &Arc<Node>, status: &HealthCheckResult) -> bool {
         // Ignore messages from missing nodes (might be buffered from actors that are stopped already)
         let Some(state) = self.nodes.get_mut(&node.hostname) else {
@@ -379,11 +412,24 @@ impl HealthCheckManager {
         state.healthy = Some(status.healthy);
         state.reliability.add(f64::from(status.healthy));
 
+        self.metrics
+            .node_states
+            .with_label_values(&[&node.name])
+            .set(status.healthy.into());
+
         // Update the latency only if the node is healthy.
         // Otherwise e.g. the request timeout that leads to a failed health check would
         // impact the latency calculations in EWMA.
         if status.healthy {
             state.latency_us.add(status.latency.as_micros() as f64);
+
+            // Use EWMA value as a latency in the metric to show the actual latencies
+            // used in the route weight calculation, not the raw ones.
+            // SAFETY: since we already added a value above - this is guaranteed to unwrap
+            self.metrics
+                .node_latencies
+                .with_label_values(&[&node.name])
+                .set(state.latency_us.get().unwrap() as i64 / 1000);
         }
 
         state_changed
