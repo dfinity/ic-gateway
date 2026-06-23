@@ -202,6 +202,7 @@ impl FetcherManager {
                 // We've got our first successful fetch, use normal interval now
                 int = tokio::time::interval(interval);
                 int.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                int.reset();
             }
 
             select! {
