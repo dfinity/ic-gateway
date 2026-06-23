@@ -345,6 +345,7 @@ mod test {
         // Initially there should only be a single alive seed node,
         // while the fetcher is blocked by a semaphore.
         assert_eq!(urls, vec!["https://seed_node1/".parse().unwrap()]);
+        assert_eq!(rp.routes_stats(), RoutesStats::new(2, Some(1)));
 
         // Reset the state
         rp.node_list.store(None);
@@ -371,6 +372,7 @@ mod test {
                 "https://node1/".parse().unwrap()
             ]
         );
+        assert_eq!(rp.routes_stats(), RoutesStats::new(4, Some(3)));
 
         // Make sure we get requested number of routes
         assert_eq!(

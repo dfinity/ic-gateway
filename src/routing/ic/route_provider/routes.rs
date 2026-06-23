@@ -131,6 +131,7 @@ impl RoutesManager {
     fn update_routes(&self, mut list: Vec<HealthyNode>) {
         if list.is_empty() {
             self.routes.store(None);
+            self.metrics.active_nodes.set(0);
             return;
         }
 
