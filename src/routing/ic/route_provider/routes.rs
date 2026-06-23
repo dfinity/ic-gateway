@@ -5,13 +5,31 @@ use std::{
 };
 
 use arc_swap::ArcSwapOption;
-use derive_new::new;
+use prometheus::{IntGauge, Registry, register_int_gauge_with_registry};
 use tokio::{select, sync::watch};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 use url::Url;
 
 use crate::routing::ic::route_provider::{HealthyNode, wrr::Wrr};
+
+#[derive(Clone)]
+pub struct Metrics {
+    active_nodes: IntGauge,
+}
+
+impl Metrics {
+    pub fn new(registry: &Registry) -> Self {
+        Self {
+            active_nodes: register_int_gauge_with_registry!(
+                format!("route_provider_active_nodes"),
+                format!("How many nodes are in the active list"),
+                registry
+            )
+            .unwrap(),
+        }
+    }
+}
 
 /// Snapshot of the routes
 pub struct RouteSnapshot {
@@ -48,12 +66,12 @@ impl Debug for Route {
 }
 
 /// Manages healthy routes & sorts them according to their usability
-#[derive(new)]
 pub struct RoutesManager {
     healthy_nodes_rx: watch::Receiver<Vec<HealthyNode>>,
     routes: Arc<ArcSwapOption<RouteSnapshot>>,
     k_top: Option<usize>,
     reliability_weight: f64,
+    metrics: Metrics,
 }
 
 impl Display for RoutesManager {
@@ -90,12 +108,30 @@ fn calc_stddev(data: impl ExactSizeIterator<Item = f64> + Clone) -> Option<f64> 
 }
 
 impl RoutesManager {
+    pub fn new(
+        healthy_nodes_rx: watch::Receiver<Vec<HealthyNode>>,
+        routes: Arc<ArcSwapOption<RouteSnapshot>>,
+        k_top: Option<usize>,
+        reliability_weight: f64,
+        registry: &Registry,
+    ) -> Self {
+        Self {
+            healthy_nodes_rx,
+            routes,
+            k_top,
+            reliability_weight,
+            metrics: Metrics::new(registry),
+        }
+    }
+
     #[allow(clippy::cast_sign_loss)]
     #[allow(clippy::cast_possible_truncation)]
     #[allow(clippy::cast_precision_loss)]
+    #[allow(clippy::cast_possible_wrap)]
     fn update_routes(&self, mut list: Vec<HealthyNode>) {
         if list.is_empty() {
             self.routes.store(None);
+            self.metrics.active_nodes.set(0);
             return;
         }
 
@@ -173,6 +209,8 @@ impl RoutesManager {
             routes.truncate(k);
         }
 
+        self.metrics.active_nodes.set(routes.len() as i64);
+
         // Create & store the snapshot
         info!("{self}: New route snapshot stored: {routes:?}");
         let urls_weights = routes.into_iter().map(|x| (x.weight, x.url)).collect();
@@ -247,7 +285,7 @@ mod test {
         let routes = Arc::new(ArcSwapOption::empty());
         let (tx, rx) = watch::channel(vec![]);
         let token = CancellationToken::new();
-        let manager = RoutesManager::new(rx, routes.clone(), Some(3), 0.9);
+        let manager = RoutesManager::new(rx, routes.clone(), Some(3), 0.9, &Registry::new());
         let handle = tokio::spawn(manager.run(token.child_token()));
 
         // Send nodes
@@ -279,7 +317,7 @@ mod test {
         // Test w/o k_top - publishes all nodes
         let (tx, rx) = watch::channel(vec![]);
         let token = CancellationToken::new();
-        let manager = RoutesManager::new(rx, routes.clone(), None, 0.9);
+        let manager = RoutesManager::new(rx, routes.clone(), None, 0.9, &Registry::new());
         let handle = tokio::spawn(manager.run(token.child_token()));
 
         // Send nodes

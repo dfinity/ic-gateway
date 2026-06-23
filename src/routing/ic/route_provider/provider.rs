@@ -12,6 +12,7 @@ use ic_bn_lib::ic_agent::{
     AgentError,
     agent::route_provider::{RouteProvider, RoutesStats},
 };
+use prometheus::{IntCounterVec, Registry, register_int_counter_vec_with_registry};
 use tokio::{select, sync::watch};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::{info, warn};
@@ -23,6 +24,25 @@ use crate::routing::ic::route_provider::{
     health::HealthCheckManager,
     routes::{RouteSnapshot, RoutesManager},
 };
+
+#[derive(Clone)]
+pub struct Metrics {
+    nodes_picked: IntCounterVec,
+}
+
+impl Metrics {
+    pub fn new(registry: &Registry) -> Self {
+        Self {
+            nodes_picked: register_int_counter_vec_with_registry!(
+                format!("route_provider_nodes_picked"),
+                format!("Counts the number of times each node was picked as a route"),
+                &["node"],
+                registry
+            )
+            .unwrap(),
+        }
+    }
+}
 
 /// Handles incoming updates of the node list on behalf of [`DynamicRouteProvider`]
 #[derive(new)]
@@ -72,6 +92,7 @@ pub struct DynamicRouteProvider {
     routes: Arc<ArcSwapOption<RouteSnapshot>>,
     token: CancellationToken,
     tracker: TaskTracker,
+    metrics: Metrics,
 }
 
 impl Display for DynamicRouteProvider {
@@ -99,6 +120,7 @@ impl DynamicRouteProvider {
         node_fetch_interval: Duration,
         health_check_interval: Duration,
         idle_period: Duration,
+        registry: &Registry,
     ) -> Result<Arc<Self>, RouteError> {
         if seed_list.is_empty() {
             return Err(RouteError::Other(anyhow!("Seed list should not be empty")));
@@ -126,6 +148,7 @@ impl DynamicRouteProvider {
             routes: routes.clone(),
             token: token.clone(),
             tracker: tracker.clone(),
+            metrics: Metrics::new(registry),
         });
 
         // [`NodeList`] distribution channels - initialize with a seed list & mark it as changed to trigger updates
@@ -133,8 +156,11 @@ impl DynamicRouteProvider {
         node_list_rx.mark_changed();
 
         // Start node fetcher
-        let fetcher_manager =
-            FetcherManager::new(fetcher_factory(route_provider.clone())?, node_list_tx);
+        let fetcher_manager = FetcherManager::new(
+            fetcher_factory(route_provider.clone())?,
+            node_list_tx,
+            registry,
+        );
         tracker.spawn(fetcher_manager.run(node_fetch_interval, token.child_token()));
 
         // Start route provider manager
@@ -150,12 +176,18 @@ impl DynamicRouteProvider {
             node_list_rx,
             healthy_nodes_tx,
             ewma_alpha,
+            registry,
         );
         tracker.spawn(health_check_manager.run(token.child_token()));
 
         // Start route manager
-        let routes_manager =
-            RoutesManager::new(healthy_nodes_rx, routes, k_top, reliability_weight);
+        let routes_manager = RoutesManager::new(
+            healthy_nodes_rx,
+            routes,
+            k_top,
+            reliability_weight,
+            registry,
+        );
         tracker.spawn(routes_manager.run(token.child_token()));
 
         Ok(route_provider)
@@ -193,7 +225,14 @@ impl RouteProvider for DynamicRouteProvider {
             ));
         };
 
-        Ok(snapshot.wrr.next().clone())
+        let url = snapshot.wrr.next().clone();
+        let hostname = url.authority();
+        self.metrics
+            .nodes_picked
+            .with_label_values(&[hostname])
+            .inc();
+
+        Ok(url)
     }
 
     fn routes_stats(&self) -> RoutesStats {
@@ -291,6 +330,7 @@ mod test {
             Duration::from_millis(1),
             Duration::from_millis(1),
             Duration::from_secs(5),
+            &Registry::new(),
         )
         .unwrap();
 
@@ -305,6 +345,7 @@ mod test {
         // Initially there should only be a single alive seed node,
         // while the fetcher is blocked by a semaphore.
         assert_eq!(urls, vec!["https://seed_node1/".parse().unwrap()]);
+        assert_eq!(rp.routes_stats(), RoutesStats::new(2, Some(1)));
 
         // Reset the state
         rp.node_list.store(None);
@@ -331,6 +372,7 @@ mod test {
                 "https://node1/".parse().unwrap()
             ]
         );
+        assert_eq!(rp.routes_stats(), RoutesStats::new(4, Some(3)));
 
         // Make sure we get requested number of routes
         assert_eq!(

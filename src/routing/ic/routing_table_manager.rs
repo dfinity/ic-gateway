@@ -12,17 +12,24 @@ use arc_swap::ArcSwapOption;
 use async_trait::async_trait;
 use candid::Principal;
 use futures::future::join_all;
-use ic_bn_lib::ic_agent::{
-    Agent, agent::SubnetType as AgentSubnetType, hash_tree::SubtreeLookupResult,
+use ic_bn_lib::{
+    BoolYesNo,
+    ic_agent::{Agent, agent::SubnetType as AgentSubnetType, hash_tree::SubtreeLookupResult},
 };
 use ic_bn_lib_common::traits::{Healthy, Run};
+use prometheus::{
+    HistogramVec, IntCounterVec, IntGauge, Registry, register_histogram_vec_with_registry,
+    register_int_counter_vec_with_registry, register_int_gauge_with_registry,
+};
 use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
+use crate::metrics::HTTP_DURATION_BUCKETS;
+
 /// Retry interval used when no snapshot has been fetched yet and we are in the
 /// aggressive boot-strap loop.
-const AGGRESSIVE_RETRY_INTERVAL: Duration = Duration::from_secs(5);
+const AGGRESSIVE_RETRY_INTERVAL: Duration = Duration::from_secs(1);
 
 /// Minimal fraction of the total subnets that need to succeed to consider
 /// the whole fetch a success.
@@ -36,6 +43,70 @@ pub enum SubnetType {
     VerifiedApplication,
     CloudEngine,
     Unknown,
+}
+
+#[derive(Clone)]
+pub struct Metrics {
+    subnets: IntGauge,
+    ranges: IntGauge,
+    id_fetches: IntCounterVec,
+    data_fetches: IntCounterVec,
+    id_fetches_duration: HistogramVec,
+    data_fetches_duration: HistogramVec,
+}
+
+impl Metrics {
+    pub fn new(registry: &Registry) -> Self {
+        Self {
+            subnets: register_int_gauge_with_registry!(
+                format!("routing_table_manager_subnets"),
+                format!("How many subnets are there"),
+                registry
+            )
+            .unwrap(),
+
+            ranges: register_int_gauge_with_registry!(
+                format!("routing_table_manager_ranges"),
+                format!("How many canister ranges are there"),
+                registry
+            )
+            .unwrap(),
+
+            id_fetches: register_int_counter_vec_with_registry!(
+                format!("routing_table_manager_id_fetches"),
+                format!("Counts number of subnet-id fetches and their outcome"),
+                &["success"],
+                registry
+            )
+            .unwrap(),
+
+            data_fetches: register_int_counter_vec_with_registry!(
+                format!("routing_table_manager_data_fetches"),
+                format!("Counts number of per-subnet data fetches"),
+                &["subnet_id", "success"],
+                registry
+            )
+            .unwrap(),
+
+            id_fetches_duration: register_histogram_vec_with_registry!(
+                format!("routing_table_manager_id_fetches_duration"),
+                format!("Records the duration of subnet_ids fetching in seconds"),
+                &["success"],
+                HTTP_DURATION_BUCKETS.to_vec(),
+                registry
+            )
+            .unwrap(),
+
+            data_fetches_duration: register_histogram_vec_with_registry!(
+                format!("routing_table_manager_data_fetches_duration"),
+                format!("Records the duration of per-subnet data fetching in seconds"),
+                &["subnet_id", "success"],
+                HTTP_DURATION_BUCKETS.to_vec(),
+                registry
+            )
+            .unwrap(),
+        }
+    }
 }
 
 pub trait LooksUpSubnetType: Send + Sync {
@@ -213,6 +284,7 @@ pub struct RoutingTableManager {
     /// `None` until the first successful fetch
     routing_table: Arc<ArcSwapOption<SubnetsRoutingTable>>,
     interval: Duration,
+    metrics: Metrics,
 }
 
 impl fmt::Debug for RoutingTableManager {
@@ -242,14 +314,20 @@ impl LooksUpSubnetType for RoutingTableManager {
 }
 
 impl RoutingTableManager {
-    pub fn new(agent: Agent, root_subnet_id: Principal, interval: Duration) -> Self {
-        Self::new_with_fetcher(Arc::new(agent), root_subnet_id, interval)
+    pub fn new(
+        agent: Agent,
+        root_subnet_id: Principal,
+        interval: Duration,
+        registry: &Registry,
+    ) -> Self {
+        Self::new_with_fetcher(Arc::new(agent), root_subnet_id, interval, registry)
     }
 
     fn new_with_fetcher(
         fetcher: Arc<dyn FetchesSubnetInfo>,
         root_subnet_id: Principal,
         interval: Duration,
+        registry: &Registry,
     ) -> Self {
         assert!(
             interval > Duration::ZERO,
@@ -262,6 +340,7 @@ impl RoutingTableManager {
             snapshot: Mutex::new(AHashMap::with_capacity(128)),
             routing_table: Arc::new(ArcSwapOption::empty()),
             interval,
+            metrics: Metrics::new(registry),
         }
     }
 
@@ -270,11 +349,9 @@ impl RoutingTableManager {
         // Fetch the per-subnet data concurrently
         let start = Instant::now();
         let futures = subnet_ids.iter().map(|subnet_id| async move {
-            self.subnet_info_fetcher
-                .fetch_subnet_data(subnet_id)
-                .await
-                .map(|x| (*subnet_id, x))
-                .map_err(|e| (*subnet_id, e))
+            let start = Instant::now();
+            let res = self.subnet_info_fetcher.fetch_subnet_data(subnet_id).await;
+            (subnet_id, res, start.elapsed())
         });
         let results = join_all(futures).await;
         let dur = start.elapsed();
@@ -286,14 +363,23 @@ impl RoutingTableManager {
         // Insert/update the new data that was fetched.
         // If there was an error - the older data will stay in the snapshot.
         let mut ok = 0;
-        for r in results {
-            match r {
-                Ok((subnet_id, data)) => {
-                    ok += 1;
-                    snapshot.insert(subnet_id, data);
-                }
+        for (subnet_id, res, duration) in results {
+            let subnet_id_str = subnet_id.to_string();
+            self.metrics
+                .data_fetches_duration
+                .with_label_values(&[&subnet_id_str, res.is_ok().yesno()])
+                .observe(duration.as_secs_f64());
+            self.metrics
+                .data_fetches
+                .with_label_values(&[&subnet_id_str, res.is_ok().yesno()])
+                .inc();
 
-                Err((subnet_id, e)) => {
+            match res {
+                Ok(data) => {
+                    ok += 1;
+                    snapshot.insert(*subnet_id, data);
+                }
+                Err(e) => {
                     warn!("{self}: {subnet_id}: error fetching data: {e:#}");
                 }
             }
@@ -308,14 +394,25 @@ impl RoutingTableManager {
 
     /// Tries to update the routing table by refreshing the per-subnet data
     #[allow(clippy::cast_precision_loss)]
+    #[allow(clippy::cast_possible_wrap)]
     async fn update_routing_table(&self) -> Result<(), Error> {
         // Get the list of all subnet's IDs
         let start = Instant::now();
-        let subnet_ids = self
+        let res = self
             .subnet_info_fetcher
             .fetch_subnet_ids(self.root_subnet_id)
-            .await
-            .context("unable to fetch subnet IDs")?;
+            .await;
+        self.metrics
+            .id_fetches
+            .with_label_values(&[res.is_ok().yesno()])
+            .inc();
+        self.metrics
+            .id_fetches_duration
+            .with_label_values(&[res.is_ok().yesno()])
+            .observe(start.elapsed().as_secs_f64());
+
+        let subnet_ids = res.context("unable to fetch subnet IDs")?;
+        self.metrics.subnets.set(subnet_ids.len() as i64);
 
         info!(
             "{self}: Got a list of {} subnets in {}s",
@@ -360,6 +457,7 @@ impl RoutingTableManager {
             routing_table.ranges.len()
         );
 
+        self.metrics.ranges.set(routing_table.ranges.len() as i64);
         self.routing_table.store(Some(routing_table));
         Ok(())
     }
@@ -576,6 +674,7 @@ mod tests {
             Arc::new(fetcher),
             MAINNET_ROOT_SUBNET_ID,
             Duration::MAX,
+            &Registry::new(),
         );
 
         // 1st update should fail due to failed fetch_subnet_ids
