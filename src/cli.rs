@@ -11,6 +11,8 @@ use humantime::parse_duration;
 #[cfg(feature = "smtp")]
 use ic_bn_lib::smtp::cli::SmtpServerCli;
 #[cfg(feature = "acme")]
+use ic_bn_lib::tls::acme::dns::cloudflare::DEFAULT_CLOUDFLARE_URL;
+#[cfg(feature = "acme")]
 use ic_bn_lib_common::types::acme::{AcmeUrl, Challenge, DnsBackend};
 use ic_bn_lib_common::{
     parse_size, parse_size_decimal, parse_size_usize,
@@ -391,7 +393,7 @@ pub struct Acme {
     pub acme_dns_backend: DnsBackend,
 
     /// Cloudflare API URL
-    #[clap(env, long, default_value = "https://api.cloudflare.com/client/v4/")]
+    #[clap(env, long, default_value = DEFAULT_CLOUDFLARE_URL)]
     pub acme_dns_cloudflare_url: Url,
 
     /// File from which to read API token if DNS backend is Cloudflare
