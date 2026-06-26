@@ -25,9 +25,6 @@ async-trait = "0.1.83"
 axum = { version = "0.8.1", features = ["macros"] }
 candid = "0.10.10"
 clap = { version = "4.5.20", features = ["derive", "string", "env"] }
-cloudflare = { version = "0.14.0", default-features = false, features = [
-    "rustls-tls",
-] }
 console-subscriber = { version = "0.5.0", optional = true }
 ctrlc = { version = "3.4.5", features = ["termination"] }
 derive-new = "0.7.0"
@@ -38,15 +35,15 @@ http = "1.3.1"
 http-body = "1.0.1"
 http-body-util = "0.1.2"
 humantime = "2.2.0"
-ic-bn-lib = { version = "0.2.1", features = [
+ic-bn-lib = { version = "0.2.2", features = [
     "acme",
     "vector",
     "cert-providers",
     "clients-hyper",
 ] }
-ic-bn-lib-common = "0.2.1"
-ic-custom-domains-backend = "0.2"
-ic-custom-domains-base = "0.2.3"
+ic-bn-lib-common = "0.2.2"
+ic-custom-domains-backend = "0.2.4"
+ic-custom-domains-base = "0.2.4"
 ic-http-certification = { version = "3.1.0", optional = true }
 ic-transport-types = "0.47"
 ic-http-gateway-protocol = { package = "ic-http-gateway-protocol", git = "https://github.com/dfinity/ic-http-gateway-protocol", tag = "v0.5.1" }
@@ -119,9 +116,6 @@ panic = "abort"
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tokio_unstable)'] }
 
-[patch.crates-io]
-cloudflare = { git = "https://github.com/dfinity/cloudflare-rs", rev = "812009807d090b3c18ea6e2e28a7ea99ae883691" }
-
 [package.metadata.cargo-all-features]
 always_include_features = ["debug"]
 denylist = ["bench", "tokio_console"]
@@ -145,7 +139,3 @@ harness = false
 [[bin]]
 name = "create-acme-account"
 path = "tools/create_acme_account.rs"
-
-[[bin]]
-name = "cloudflare-check"
-path = "tools/cloudflare_check.rs"
