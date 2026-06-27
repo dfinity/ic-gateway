@@ -367,11 +367,11 @@ impl RoutingTableManager {
             let subnet_id_str = subnet_id.to_string();
             self.metrics
                 .data_fetches_duration
-                .with_label_values(&[&subnet_id_str, res.is_ok().yesno()])
+                .with_label_values(&[subnet_id_str.as_str(), res.is_ok().yesno()])
                 .observe(duration.as_secs_f64());
             self.metrics
                 .data_fetches
-                .with_label_values(&[&subnet_id_str, res.is_ok().yesno()])
+                .with_label_values(&[subnet_id_str.as_str(), res.is_ok().yesno()])
                 .inc();
 
             match res {

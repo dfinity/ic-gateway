@@ -184,11 +184,11 @@ impl HealthCheckActor {
         let success = res.healthy.yesno();
         self.metrics
             .checks
-            .with_label_values(&[&self.node.name, success])
+            .with_label_values(&[self.node.name.as_str(), success])
             .inc();
         self.metrics
             .check_duration
-            .with_label_values(&[&self.node.name, success])
+            .with_label_values(&[self.node.name.as_str(), success])
             .observe(start.elapsed().as_secs_f64());
         self.tx.send((self.node.clone(), res)).await.ok();
     }
