@@ -226,8 +226,10 @@ pub async fn main(
 
         Arc::new(custom_domains::GenericProvider::new(
             http_client.clone(),
-            x.clone(),
+            x.url.clone(),
             cli.domain.domain_custom_provider_timeout,
+            x.priority,
+            x.flags,
         )) as Arc<dyn ProvidesCustomDomains>
     }));
 
@@ -240,8 +242,10 @@ pub async fn main(
 
                 Arc::new(custom_domains::GenericProviderTimestamped::new(
                     http_client.clone(),
-                    x.clone(),
+                    x.url.clone(),
                     cli.domain.domain_custom_provider_timeout,
+                    x.priority,
+                    x.flags,
                 )) as Arc<dyn ProvidesCustomDomains>
             }),
     );
@@ -251,8 +255,11 @@ pub async fn main(
 
         Arc::new(custom_domains::GenericProviderDiff::new(
             http_client.clone(),
-            x.clone(),
+            x.url.clone(),
             cli.domain.domain_custom_provider_timeout,
+            x.priority,
+            x.flags,
+            Duration::from_mins(5),
         )) as Arc<dyn ProvidesCustomDomains>
     }));
 
@@ -260,10 +267,11 @@ pub async fn main(
     if let Some(path) = &cli.domain.domain_custom_provider_local_file {
         warn!("Adding local file custom domain provider: {path}");
 
-        custom_domain_providers.push(
-            Arc::new(custom_domains::LocalFileProvider::new(path.into()))
-                as Arc<dyn ProvidesCustomDomains>,
-        );
+        custom_domain_providers.push(Arc::new(custom_domains::LocalFileProvider::new(
+            path.into(),
+            0,
+            None,
+        )) as Arc<dyn ProvidesCustomDomains>);
     }
 
     // Create IC Agent for use by RoutingTableManager / SMTP

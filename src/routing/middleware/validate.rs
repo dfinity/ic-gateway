@@ -48,6 +48,10 @@ pub async fn middleware(
         .resolve(&authority)
         .ok_or_else(|| ErrorCause::Client(ClientError::UnknownDomain(authority.clone())))?;
 
+    if let Some(v) = lookup.flags {
+        request.extensions_mut().insert(v);
+    }
+
     // If configured - try to resolve canister id from query params
     if state.canister_id_from_query_params && lookup.canister_id.is_none() {
         lookup.canister_id = canister_id_from_query_params(&request)
