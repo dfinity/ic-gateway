@@ -2,7 +2,7 @@ use std::{
     collections::BTreeMap,
     fmt::Display,
     str::FromStr,
-    sync::{Arc, RwLock},
+    sync::{Arc, LazyLock, RwLock},
     time::Instant,
 };
 
@@ -20,9 +20,14 @@ use prometheus::{
     IntCounter, IntGauge, Registry, register_int_counter_with_registry,
     register_int_gauge_with_registry,
 };
+use regex::Regex;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 use url::Url;
+
+static PROVIDER_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^(?<url>[^|]+?)(?:\|(?<flags>[^<]*))?(?:<(?<prio>\d+)>)?$").unwrap()
+});
 
 /// Custom domain provider URL with optional flags and priority.
 ///
@@ -50,30 +55,27 @@ impl FromStr for CustomDomainHttpProvider {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let Some((url, flags_prio)) = s.split_once('|') else {
-            return Ok(Self {
-                url: Url::parse(s).context("unable to parse URL")?,
-                priority: 0,
-                flags: None,
-            });
-        };
-
-        let url = Url::parse(url).context("unable to parse URL")?;
-        let Some((flags, prio)) = flags_prio.split_once('<') else {
-            return Ok(Self {
-                url,
-                priority: 0,
-                flags: Some(DomainFlags::from_str(flags_prio).context("unable to parse flags")?),
-            });
-        };
+        let caps = PROVIDER_RE
+            .captures(s.trim())
+            .ok_or_else(|| anyhow!("invalid provider format: {s}"))?;
 
         Ok(Self {
-            url,
-            priority: prio
-                .trim_end_matches('>')
-                .parse()
-                .context("unable to parse priority as integer")?,
-            flags: Some(DomainFlags::from_str(flags).context("unable to parse flags")?),
+            url: Url::parse(&caps["url"]).context("unable to parse URL")?,
+
+            flags: caps
+                .name("flags")
+                .map(|m| m.as_str().trim())
+                .filter(|f| !f.is_empty())
+                .map(DomainFlags::from_str)
+                .transpose()
+                .context("unable to parse flags")?,
+
+            priority: caps
+                .name("prio")
+                .map(|m| m.as_str().parse())
+                .transpose()
+                .context("unable to parse priority as integer")?
+                .unwrap_or(0),
         })
     }
 }
@@ -938,13 +940,22 @@ mod test {
                 flags: Some(DomainFlags::new([FLAG_PRERENDER])),
             }
         );
-        // this should also work
+        // with prio, empty flags
         assert_eq!(
-            CustomDomainHttpProvider::from_str("http://foo/bar|prerender<66").unwrap(),
+            CustomDomainHttpProvider::from_str("http://foo/bar|<66>").unwrap(),
             CustomDomainHttpProvider {
                 url: "http://foo/bar".parse().unwrap(),
                 priority: 66,
-                flags: Some(DomainFlags::new([FLAG_PRERENDER])),
+                flags: None,
+            }
+        );
+        // with prio, no flags
+        assert_eq!(
+            CustomDomainHttpProvider::from_str("http://foo/bar<66>").unwrap(),
+            CustomDomainHttpProvider {
+                url: "http://foo/bar".parse().unwrap(),
+                priority: 66,
+                flags: None,
             }
         );
 
