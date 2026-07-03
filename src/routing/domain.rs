@@ -183,7 +183,7 @@ impl CustomDomainStorage {
         let metric_dupes_overridden = register_int_gauge_with_registry!(
             format!("custom_domains_dupes_overridden"),
             format!(
-                "Number of duplicates among custom domains that were overriden (higher prio/ts)"
+                "Number of duplicates among custom domains that were overridden (higher prio/ts)"
             ),
             registry
         )
@@ -257,7 +257,7 @@ impl CustomDomainStorage {
         for d in domains {
             // Do not add new domain if the same one exists with newer timestamp or higher prio.
             // Timestamps are only compared if the prio is the same.
-            if let Some(exists) = tree.get_mut(&d.name) {
+            if let Some(exists) = tree.get(&d.name) {
                 dupes += 1;
 
                 if (exists.priority, exists.timestamp) > (d.priority, d.timestamp) {

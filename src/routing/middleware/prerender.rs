@@ -112,9 +112,11 @@ impl PrerenderState {
             return false;
         }
 
-        if let Some(v) = request.extensions().get::<IsBot>()
-            && !v.0
-        {
+        let Some(is_bot) = request.extensions().get::<IsBot>() else {
+            return false;
+        };
+
+        if !is_bot.0 {
             return false;
         }
 
