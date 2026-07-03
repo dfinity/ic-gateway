@@ -254,19 +254,18 @@ impl CustomDomainStorage {
         let mut dupes = 0i64;
         let mut dupes_overridden = 0i64;
 
-        for d in domains {
-            // Do not add new domain if the same one exists with newer timestamp or higher prio.
-            // Timestamps are only compared if the prio is the same.
-            if let Some(exists) = tree.get(&d.name) {
+        for new in domains {
+            // Check if we have the same domain already
+            if let Some(exists) = tree.get(&new.name) {
                 dupes += 1;
 
                 // Skip if existing prio is higher
-                if exists.priority > d.priority {
+                if exists.priority > new.priority {
                     continue;
                 }
 
                 // If prio is the same - compare timestamps
-                if exists.priority == d.priority && exists.timestamp > d.timestamp {
+                if exists.priority == new.priority && exists.timestamp > new.timestamp {
                     continue;
                 }
 
@@ -276,19 +275,19 @@ impl CustomDomainStorage {
 
             let dl = DomainLookup {
                 domain: Domain {
-                    name: d.name.clone(),
+                    name: new.name.clone(),
                     custom: true,
                     http: true,
                     api: true,
                 },
-                timestamp: d.timestamp,
-                canister_id: Some(d.canister_id),
+                timestamp: new.timestamp,
+                canister_id: Some(new.canister_id),
                 verify: true,
-                priority: d.priority,
-                flags: d.flags,
+                priority: new.priority,
+                flags: new.flags,
             };
 
-            tree.insert(d.name, dl);
+            tree.insert(new.name, dl);
         }
 
         warn!(
