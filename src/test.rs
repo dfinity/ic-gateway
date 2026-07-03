@@ -151,11 +151,7 @@ pub async fn setup_test_router(tasks: &mut TaskManager) -> (Router, Vec<String>)
     let custom_domains = domains
         .clone()
         .into_iter()
-        .map(|x| CustomDomain {
-            name: fqdn!(&x),
-            canister_id: principal!("aaaaa-aa"),
-            timestamp: 0,
-        })
+        .map(|x| CustomDomain::new(fqdn!(&x), principal!("aaaaa-aa")))
         .collect::<Vec<_>>();
 
     let http_client = Arc::new(TestClient(512));

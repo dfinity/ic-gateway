@@ -1,7 +1,9 @@
 use std::{
     collections::BTreeMap,
+    fmt::Display,
     str::FromStr,
-    sync::{Arc, RwLock},
+    sync::{Arc, LazyLock, RwLock},
+    time::Instant,
 };
 
 use anyhow::{Context, Error, anyhow};
@@ -12,14 +14,71 @@ use fqdn::{FQDN, Fqdn, fqdn};
 use ic_bn_lib::custom_domains::LooksUpCustomDomain;
 use ic_bn_lib_common::{
     traits::{Healthy, Run, custom_domains::ProvidesCustomDomains},
-    types::CustomDomain,
+    types::{CustomDomain, DomainFlags},
 };
 use prometheus::{
     IntCounter, IntGauge, Registry, register_int_counter_with_registry,
     register_int_gauge_with_registry,
 };
+use regex::Regex;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
+use url::Url;
+
+static PROVIDER_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^(?<url>[^|]+?)(?:\|(?<flags>[^<]*))?(?:<(?<prio>\d+)>)?$").unwrap()
+});
+
+/// Custom domain provider URL with optional flags and priority.
+///
+/// It is parsed from the following template by Clap: `https://foo.bar/path/to?foo=a|flag1|flag2<0>`
+/// The delimiters chosen here (|<>) are forbidden in the URL by the RFC.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct CustomDomainHttpProvider {
+    pub url: Url,
+    pub priority: u8,
+    pub flags: Option<DomainFlags>,
+}
+
+impl Display for CustomDomainHttpProvider {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} (prio {})", self.url, self.priority)?;
+        if let Some(v) = self.flags {
+            write!(f, " (flags: {v})")?;
+        }
+
+        Ok(())
+    }
+}
+
+impl FromStr for CustomDomainHttpProvider {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let caps = PROVIDER_RE
+            .captures(s.trim())
+            .ok_or_else(|| anyhow!("invalid provider format: {s}"))?;
+
+        Ok(Self {
+            url: Url::parse(&caps["url"]).context("unable to parse URL")?,
+
+            flags: caps
+                .name("flags")
+                .map(|m| m.as_str().trim())
+                .filter(|f| !f.is_empty())
+                .map(DomainFlags::from_str)
+                .transpose()
+                .context("unable to parse flags")?,
+
+            priority: caps
+                .name("prio")
+                .map(|m| m.as_str().parse())
+                .transpose()
+                .context("unable to parse priority as integer")?
+                .unwrap_or(0),
+        })
+    }
+}
 
 /// Domain entity with certain metadata
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -40,6 +99,8 @@ pub struct DomainLookup {
     pub canister_id: Option<Principal>,
     pub timestamp: u64,
     pub verify: bool,
+    pub priority: u8,
+    pub flags: Option<DomainFlags>,
 }
 
 /// Resolves hostname to a canister id
@@ -86,6 +147,7 @@ pub struct CustomDomainStorage {
     snapshot: RwLock<Vec<Option<Vec<CustomDomain>>>>,
     metric_count: IntGauge,
     metric_dupes: IntGauge,
+    metric_dupes_overridden: IntGauge,
     metric_failures: IntCounter,
 }
 
@@ -118,6 +180,15 @@ impl CustomDomainStorage {
         )
         .unwrap();
 
+        let metric_dupes_overridden = register_int_gauge_with_registry!(
+            format!("custom_domains_dupes_overridden"),
+            format!(
+                "Number of duplicates among custom domains that were overridden (higher prio/ts)"
+            ),
+            registry
+        )
+        .unwrap();
+
         let metric_failures = register_int_counter_with_registry!(
             format!("custom_domains_failures_total"),
             format!("Total number of fetch failures"),
@@ -131,6 +202,7 @@ impl CustomDomainStorage {
             providers,
             metric_count,
             metric_dupes,
+            metric_dupes_overridden,
             metric_failures,
         }
     }
@@ -159,7 +231,10 @@ impl CustomDomainStorage {
         snapshot
     }
 
+    #[allow(clippy::cast_possible_wrap)]
     pub async fn refresh(&self) {
+        let start = Instant::now();
+
         let snapshot_old = self.snapshot.read().unwrap().clone();
         let snapshot = self.fetch(snapshot_old.clone()).await;
 
@@ -176,42 +251,55 @@ impl CustomDomainStorage {
 
         // Convert the snapshot into new lookup structure
         let domains = snapshot.into_iter().flatten().flatten();
-        let mut dupes = 0;
+        let mut dupes = 0i64;
+        let mut dupes_overridden = 0i64;
 
-        for d in domains {
-            // Do not add new domain if the same one exists with newer timestamp
-            if let Some(v) = tree.get(&d.name) {
+        for new in domains {
+            // Check if we have the same domain already
+            if let Some(exists) = tree.get(&new.name) {
                 dupes += 1;
 
-                if v.timestamp > d.timestamp {
+                // Skip if existing prio is higher
+                if exists.priority > new.priority {
                     continue;
                 }
+
+                // If prio is the same - compare timestamps
+                if exists.priority == new.priority && exists.timestamp > new.timestamp {
+                    continue;
+                }
+
+                // Otherwise override
+                dupes_overridden += 1;
             }
 
             let dl = DomainLookup {
                 domain: Domain {
-                    name: d.name.clone(),
+                    name: new.name.clone(),
                     custom: true,
                     http: true,
                     api: true,
                 },
-                timestamp: d.timestamp,
-                canister_id: Some(d.canister_id),
+                timestamp: new.timestamp,
+                canister_id: Some(new.canister_id),
                 verify: true,
+                priority: new.priority,
+                flags: new.flags,
             };
 
-            tree.insert(d.name, dl);
+            tree.insert(new.name, dl);
         }
 
         warn!(
-            "{self:?}: got new set of domains: {} ({dupes} duplicates)",
+            "{self:?}: got new set of domains in {}s: {} ({dupes} dupes, {dupes_overridden} of them overridden)",
+            start.elapsed().as_secs(),
             tree.len()
         );
 
         // Set metrics
-        #[allow(clippy::cast_possible_wrap)]
         self.metric_count.set(tree.len() as i64);
-        self.metric_dupes.set(i64::from(dupes));
+        self.metric_dupes.set(dupes);
+        self.metric_dupes_overridden.set(dupes_overridden);
 
         // Store it
         let inner = CustomDomainStorageInner(tree);
@@ -291,6 +379,8 @@ impl DomainResolver {
                         canister_id: Some(alias.1),
                         timestamp: 0,
                         verify: true,
+                        priority: 0,
+                        flags: None,
                     },
                 )
             })
@@ -309,6 +399,8 @@ impl DomainResolver {
                         canister_id: None,
                         timestamp: 0,
                         verify: true,
+                        priority: 0,
+                        flags: None,
                     },
                 )
             })
@@ -324,7 +416,7 @@ impl DomainResolver {
 
     // Tries to find the base domain that corresponds to the given host and resolve a canister id
     fn resolve_domain(&self, host: &Fqdn) -> Option<DomainLookup> {
-        // First try to find an exact match
+        // First try to find an exact match.
         // This covers base domains and their aliases, plus API domains
         if let Some(v) = self.domains_all.get(host) {
             return Some(v.clone());
@@ -380,6 +472,8 @@ impl DomainResolver {
             canister_id,
             timestamp: 0,
             verify: !raw,
+            priority: 0,
+            flags: None,
         })
     }
 }
@@ -395,7 +489,10 @@ impl ResolvesDomain for DomainResolver {
 #[cfg(test)]
 mod test {
     use fqdn::fqdn;
-    use ic_bn_lib_common::principal;
+    use ic_bn_lib_common::{
+        principal,
+        types::{FLAG_PRERENDER, FLAG_TEST},
+    };
 
     use super::*;
 
@@ -467,24 +564,46 @@ mod test {
         let domains_api = vec![fqdn!("icp-api.io")];
         let custom_domain_provider = TestCustomDomainProvider(vec![
             CustomDomain {
-                name: fqdn!("foo.bar"),
-                timestamp: 30,
+                name: fqdn!("foo.xyz"),
                 canister_id: principal!(TEST_CANISTER_ID),
-            },
-            CustomDomain {
-                name: fqdn!("foo.bar"),
-                timestamp: 20,
-                canister_id: principal!(TEST_CANISTER_ID_2),
-            },
-            CustomDomain {
-                name: fqdn!("foo.baz"),
                 timestamp: 10,
+                priority: 0,
+                flags: Some(DomainFlags::new([FLAG_TEST])),
+            },
+            CustomDomain {
+                name: fqdn!("foo.xyz"),
                 canister_id: principal!(TEST_CANISTER_ID),
+                timestamp: 0,
+                priority: 1,
+                flags: Some(DomainFlags::new([FLAG_PRERENDER])),
+            },
+            CustomDomain {
+                name: fqdn!("foo.bar"),
+                canister_id: principal!(TEST_CANISTER_ID),
+                timestamp: 30,
+                priority: 0,
+                flags: None,
+            },
+            CustomDomain {
+                name: fqdn!("foo.bar"),
+                canister_id: principal!(TEST_CANISTER_ID_2),
+                timestamp: 20,
+                priority: 0,
+                flags: Some(DomainFlags::new([FLAG_PRERENDER])),
             },
             CustomDomain {
                 name: fqdn!("foo.baz"),
-                timestamp: 20,
+                canister_id: principal!(TEST_CANISTER_ID),
+                timestamp: 10,
+                priority: 0,
+                flags: None,
+            },
+            CustomDomain {
+                name: fqdn!("foo.baz"),
                 canister_id: principal!(TEST_CANISTER_ID_3),
+                timestamp: 20,
+                priority: 0,
+                flags: None,
             },
         ]);
 
@@ -501,13 +620,13 @@ mod test {
         // Verify metrics are tracked correctly
         assert_eq!(
             custom_domain_storage.metric_count.get(),
-            2,
-            "should have 2 domains after deduplication"
+            3,
+            "should have 3 domains after deduplication"
         );
         assert_eq!(
             custom_domain_storage.metric_dupes.get(),
-            2,
-            "should have 2 duplicates (foo.bar and foo.baz each appear twice)"
+            3,
+            "should have 3 duplicates"
         );
         assert_eq!(
             custom_domain_storage.metric_failures.get(),
@@ -539,6 +658,8 @@ mod test {
                         timestamp: 0,
                         canister_id: Some(a.1),
                         verify: true,
+                        priority: 0,
+                        flags: None,
                     })
                 );
             }
@@ -573,6 +694,8 @@ mod test {
                 canister_id: None,
                 timestamp: 0,
                 verify: true,
+                priority: 0,
+                flags: None,
             })
         );
 
@@ -584,6 +707,8 @@ mod test {
                 canister_id: None,
                 timestamp: 0,
                 verify: true,
+                priority: 0,
+                flags: None,
             })
         );
 
@@ -598,6 +723,8 @@ mod test {
                 canister_id: None,
                 timestamp: 0,
                 verify: true,
+                priority: 0,
+                flags: None,
             })
         );
 
@@ -609,6 +736,8 @@ mod test {
                 canister_id: Some(canister_id),
                 timestamp: 0,
                 verify: true,
+                priority: 0,
+                flags: None,
             })
         );
 
@@ -620,6 +749,8 @@ mod test {
                 canister_id: Some(canister_id),
                 timestamp: 0,
                 verify: true,
+                priority: 0,
+                flags: None,
             })
         );
 
@@ -631,6 +762,8 @@ mod test {
                 canister_id: Some(canister_id),
                 timestamp: 0,
                 verify: false,
+                priority: 0,
+                flags: None,
             })
         );
         assert_eq!(
@@ -640,6 +773,8 @@ mod test {
                 canister_id: Some(canister_id),
                 timestamp: 0,
                 verify: false,
+                priority: 0,
+                flags: None,
             })
         );
 
@@ -651,6 +786,8 @@ mod test {
                 canister_id: None,
                 timestamp: 0,
                 verify: true,
+                priority: 0,
+                flags: None,
             })
         );
 
@@ -662,6 +799,8 @@ mod test {
                 canister_id: Some(canister_id),
                 timestamp: 0,
                 verify: true,
+                priority: 0,
+                flags: None,
             })
         );
         assert_eq!(
@@ -671,6 +810,8 @@ mod test {
                 canister_id: Some(canister_id),
                 timestamp: 0,
                 verify: true,
+                priority: 0,
+                flags: None,
             })
         );
 
@@ -679,7 +820,7 @@ mod test {
         assert_eq!(resolver.resolve(&fqdn!("aaaaa-aa.foo.icp0.io")), None,);
 
         // Resolve custom domains
-        // Make sure that newer custom domains are used (with higher timestamp)
+        // Make sure that domain with higher timestamp are used
         assert_eq!(
             resolver.resolve(&fqdn!("foo.bar")),
             Some(DomainLookup {
@@ -692,8 +833,28 @@ mod test {
                 canister_id: Some(principal!(TEST_CANISTER_ID)),
                 timestamp: 30,
                 verify: true,
+                priority: 0,
+                flags: None,
             })
         );
+        // Make sure that the domain with higher priority is used even when the timestamp of the other is higher
+        assert_eq!(
+            resolver.resolve(&fqdn!("foo.xyz")),
+            Some(DomainLookup {
+                domain: Domain {
+                    name: fqdn!("foo.xyz"),
+                    http: true,
+                    api: true,
+                    custom: true,
+                },
+                canister_id: Some(principal!(TEST_CANISTER_ID)),
+                timestamp: 0,
+                verify: true,
+                priority: 1,
+                flags: Some(DomainFlags::new([FLAG_PRERENDER])),
+            })
+        );
+        // Equal priority, higher timestamp
         assert_eq!(
             resolver.resolve(&fqdn!("foo.baz")),
             Some(DomainLookup {
@@ -706,6 +867,8 @@ mod test {
                 canister_id: Some(principal!(TEST_CANISTER_ID_3)),
                 timestamp: 20,
                 verify: true,
+                priority: 0,
+                flags: None,
             })
         );
 
@@ -770,5 +933,61 @@ mod test {
             lookup.canister_id,
             Some(Principal::from_text("aaaaa-aa").unwrap())
         );
+    }
+
+    #[test]
+    fn test_custom_domain_provider_flags() {
+        // with prio
+        assert_eq!(
+            CustomDomainHttpProvider::from_str("http://foo/bar|prerender<66>").unwrap(),
+            CustomDomainHttpProvider {
+                url: "http://foo/bar".parse().unwrap(),
+                priority: 66,
+                flags: Some(DomainFlags::new([FLAG_PRERENDER])),
+            }
+        );
+        // with prio, empty flags
+        assert_eq!(
+            CustomDomainHttpProvider::from_str("http://foo/bar|<66>").unwrap(),
+            CustomDomainHttpProvider {
+                url: "http://foo/bar".parse().unwrap(),
+                priority: 66,
+                flags: None,
+            }
+        );
+        // with prio, no flags
+        assert_eq!(
+            CustomDomainHttpProvider::from_str("http://foo/bar<66>").unwrap(),
+            CustomDomainHttpProvider {
+                url: "http://foo/bar".parse().unwrap(),
+                priority: 66,
+                flags: None,
+            }
+        );
+
+        // no prio
+        assert_eq!(
+            CustomDomainHttpProvider::from_str("http://foo/bar|prerender").unwrap(),
+            CustomDomainHttpProvider {
+                url: "http://foo/bar".parse().unwrap(),
+                priority: 0,
+                flags: Some(DomainFlags::new([FLAG_PRERENDER])),
+            }
+        );
+
+        // just url
+        assert_eq!(
+            CustomDomainHttpProvider::from_str("http://foo/bar").unwrap(),
+            CustomDomainHttpProvider {
+                url: "http://foo/bar".parse().unwrap(),
+                priority: 0,
+                flags: None,
+            }
+        );
+
+        // error cases
+        assert!(CustomDomainHttpProvider::from_str("http://foo/bar|prerender<x66>").is_err());
+        assert!(CustomDomainHttpProvider::from_str("http://foo/bar|blah").is_err());
+        assert!(CustomDomainHttpProvider::from_str("|||foo/bar|blah").is_err());
     }
 }

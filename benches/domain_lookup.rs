@@ -32,11 +32,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     let custom_domains = domains
         .clone()
         .into_iter()
-        .map(|x| CustomDomain {
-            name: x,
-            canister_id: principal!("aaaaa-aa"),
-            timestamp: 0,
-        })
+        .map(|x| CustomDomain::new(x, principal!("aaaaa-aa")))
         .collect::<Vec<_>>();
 
     let s = CustomDomainStorage::new(

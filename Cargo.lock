@@ -2672,9 +2672,9 @@ dependencies = [
 
 [[package]]
 name = "ic-bn-lib"
-version = "0.2.2"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eea2c1f3aad0a4402aecc624cda39efbafc7dd6645c7f8ab68fe0b99620dcf02"
+checksum = "82b26684028978088a9f670c1fe371c32807728743ca0eaff06acffb2abe2e3f"
 dependencies = [
  "ahash",
  "anyhow",
@@ -2763,9 +2763,9 @@ dependencies = [
 
 [[package]]
 name = "ic-bn-lib-common"
-version = "0.2.2"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ddfc3775a8bd5aff225bc20aaadb4da46fd9087363c7c510bb264fa6a1f480f"
+checksum = "a432e07d35f3ab744b55cb39743a592e1115e9ee16d95069d3d54eea3de8bb3d"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2942,9 +2942,9 @@ dependencies = [
 
 [[package]]
 name = "ic-custom-domains-backend"
-version = "0.2.4"
+version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "962142d708266188d2be60dd6a6e27704c3c4363ac4c4a3af843b310a70e3731"
+checksum = "86c4dcfc22f1ad7aeb4d4e7bfb1ce9c74eb428da74739cd93a9d7a088e41454b"
 dependencies = [
  "anyhow",
  "axum",
@@ -2974,9 +2974,9 @@ dependencies = [
 
 [[package]]
 name = "ic-custom-domains-base"
-version = "0.2.4"
+version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74464dd81ad40870fa648b41a771f0f6f4ce4b2f824fe9194fe6857d293d8ef2"
+checksum = "d817d51182c9174a39fa61b8f5ba30f551c837a5c751aa0a444b810257da7817"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3005,9 +3005,9 @@ dependencies = [
 
 [[package]]
 name = "ic-custom-domains-canister-api"
-version = "0.2.4"
+version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "268df6565445943a8cf4bd1c2d6d86c33c65e23b32e7d3f155a7be8d90a07166"
+checksum = "46e74a4ddc1d57e789d8f46e0c2e79e2fdffcd38a75029e3287129bcb2db260b"
 dependencies = [
  "candid",
  "derive-new",
@@ -3018,9 +3018,9 @@ dependencies = [
 
 [[package]]
 name = "ic-custom-domains-canister-client"
-version = "0.2.4"
+version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52850559b366e2095d912b5f57a97cd0288c422e6e24f84a5514988ba2bd84ff"
+checksum = "7aa55f92edfedb6bef26fe415ec2b1ab7742cb260195475d6c822443a6963c99"
 dependencies = [
  "anyhow",
  "arc-swap",

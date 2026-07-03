@@ -27,7 +27,10 @@ use reqwest::Url;
 
 use crate::{
     core::{AUTHOR_NAME, SERVICE_NAME},
-    routing::{RequestType, domain::CanisterAlias},
+    routing::{
+        RequestType,
+        domain::{CanisterAlias, CustomDomainHttpProvider},
+    },
 };
 
 /// Clap does not support prefixes due to macro limitations.
@@ -295,19 +298,19 @@ pub struct Domain {
     /// List of generic custom domain provider URLs.
     /// Expects a JSON object in form '{"domain.bar": "aaaaa-aa"}' in response to a GET request.
     #[clap(env, long, value_delimiter = ',')]
-    pub domain_custom_provider: Vec<Url>,
+    pub domain_custom_provider: Vec<CustomDomainHttpProvider>,
 
     /// List of generic timestamped custom domain provider URLs.
     /// Expects a JSON object in form '{"timestamp": 1234, "url": "https://foo/bar"}' in response to a GET request.
     /// When the timestamp changes - the provider gets the list of domains from the URL provided in response.
     /// The JSON format there should be the same as for the normal generic provider (see above).
     #[clap(env, long, value_delimiter = ',')]
-    pub domain_custom_provider_timestamped: Vec<Url>,
+    pub domain_custom_provider_timestamped: Vec<CustomDomainHttpProvider>,
 
     /// List of generic differential custom domain provider URLs.
     /// It first downloads the full seed and then only applies incremental updates to it using a timestamp.
     #[clap(env, long, value_delimiter = ',')]
-    pub domain_custom_provider_diff: Vec<Url>,
+    pub domain_custom_provider_diff: Vec<CustomDomainHttpProvider>,
 
     /// How frequently to poll custom domain providers for updates
     #[clap(env, long, default_value = "30s", value_parser = parse_duration)]

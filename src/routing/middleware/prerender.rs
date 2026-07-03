@@ -16,7 +16,10 @@ use http::{
 };
 use http_body_util::Full;
 use ic_bn_lib::{hname, hval};
-use ic_bn_lib_common::traits::http::ClientHttp;
+use ic_bn_lib_common::{
+    traits::http::ClientHttp,
+    types::{DomainFlags, FLAG_PRERENDER},
+};
 use tokio::time::timeout;
 use tracing::info;
 
@@ -28,6 +31,7 @@ use crate::routing::{
 
 const HEADER_SECRET: HeaderName = hname!("x-worker-secret");
 const HEADER_X_PRE_RENDERED: HeaderName = hname!("x-pre-rendered");
+const VALUE_1: HeaderValue = hval!("1");
 
 const HEADERS_TO_REMOVE: [HeaderName; 9] = [
     CONTENT_ENCODING,
@@ -99,9 +103,41 @@ pub struct PrerenderState {
 
 impl PrerenderState {
     /// Whether we should prerender this request or pass it through
-    fn should_render(&self, authority: &Fqdn, uri: &Uri, method: &Method, is_bot: bool) -> bool {
-        if method != Method::GET {
+    fn should_render(&self, uri: &Uri, request: &Request) -> bool {
+        if request.method() != Method::GET {
             return false;
+        }
+
+        if is_static_asset(uri.path()) {
+            return false;
+        }
+
+        let Some(is_bot) = request.extensions().get::<IsBot>() else {
+            return false;
+        };
+
+        if !is_bot.0 {
+            return false;
+        }
+
+        let Some(ctx) = request.extensions().get::<Arc<RequestCtx>>() else {
+            return false;
+        };
+
+        if ctx
+            .authority
+            .labels()
+            .next()
+            .is_some_and(|x| x.contains("-draft"))
+        {
+            return false;
+        }
+
+        // Check if there's a pre-render flag present
+        if let Some(v) = request.extensions().get::<DomainFlags>()
+            && v.has_flag(FLAG_PRERENDER)
+        {
+            return true;
         }
 
         // Check that authority is a subdomain of any of configured domains.
@@ -111,24 +147,8 @@ impl PrerenderState {
         if !self
             .domains
             .iter()
-            .any(|x| authority.depth() <= (x.depth() + 1) && authority.is_subdomain_of(x))
+            .any(|x| ctx.authority.depth() <= (x.depth() + 1) && ctx.authority.is_subdomain_of(x))
         {
-            return false;
-        }
-
-        if authority
-            .labels()
-            .next()
-            .is_some_and(|x| x.contains("-draft"))
-        {
-            return false;
-        }
-
-        if !is_bot {
-            return false;
-        }
-
-        if is_static_asset(uri.path()) {
             return false;
         }
 
@@ -176,7 +196,7 @@ impl PrerenderState {
                 }
 
                 // Add marker to show that it was pre-rendered
-                v.headers_mut().insert(HEADER_X_PRE_RENDERED, hval!("1"));
+                v.headers_mut().insert(HEADER_X_PRE_RENDERED, VALUE_1);
 
                 v
             }
@@ -197,12 +217,11 @@ impl PrerenderState {
 pub async fn middleware(
     State(state): State<Arc<PrerenderState>>,
     Extension(ctx): Extension<Arc<RequestCtx>>,
-    Extension(is_bot): Extension<IsBot>,
     OriginalUri(uri): OriginalUri,
     request: Request,
     next: Next,
 ) -> Result<Response, ErrorCause> {
-    if !state.should_render(&ctx.authority, &uri, request.method(), is_bot.0) {
+    if !state.should_render(&uri, &request) {
         return Ok(next.run(request).await);
     }
 
@@ -230,7 +249,8 @@ mod tests {
 
     use crate::{
         routing::{
-            domain::{CustomDomainStorage, DomainResolver},
+            RequestType,
+            domain::{CustomDomainStorage, Domain, DomainResolver},
             middleware::{
                 is_bot::{self, IsBotState},
                 validate::{self, ValidateState},
@@ -239,9 +259,12 @@ mod tests {
         test::{FakeDomainProvider, TestClient},
     };
     use async_trait::async_trait;
-    use axum::{Router, body::Body, middleware::from_fn_with_state, response::IntoResponse};
+    use axum::{
+        Router, body::Body, extract::Request, middleware::from_fn_with_state,
+        response::IntoResponse,
+    };
     use fqdn::fqdn;
-    use http::{Request, StatusCode};
+    use http::StatusCode;
     use http_body_util::BodyExt;
     use ic_bn_lib::hval;
     use ic_bn_lib_common::types::http::Error as HttpError;
@@ -271,6 +294,41 @@ mod tests {
         }
     }
 
+    fn make_request(is_bot: bool, authority: FQDN, method: Method) -> Request {
+        let ctx = RequestCtx {
+            authority: authority.clone(),
+            domain: Domain {
+                name: authority,
+                custom: true,
+                http: true,
+                api: false,
+            },
+            verify: false,
+            request_type: RequestType::Http,
+        };
+
+        let mut r = Request::new(Body::empty());
+        *r.method_mut() = method;
+        r.extensions_mut().insert(Arc::new(ctx));
+        r.extensions_mut().insert(IsBot(is_bot));
+
+        r
+    }
+
+    fn make_request_with_flags(
+        is_bot: bool,
+        authority: FQDN,
+        method: Method,
+        flags: Option<DomainFlags>,
+    ) -> Request {
+        let mut req = make_request(is_bot, authority, method);
+        if let Some(v) = flags {
+            req.extensions_mut().insert(v);
+        }
+
+        req
+    }
+
     #[test]
     fn test_should_render() {
         let state = PrerenderState::new(
@@ -283,83 +341,83 @@ mod tests {
 
         // ok
         assert!(state.should_render(
-            &fqdn!("caffeine.xyz"),
             &Uri::from_static("http://foo/script.php"),
-            &Method::GET,
-            true
+            &make_request(true, fqdn!("caffeine.xyz"), Method::GET)
         ));
         assert!(state.should_render(
-            &fqdn!("foo.caffeine.xyz"),
             &Uri::from_static("http://foo/script.php"),
-            &Method::GET,
-            true
+            &make_request(true, fqdn!("foo.caffeine.xyz"), Method::GET)
         ));
         assert!(state.should_render(
-            &fqdn!("bar.caffeine.abc"),
             &Uri::from_static("http://foo/script.php"),
-            &Method::GET,
-            true
+            &make_request(true, fqdn!("bar.caffeine.xyz"), Method::GET)
         ));
 
         // wrong domain
         assert!(!state.should_render(
-            &fqdn!("foo.caffeine.foo"),
             &Uri::from_static("http://foo/script.php"),
-            &Method::GET,
-            true
+            &make_request(true, fqdn!("foo.caffeine.foo"), Method::GET)
         ));
         assert!(!state.should_render(
-            &fqdn!("xyz"),
             &Uri::from_static("http://foo/script.php"),
-            &Method::GET,
-            true
+            &make_request(true, fqdn!("xyz"), Method::GET)
         ));
 
         // too deep domain
         assert!(!state.should_render(
-            &fqdn!("bar.foo.caffeine.xyz"),
             &Uri::from_static("http://foo/script.php"),
-            &Method::GET,
-            true
+            &make_request(true, fqdn!("bar.foo.caffeine.xyz"), Method::GET)
         ));
 
         // static asset
         assert!(!state.should_render(
-            &fqdn!("foo.caffeine.xyz"),
             &Uri::from_static("http://foo/logo.png"),
-            &Method::GET,
-            true
+            &make_request(true, fqdn!("foo.caffeine.xyz"), Method::GET)
         ));
 
         // not bot
         assert!(!state.should_render(
-            &fqdn!("foo.caffeine.xyz"),
             &Uri::from_static("http://foo/script.php"),
-            &Method::GET,
-            false
+            &make_request(false, fqdn!("foo.caffeine.xyz"), Method::GET)
         ));
 
         // wrong method
         assert!(!state.should_render(
-            &fqdn!("foo.caffeine.xyz"),
             &Uri::from_static("http://foo/script.php"),
-            &Method::POST,
-            false
+            &make_request(true, fqdn!("foo.caffeine.xyz"), Method::POST)
         ));
 
         // draft
         assert!(!state.should_render(
-            &fqdn!("foo-draft.caffeine.xyz"),
             &Uri::from_static("http://foo/script.php"),
-            &Method::GET,
-            true
+            &make_request(true, fqdn!("foo-draft.caffeine.xyz"), Method::GET)
         ));
 
         assert!(!state.should_render(
-            &fqdn!("foo-draft-foo.caffeine.xyz"),
             &Uri::from_static("http://foo/script.php"),
-            &Method::GET,
-            true
+            &make_request(true, fqdn!("foo-draft-foo.caffeine.xyz"), Method::GET)
+        ));
+
+        // prerender flag set, but wrong method
+        assert!(!state.should_render(
+            &Uri::from_static("http://foo/script.php"),
+            &make_request_with_flags(
+                true,
+                fqdn!("foo.caffeine.xyz"),
+                Method::POST,
+                Some(DomainFlags::new([FLAG_PRERENDER]))
+            )
+        ));
+
+        // prerender flag, unconfigured domain
+        assert!(state.should_render(
+            &Uri::from_static("http://foo/script.php"),
+            &make_request_with_flags(
+                true,
+                fqdn!("foo.zoo"),
+                Method::GET,
+                Some(DomainFlags::new([FLAG_PRERENDER]))
+            )
         ));
     }
 
