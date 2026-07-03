@@ -260,10 +260,17 @@ impl CustomDomainStorage {
             if let Some(exists) = tree.get(&d.name) {
                 dupes += 1;
 
-                if (exists.priority, exists.timestamp) > (d.priority, d.timestamp) {
+                // Skip if existing prio is higher
+                if exists.priority > d.priority {
                     continue;
                 }
 
+                // If prio is the same - compare timestamps
+                if exists.priority == d.priority && exists.timestamp > d.timestamp {
+                    continue;
+                }
+
+                // Otherwise override
                 dupes_overridden += 1;
             }
 
