@@ -3,11 +3,9 @@ use std::{sync::Arc, time::Duration};
 use axum::{body::Body, extract::Request};
 use criterion::{Criterion, criterion_group, criterion_main};
 use http::Uri;
-use ic_bn_lib::tasks::TaskManager;
-use ic_bn_lib_common::types::http::ConnInfo;
-use rand::{seq::SliceRandom, thread_rng};
-
+use ic_bn_lib::{http::server::conn::ConnInfo, tasks::TaskManager};
 use ic_gateway::test::setup_test_router;
+use rand::{seq::SliceRandom, thread_rng};
 use tower::Service;
 
 fn create_request(domain: &str, path: &str) -> Request {

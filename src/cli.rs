@@ -8,20 +8,21 @@ use clap::{Args, Parser};
 use fqdn::FQDN;
 use http::Uri;
 use humantime::parse_duration;
+use ic_bn_lib::http::client::cli::HttpClientCli;
+use ic_bn_lib::http::middleware::waf::WafCli;
+use ic_bn_lib::http::server::ProxyProtocolMode;
+use ic_bn_lib::http::server::cli::HttpServerCli;
+use ic_bn_lib::http::shed::{ShedShardedCli, ShedSystemCli};
 #[cfg(feature = "smtp")]
 use ic_bn_lib::smtp::cli::SmtpServerCli;
 #[cfg(feature = "acme")]
 use ic_bn_lib::tls::acme::dns::cloudflare::DEFAULT_CLOUDFLARE_URL;
 #[cfg(feature = "acme")]
-use ic_bn_lib_common::types::acme::{AcmeUrl, Challenge, DnsBackend};
-use ic_bn_lib_common::{
-    parse_size, parse_size_decimal, parse_size_usize,
-    types::{
-        dns::DnsCli,
-        http::{HttpClientCli, HttpServerCli, ProxyProtocolMode, WafCli},
-        shed::{ShedShardedCli, ShedSystemCli},
-        vector::VectorCli,
-    },
+use ic_bn_lib::tls::acme::{AcmeUrl, Challenge, DnsBackend};
+use ic_bn_lib::vector::cli::VectorCli;
+use ic_bn_lib::{
+    custom_domains::base::cli::CustomDomainsCli, dns::cli::DnsCli, parse_size, parse_size_decimal,
+    parse_size_usize,
 };
 use reqwest::Url;
 
@@ -66,7 +67,7 @@ pub struct Cli {
     pub domain: Domain,
 
     #[command(flatten, next_help_heading = "Custom Domains")]
-    pub custom_domains: Option<ic_custom_domains_base::cli::CustomDomainsCli>,
+    pub custom_domains: Option<CustomDomainsCli>,
 
     #[command(flatten, next_help_heading = "Policy")]
     pub policy: Policy,
@@ -117,7 +118,7 @@ pub struct Cli {
 
     #[cfg(all(target_os = "linux", feature = "sev-snp"))]
     #[command(flatten, next_help_heading = "SEV-SNP")]
-    pub sev_snp: ic_bn_lib_common::types::utils::SevSnpCli,
+    pub sev_snp: ic_bn_lib::utils::sev_snp::SevSnpCli,
 }
 
 #[derive(Args)]

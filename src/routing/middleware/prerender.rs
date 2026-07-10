@@ -15,10 +15,11 @@ use http::{
     uri::Authority,
 };
 use http_body_util::Full;
-use ic_bn_lib::{hname, hval};
-use ic_bn_lib_common::{
-    traits::http::ClientHttp,
-    types::{DomainFlags, FLAG_PRERENDER},
+use ic_bn_lib::{
+    custom_domains::flags::{DomainFlags, FLAG_PRERENDER},
+    hname,
+    http::ClientHttp,
+    hval,
 };
 use tokio::time::timeout;
 use tracing::info;
@@ -266,8 +267,7 @@ mod tests {
     use fqdn::fqdn;
     use http::StatusCode;
     use http_body_util::BodyExt;
-    use ic_bn_lib::hval;
-    use ic_bn_lib_common::types::http::Error as HttpError;
+    use ic_bn_lib::{http::Error as HttpError, hval};
     use prometheus::Registry;
     use tower::{ServiceBuilder, ServiceExt};
 

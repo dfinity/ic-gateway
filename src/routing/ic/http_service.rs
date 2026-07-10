@@ -6,8 +6,10 @@ use bytes::Bytes;
 use derive_new::new;
 use http::{Request, Response, StatusCode};
 use http_body_util::{BodyExt, Full, Limited};
-use ic_bn_lib::ic_agent::{AgentError, agent::HttpService};
-use ic_bn_lib_common::{traits::http::ClientHttp, types::http::Error as HttpError};
+use ic_bn_lib::{
+    http::{ClientHttp, Error as HttpError},
+    ic_agent::{AgentError, agent::HttpService},
+};
 use reqwest::header::{HeaderMap, HeaderValue};
 use tokio::task_local;
 

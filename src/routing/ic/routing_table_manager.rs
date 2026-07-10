@@ -15,8 +15,9 @@ use futures::future::join_all;
 use ic_bn_lib::{
     BoolYesNo,
     ic_agent::{Agent, agent::SubnetType as AgentSubnetType, hash_tree::SubtreeLookupResult},
+    tasks::Run,
+    utils::health_manager::Healthy,
 };
-use ic_bn_lib_common::traits::{Healthy, Run};
 use prometheus::{
     HistogramVec, IntCounterVec, IntGauge, Registry, register_histogram_vec_with_registry,
     register_int_counter_vec_with_registry, register_int_gauge_with_registry,
@@ -513,9 +514,7 @@ impl Run for RoutingTableManager {
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use ic_bn_lib_common::principal;
-
-    use crate::routing::ic::MAINNET_ROOT_SUBNET_ID;
+    use ic_bn_lib::{MAINNET_ROOT_SUBNET_ID, principal};
 
     use super::*;
 

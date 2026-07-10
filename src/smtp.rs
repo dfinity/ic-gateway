@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use ic_bn_lib::{
     SerializeOption,
     custom_domains::LooksUpCustomDomain,
+    http::Client,
     ic_agent::Agent,
     mail_auth::{
         MessageAuthenticator,
@@ -25,7 +26,6 @@ use ic_bn_lib::{
         client::{Metrics, Vector},
     },
 };
-use ic_bn_lib_common::traits::http::Client;
 use prometheus::Registry;
 use rustls::ServerConfig;
 use serde_json::json;

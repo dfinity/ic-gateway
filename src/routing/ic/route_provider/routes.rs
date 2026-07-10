@@ -5,13 +5,14 @@ use std::{
 };
 
 use arc_swap::ArcSwapOption;
+use ic_bn_lib::utils::wrr::Wrr;
 use prometheus::{IntGauge, Registry, register_int_gauge_with_registry};
 use tokio::{select, sync::watch};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 use url::Url;
 
-use crate::routing::ic::route_provider::{HealthyNode, wrr::Wrr};
+use crate::routing::ic::route_provider::HealthyNode;
 
 #[derive(Clone)]
 pub struct Metrics {

@@ -1,3 +1,8 @@
+pub mod fetcher;
+pub mod health;
+pub mod provider;
+pub mod routes;
+
 use std::{
     collections::hash_set::IntoIter,
     fmt::{Debug, Display},
@@ -14,11 +19,14 @@ use derive_new::new;
 use fqdn::FQDN;
 use http::Uri;
 use http_body_util::Full;
-use ic_bn_lib::ic_agent::agent::{
-    HttpService,
-    route_provider::{RoundRobinRouteProvider, RouteProvider},
+use ic_bn_lib::{
+    http::ClientHttp,
+    ic_agent::agent::{
+        HttpService,
+        route_provider::{RoundRobinRouteProvider, RouteProvider},
+    },
+    utils::health_manager::Healthy,
 };
-use ic_bn_lib_common::traits::{Healthy, http::ClientHttp};
 use prometheus::Registry;
 use tokio::fs;
 use url::Url;
@@ -29,12 +37,6 @@ use crate::{
         fetcher::AgentFetcher, health::HttpHealthChecker, provider::DynamicRouteProvider,
     },
 };
-
-pub mod fetcher;
-pub mod health;
-pub mod provider;
-pub mod routes;
-pub mod wrr;
 
 #[derive(Debug, thiserror::Error)]
 pub enum RouteError {

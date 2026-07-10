@@ -15,16 +15,12 @@ use http::{
 };
 use http_body_util::{BodyExt, Full};
 use ic_bn_lib::{
-    ic_agent::agent::route_provider::RoundRobinRouteProvider, tasks::TaskManager,
-    utils::health_manager::HealthManager,
-};
-use ic_bn_lib_common::{
+    custom_domains::{CustomDomain, ProvidesCustomDomains},
+    http::{Client, ClientHttp, Error as HttpError},
+    ic_agent::agent::route_provider::RoundRobinRouteProvider,
     principal,
-    traits::{
-        custom_domains::ProvidesCustomDomains,
-        http::{Client, ClientHttp},
-    },
-    types::{CustomDomain, http::Error as HttpError},
+    tasks::TaskManager,
+    utils::health_manager::HealthManager,
 };
 use ic_http_certification::HttpResponse;
 use ic_transport_types::{QueryResponse, ReplyResponse};

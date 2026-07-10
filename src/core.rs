@@ -6,19 +6,23 @@ use std::{
 use anyhow::{Context, Error, anyhow};
 use axum::Router;
 use ic_bn_lib::{
-    custom_domains::{self},
-    http::{self as bnhttp, dns::ApiBnResolver, middleware::waf::WafLayer, redirect_to_https},
+    MAINNET_ROOT_SUBNET_ID,
+    custom_domains::{self, ProvidesCustomDomains, base::cli::CustomDomainsCli},
+    dns::{
+        Options as DnsOptions,
+        resolvers::{ApiBnResolver, Resolver},
+    },
+    http::{
+        self as bnhttp,
+        client::ClientOptions,
+        middleware::waf::WafLayer,
+        redirect_to_https,
+        server::{ServerOptions, metrics::Metrics},
+    },
     tasks::TaskManager,
-    tls::{prepare_client_config, verify::NoopServerCertVerifier},
+    tls::{ProvidesCertificates, prepare_client_config, verify::NoopServerCertVerifier},
     utils::health_manager::HealthManager,
     vector::{self, VectorOptions, client::Vector},
-};
-use ic_bn_lib_common::{
-    traits::{custom_domains::ProvidesCustomDomains, tls::ProvidesCertificates},
-    types::{
-        dns::Options as DnsOptions,
-        http::{ClientOptions, Metrics, ServerOptions},
-    },
 };
 use itertools::Itertools;
 use prometheus::Registry;
@@ -33,7 +37,7 @@ use crate::{
         self,
         domain::CustomDomainStorage,
         ic::{
-            MAINNET_ROOT_SUBNET_ID, create_agent,
+            create_agent,
             http_service::AgentHttpService,
             route_provider::{RouteProviderWrapper, setup_route_provider},
             routing_table_manager::RoutingTableManager,
@@ -103,7 +107,7 @@ pub async fn main(
     // DNS resolver
     let dns_options: DnsOptions = (&cli.dns).into();
     let dns_resolver =
-        bnhttp::dns::Resolver::new(dns_options.clone()).context("unable to create DNS Resolver")?;
+        Resolver::new(dns_options.clone()).context("unable to create DNS Resolver")?;
 
     // HTTP client
     let mut http_client_opts: ClientOptions = (&cli.http_client).into();
@@ -446,7 +450,7 @@ pub async fn main(
 }
 
 async fn setup_custom_domains(
-    cli: &ic_custom_domains_base::cli::CustomDomainsCli,
+    cli: &CustomDomainsCli,
     dns_options: DnsOptions,
     metrics_registry: &Registry,
     tasks: &mut TaskManager,
@@ -455,7 +459,7 @@ async fn setup_custom_domains(
     rate_limiter_bypass_token: Option<String>,
 ) -> Result<Router, Error> {
     let token = tasks.token();
-    let (workers, router, client) = ic_custom_domains_backend::setup(
+    let (workers, router, client) = custom_domains::backend::setup(
         cli,
         dns_options,
         token,

@@ -1,16 +1,17 @@
 use std::{cell::RefCell, error::Error as StdError};
 
-use crate::routing::{CONTENT_TYPE_JSON, RequestType};
 use axum::response::{IntoResponse, Response};
 use candid::Principal;
 use fqdn::FQDN;
 use http::{HeaderValue, StatusCode, header::CONTENT_TYPE};
 use ic_bn_lib::{
     hickory_resolver::net::NetError,
-    http::headers::{CONTENT_TYPE_HTML, X_IC_ERROR_CAUSE},
+    http::{
+        Error as HttpError,
+        headers::{CONTENT_TYPE_HTML, X_IC_ERROR_CAUSE},
+    },
     ic_agent::AgentError,
 };
-use ic_bn_lib_common::types::http::Error as HttpError;
 use ic_http_gateway_protocol::HttpGatewayError;
 use ic_transport_types::RejectCode;
 use serde::{Deserialize, Serialize};
@@ -19,6 +20,7 @@ use strum::{Display, IntoStaticStr};
 use tokio::task_local;
 
 use super::ic::BNResponseMetadata;
+use crate::routing::{CONTENT_TYPE_JSON, RequestType};
 
 #[derive(Default, Clone)]
 pub struct ErrorContext {

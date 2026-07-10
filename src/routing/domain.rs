@@ -11,10 +11,12 @@ use arc_swap::ArcSwapOption;
 use async_trait::async_trait;
 use candid::Principal;
 use fqdn::{FQDN, Fqdn, fqdn};
-use ic_bn_lib::custom_domains::LooksUpCustomDomain;
-use ic_bn_lib_common::{
-    traits::{Healthy, Run, custom_domains::ProvidesCustomDomains},
-    types::{CustomDomain, DomainFlags},
+use ic_bn_lib::{
+    custom_domains::{
+        CustomDomain, LooksUpCustomDomain, ProvidesCustomDomains, flags::DomainFlags,
+    },
+    tasks::Run,
+    utils::health_manager::Healthy,
 };
 use prometheus::{
     IntCounter, IntGauge, Registry, register_int_counter_with_registry,
@@ -489,9 +491,9 @@ impl ResolvesDomain for DomainResolver {
 #[cfg(test)]
 mod test {
     use fqdn::fqdn;
-    use ic_bn_lib_common::{
+    use ic_bn_lib::{
+        custom_domains::flags::{FLAG_PRERENDER, FLAG_TEST},
         principal,
-        types::{FLAG_PRERENDER, FLAG_TEST},
     };
 
     use super::*;
