@@ -16,6 +16,7 @@ use http::{
 use http_body_util::Full;
 use ic_bn_lib::{
     http::{
+        ClientHttp, Error as HttpError,
         body::buffer_body,
         headers::{
             CONTENT_TYPE_CBOR, X_CONTENT_TYPE_OPTIONS_NO_SNIFF, X_FRAME_OPTIONS_DENY,
@@ -25,16 +26,14 @@ use ic_bn_lib::{
     },
     ic_agent::agent::route_provider::RouteProvider,
 };
-use ic_bn_lib_common::{traits::http::ClientHttp, types::http::Error as HttpError};
 use tokio::time::sleep;
 use url::Url;
-
-use crate::routing::error_cause::ClientError;
 
 use super::{
     error_cause::ErrorCause,
     ic::{BNRequestMetadata, BNResponseMetadata},
 };
+use crate::routing::error_cause::ClientError;
 
 fn url_join(mut base: Url, mut path: &str) -> Result<Url, url::ParseError> {
     // Add trailing slash to the base URL if it's not there
@@ -201,10 +200,10 @@ mod test {
     use http::{Method, Request, Response, Uri};
     use http_body_util::BodyExt;
     use ic_bn_lib::{
-        http::{HyperClient, dns::Resolver},
+        dns::resolvers::Resolver,
+        http::{HyperClient, client::ClientOptions},
         ic_agent::agent::route_provider::RoundRobinRouteProvider,
     };
-    use ic_bn_lib_common::types::http::ClientOptions;
     use tower::ServiceExt;
 
     use super::*;

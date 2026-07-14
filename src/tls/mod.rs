@@ -1,18 +1,17 @@
 use std::sync::Arc;
 
 use anyhow::{Error, bail};
+#[cfg(feature = "acme")]
+use ic_bn_lib::{dns::resolvers::Resolves, tls::acme::Challenge};
 use ic_bn_lib::{
+    health::HealthManager,
     tasks::TaskManager,
     tls::{
-        prepare_server_config,
+        ProvidesCertificates, TlsOptions, prepare_server_config,
         providers::{self, Aggregator, storage},
         resolver,
     },
-    utils::health_manager::HealthManager,
 };
-#[cfg(feature = "acme")]
-use ic_bn_lib_common::{traits::dns::Resolves, types::acme::Challenge};
-use ic_bn_lib_common::{traits::tls::ProvidesCertificates, types::tls::TlsOptions};
 use prometheus::Registry;
 use rustls::server::ServerConfig;
 
@@ -57,11 +56,11 @@ async fn setup_acme(
         }
 
         Challenge::Dns => {
-            use ic_bn_lib_common::types::acme::DnsBackend;
+            use ic_bn_lib::tls::acme::DnsBackend;
 
             let dns_backend = match cli.acme.acme_dns_backend {
                 DnsBackend::Cloudflare => {
-                    use ic_bn_lib_common::traits::acme::DnsManager;
+                    use ic_bn_lib::tls::acme::DnsManager;
 
                     let path = cli
                         .acme
@@ -187,9 +186,7 @@ pub async fn setup(
             .as_ref()
             .is_some_and(|x| *x == Challenge::Alpn)
         {
-            use ic_bn_lib_common::types::http::ALPN_ACME;
-
-            vec![ALPN_ACME.to_vec()]
+            vec![ic_bn_lib::tls::ALPN_ACME.to_vec()]
         } else {
             vec![vec![]]
         };

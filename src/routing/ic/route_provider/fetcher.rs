@@ -9,7 +9,7 @@ use anyhow::Context;
 use async_trait::async_trait;
 use fqdn::FQDN;
 use ic_bn_lib::{
-    BoolYesNo,
+    BoolYesNo, MAINNET_ROOT_SUBNET_ID,
     ic_agent::{
         Agent,
         agent::{HttpService, route_provider::RouteProvider},
@@ -25,10 +25,7 @@ use tracing::{info, warn};
 
 use crate::{
     metrics::HTTP_DURATION_BUCKETS,
-    routing::ic::{
-        MAINNET_ROOT_SUBNET_ID,
-        route_provider::{FetchesNodes, NodeList, RouteError},
-    },
+    routing::ic::route_provider::{FetchesNodes, NodeList, RouteError},
 };
 
 #[derive(Clone)]

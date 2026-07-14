@@ -46,7 +46,7 @@ impl DomainCanisterMatcher {
 #[cfg(test)]
 mod tests {
     use fqdn::fqdn;
-    use ic_bn_lib_common::principal;
+    use ic_bn_lib::principal;
 
     use super::*;
     use crate::{

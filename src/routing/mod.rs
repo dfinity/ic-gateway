@@ -21,11 +21,15 @@ use fqdn::FQDN;
 use http::{HeaderValue, StatusCode, method::Method};
 use http_body_util::Full;
 use ic_bn_lib::{
+    RequestType as RequestTypeApi,
+    health::HealthManager,
     http::{
+        Client, ClientHttp,
         cache::{CacheBuilder, KeyExtractorUriRange},
         extract_authority, extract_host,
         middleware::waf::WafLayer,
         shed::{
+            ShardedOptions, ShedResponse, TypeExtractor,
             sharded::ShardedLittleLoadShedderLayer,
             system::{SystemInfo, SystemLoadShedderLayer},
         },
@@ -33,18 +37,7 @@ use ic_bn_lib::{
     hval,
     ic_agent::agent::route_provider::RouteProvider,
     tasks::TaskManager,
-    utils::health_manager::HealthManager,
     vector::client::Vector,
-};
-use ic_bn_lib_common::{
-    traits::{
-        http::{Client, ClientHttp},
-        shed::TypeExtractor,
-    },
-    types::{
-        RequestType as RequestTypeApi,
-        shed::{ShardedOptions, ShedResponse},
-    },
 };
 use prometheus::Registry;
 use strum::Display;
@@ -120,7 +113,7 @@ pub enum RequestType {
 // Strum can't handle FromStr for nested types (Api) the way we want.
 // See https://github.com/Peternator7/strum/pull/331
 impl FromStr for RequestType {
-    type Err = ic_bn_lib_common::Error;
+    type Err = ic_bn_lib::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(match s {
@@ -623,9 +616,9 @@ pub async fn setup_router(
     if cli.sev_snp.sev_snp_enable {
         let router_sev_snp = Router::new().route(
             "/sev-snp/report",
-            post(ic_bn_lib::utils::sev_snp::handler)
+            post(ic_bn_lib::sev_snp::handler)
                 .with_state(
-                    ic_bn_lib::utils::sev_snp::SevSnpState::new(
+                    ic_bn_lib::sev_snp::SevSnpState::new(
                         cli.sev_snp.sev_snp_cache_ttl,
                         cli.sev_snp.sev_snp_cache_size,
                     )
@@ -647,20 +640,25 @@ pub async fn setup_router(
 
 #[cfg(test)]
 mod test {
+    use axum::body::{Body, to_bytes};
+    use http::{HeaderValue, Uri};
+    use ic_bn_lib::{
+        http::{
+            headers::{X_REAL_IP, X_REQUEST_ID},
+            server::conn::ConnInfo,
+        },
+        uuid::Uuid,
+    };
+    use rand::{seq::SliceRandom, thread_rng};
+    use std::str::FromStr;
+    use tower::Service;
+
     use crate::{
         routing::middleware::{geoip::CountryCode, request_id::RequestId},
         test::setup_test_router,
     };
 
     use super::*;
-    use axum::body::{Body, to_bytes};
-    use http::{HeaderValue, Uri};
-    use ic_bn_lib::http::headers::{X_REAL_IP, X_REQUEST_ID};
-    use ic_bn_lib::uuid::Uuid;
-    use ic_bn_lib_common::types::http::ConnInfo;
-    use rand::{seq::SliceRandom, thread_rng};
-    use std::str::FromStr;
-    use tower::Service;
 
     #[test]
     fn test_request_type() {

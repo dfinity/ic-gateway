@@ -12,8 +12,10 @@ use fqdn::FQDN;
 use futures::future::join_all;
 use http::Method;
 use http_body_util::Full;
-use ic_bn_lib::{BoolYesNo, http::shed::ewma::EWMA};
-use ic_bn_lib_common::traits::http::ClientHttp;
+use ic_bn_lib::{
+    BoolYesNo,
+    http::{ClientHttp, shed::ewma::EWMA},
+};
 use prometheus::{
     HistogramVec, IntCounterVec, IntGauge, IntGaugeVec, Registry,
     register_histogram_vec_with_registry, register_int_counter_vec_with_registry,

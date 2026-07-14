@@ -15,15 +15,15 @@ use http::{
 };
 use http_body_util::BodyExt;
 use ic_bn_lib::{
-    http::body::buffer_body,
+    http::{body::buffer_body, server::conn::ConnInfo},
     hval,
     ic_agent::{
         Agent, AgentError,
         agent::{HttpService, route_provider::RoundRobinRouteProvider},
     },
+    principal,
     uuid::Uuid,
 };
-use ic_bn_lib_common::{principal, types::http::ConnInfo};
 use ic_http_certification::HttpRequest;
 use ic_http_gateway_protocol::{CanisterRequest, HttpGatewayClientBuilder};
 

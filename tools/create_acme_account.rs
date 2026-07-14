@@ -1,5 +1,4 @@
-use ic_bn_lib::tls::acme::client::ClientBuilder;
-use ic_bn_lib_common::types::acme::AcmeUrl;
+use ic_bn_lib::tls::acme::{AcmeUrl, client::ClientBuilder};
 
 #[tokio::main]
 async fn main() {

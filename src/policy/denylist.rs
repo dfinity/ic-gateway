@@ -4,7 +4,7 @@ use ahash::{AHashMap, AHashSet};
 use anyhow::{Context, Error, anyhow};
 use arc_swap::ArcSwapOption;
 use candid::Principal;
-use ic_bn_lib_common::traits::http::Client;
+use ic_bn_lib::http::Client;
 use serde::Deserialize;
 use serde_json as json;
 use tracing::warn;
@@ -143,9 +143,10 @@ impl Denylist {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use async_trait::async_trait;
-    use ic_bn_lib_common::principal;
+    use ic_bn_lib::principal;
+
+    use super::*;
 
     #[derive(Debug)]
     struct TestClient(reqwest::Client);

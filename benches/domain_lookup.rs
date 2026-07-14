@@ -2,14 +2,13 @@ use std::sync::Arc;
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use fqdn::fqdn;
-use ic_bn_lib_common::{principal, types::CustomDomain};
-use prometheus::Registry;
-use rand::{Rng, seq::SliceRandom, thread_rng};
-
+use ic_bn_lib::{custom_domains::CustomDomain, principal};
 use ic_gateway::{
     routing::domain::{CustomDomainStorage, ResolvesDomain},
     test::FakeDomainProvider,
 };
+use prometheus::Registry;
+use rand::{Rng, seq::SliceRandom, thread_rng};
 
 fn criterion_benchmark(c: &mut Criterion) {
     let mut rng = thread_rng();
