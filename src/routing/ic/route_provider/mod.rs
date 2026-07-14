@@ -20,12 +20,12 @@ use fqdn::FQDN;
 use http::Uri;
 use http_body_util::Full;
 use ic_bn_lib::{
+    health::Healthy,
     http::ClientHttp,
     ic_agent::agent::{
         HttpService,
         route_provider::{RoundRobinRouteProvider, RouteProvider},
     },
-    utils::health_manager::Healthy,
 };
 use prometheus::Registry;
 use tokio::fs;

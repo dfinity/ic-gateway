@@ -4,13 +4,13 @@ use anyhow::{Error, bail};
 #[cfg(feature = "acme")]
 use ic_bn_lib::{dns::resolvers::Resolves, tls::acme::Challenge};
 use ic_bn_lib::{
+    health::HealthManager,
     tasks::TaskManager,
     tls::{
         ProvidesCertificates, TlsOptions, prepare_server_config,
         providers::{self, Aggregator, storage},
         resolver,
     },
-    utils::health_manager::HealthManager,
 };
 use prometheus::Registry;
 use rustls::server::ServerConfig;

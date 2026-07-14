@@ -14,9 +14,9 @@ use candid::Principal;
 use futures::future::join_all;
 use ic_bn_lib::{
     BoolYesNo,
+    health::Healthy,
     ic_agent::{Agent, agent::SubnetType as AgentSubnetType, hash_tree::SubtreeLookupResult},
     tasks::Run,
-    utils::health_manager::Healthy,
 };
 use prometheus::{
     HistogramVec, IntCounterVec, IntGauge, Registry, register_histogram_vec_with_registry,

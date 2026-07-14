@@ -15,8 +15,8 @@ use ic_bn_lib::{
     custom_domains::{
         CustomDomain, LooksUpCustomDomain, ProvidesCustomDomains, flags::DomainFlags,
     },
+    health::Healthy,
     tasks::Run,
-    utils::health_manager::Healthy,
 };
 use prometheus::{
     IntCounter, IntGauge, Registry, register_int_counter_with_registry,

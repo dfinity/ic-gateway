@@ -10,8 +10,8 @@ use axum::{
 use derive_new::new;
 use http::{Method, StatusCode, header::AUTHORIZATION};
 use ic_bn_lib::{
+    health::Healthy,
     http::middleware::waf::{self, WafLayer},
-    utils::health_manager::Healthy,
 };
 use tokio_util::sync::CancellationToken;
 use tracing::Level;
@@ -125,7 +125,7 @@ mod test {
     use axum::body::Body;
     use clap::Parser;
     use http::{HeaderValue, Request, Uri};
-    use ic_bn_lib::{hval, utils::health_manager::HealthManager};
+    use ic_bn_lib::{health::HealthManager, hval};
     use tower::ServiceExt;
     use tracing_subscriber::reload;
 

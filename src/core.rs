@@ -12,6 +12,7 @@ use ic_bn_lib::{
         Options as DnsOptions,
         resolvers::{ApiBnResolver, Resolver},
     },
+    health::HealthManager,
     http::{
         self as bnhttp,
         client::ClientOptions,
@@ -21,7 +22,6 @@ use ic_bn_lib::{
     },
     tasks::TaskManager,
     tls::{ProvidesCertificates, prepare_client_config, verify::NoopServerCertVerifier},
-    utils::health_manager::HealthManager,
     vector::{self, VectorOptions, client::Vector},
 };
 use itertools::Itertools;

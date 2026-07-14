@@ -22,6 +22,7 @@ use http::{HeaderValue, StatusCode, method::Method};
 use http_body_util::Full;
 use ic_bn_lib::{
     RequestType as RequestTypeApi,
+    health::HealthManager,
     http::{
         Client, ClientHttp,
         cache::{CacheBuilder, KeyExtractorUriRange},
@@ -36,7 +37,6 @@ use ic_bn_lib::{
     hval,
     ic_agent::agent::route_provider::RouteProvider,
     tasks::TaskManager,
-    utils::health_manager::HealthManager,
     vector::client::Vector,
 };
 use prometheus::Registry;
@@ -616,9 +616,9 @@ pub async fn setup_router(
     if cli.sev_snp.sev_snp_enable {
         let router_sev_snp = Router::new().route(
             "/sev-snp/report",
-            post(ic_bn_lib::utils::sev_snp::handler)
+            post(ic_bn_lib::sev_snp::handler)
                 .with_state(
-                    ic_bn_lib::utils::sev_snp::SevSnpState::new(
+                    ic_bn_lib::sev_snp::SevSnpState::new(
                         cli.sev_snp.sev_snp_cache_ttl,
                         cli.sev_snp.sev_snp_cache_size,
                     )

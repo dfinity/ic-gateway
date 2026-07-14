@@ -16,11 +16,11 @@ use http::{
 use http_body_util::{BodyExt, Full};
 use ic_bn_lib::{
     custom_domains::{CustomDomain, ProvidesCustomDomains},
+    health::HealthManager,
     http::{Client, ClientHttp, Error as HttpError},
     ic_agent::agent::route_provider::RoundRobinRouteProvider,
     principal,
     tasks::TaskManager,
-    utils::health_manager::HealthManager,
 };
 use ic_http_certification::HttpResponse;
 use ic_transport_types::{QueryResponse, ReplyResponse};
