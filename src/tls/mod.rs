@@ -24,7 +24,7 @@ use {
         dns::{AcmeDns, TokenManagerDns},
     },
     rustls::server::ResolvesServerCert as ResolvesServerCertRustls,
-    std::{fs, time::Duration},
+    std::time::Duration,
 };
 
 use crate::cli::Cli;
@@ -62,14 +62,11 @@ async fn setup_acme(
                 DnsBackend::Cloudflare => {
                     use ic_bn_lib::tls::acme::DnsManager;
 
-                    let path = cli
+                    let token = cli
                         .acme
                         .acme_dns_cloudflare_token
                         .clone()
                         .ok_or_else(|| anyhow!("Cloudflare token not defined"))?;
-
-                    let token =
-                        fs::read_to_string(path).context("unable to read Cloudflare token")?;
 
                     Arc::new(acme::dns::cloudflare::Cloudflare::new(
                         cli.acme.acme_dns_cloudflare_url.clone(),

@@ -397,13 +397,15 @@ pub struct Acme {
     #[clap(env, long, default_value = "cloudflare")]
     pub acme_dns_backend: DnsBackend,
 
-    /// Cloudflare API URL
+    /// Cloudflare API URL.
+    /// Makes sense only when the DNS backend is set to `cloudflare`.
     #[clap(env, long, default_value = DEFAULT_CLOUDFLARE_URL)]
     pub acme_dns_cloudflare_url: Url,
 
-    /// File from which to read API token if DNS backend is Cloudflare
+    /// Cloudflare token to use.
+    /// Makes sense only when the DNS backend is set to `cloudflare`.
     #[clap(env, long)]
-    pub acme_dns_cloudflare_token: Option<PathBuf>,
+    pub acme_dns_cloudflare_token: Option<String>,
 
     /// Asks ACME client to request a wildcard certificate for each of the domains configured.
     /// So in addition to `foo.app` the certificate will be also valid for `*.foo.app`.
@@ -422,8 +424,8 @@ pub struct Acme {
     #[clap(env, long, default_value = "le_stag")]
     pub acme_url: AcmeUrl,
 
-    /// E-Mail to use when creating ACME accounts, must start with mailto:
-    #[clap(env, long, default_value = "mailto:boundary-nodes@dfinity.org")]
+    /// E-Mail to use when creating an ACME account
+    #[clap(env, long, default_value = "boundary-nodes@dfinity.org")]
     pub acme_contact: String,
 }
 
