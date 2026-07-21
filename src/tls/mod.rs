@@ -1,8 +1,6 @@
 use std::sync::Arc;
 
 use anyhow::{Error, bail};
-#[cfg(feature = "acme")]
-use ic_bn_lib::{dns::resolvers::Resolves, tls::acme::Challenge};
 use ic_bn_lib::{
     health::HealthManager,
     tasks::TaskManager,
@@ -14,7 +12,6 @@ use ic_bn_lib::{
 };
 use prometheus::Registry;
 use rustls::server::ServerConfig;
-
 #[cfg(feature = "acme")]
 use {
     anyhow::{Context, anyhow},
@@ -23,8 +20,13 @@ use {
         self,
         dns::{AcmeDns, TokenManagerDns},
     },
+    ic_bn_lib::{
+        dns::resolvers::Resolver,
+        http::client::clients_reqwest,
+        tls::acme::{Challenge, TokenManager, TokenManagerNoop},
+    },
     rustls::server::ResolvesServerCert as ResolvesServerCertRustls,
-    std::{fs, time::Duration},
+    std::time::Duration,
 };
 
 use crate::cli::Cli;
@@ -35,7 +37,7 @@ async fn setup_acme(
     tasks: &mut TaskManager,
     domains: Vec<FQDN>,
     challenge: &Challenge,
-    dns_resolver: Arc<dyn Resolves>,
+    dns_resolver: Resolver,
 ) -> Result<Arc<dyn ResolvesServerCertRustls>, Error> {
     let cache_path = cli.acme.acme_cache_path.clone().unwrap();
 
@@ -46,6 +48,10 @@ async fn setup_acme(
                 domains.iter().map(|x| x.to_string()).collect::<Vec<_>>(),
                 cli.acme.acme_contact.clone(),
                 cache_path,
+                cli.acme
+                    .acme_account_creds
+                    .as_ref()
+                    .map(|x| x.as_bytes().to_vec()),
                 None,
             );
 
@@ -55,32 +61,54 @@ async fn setup_acme(
             acme_alpn
         }
 
-        Challenge::Dns => {
+        Challenge::Dns | Challenge::DnsPersist => {
             use ic_bn_lib::tls::acme::DnsBackend;
 
-            let dns_backend = match cli.acme.acme_dns_backend {
-                DnsBackend::Cloudflare => {
-                    use ic_bn_lib::tls::acme::DnsManager;
+            // Create a token manager for DNS challenge, or use a no-op one for DNS-PERSIST
+            let token_manager = if *challenge == Challenge::Dns {
+                let dns_backend = match cli.acme.acme_dns_backend {
+                    DnsBackend::Cloudflare => {
+                        use ic_bn_lib::tls::acme::dns::DnsManager;
 
-                    let path = cli
-                        .acme
-                        .acme_dns_cloudflare_token
-                        .clone()
-                        .ok_or_else(|| anyhow!("Cloudflare token not defined"))?;
+                        let token = cli
+                            .acme
+                            .acme_dns_cloudflare_token
+                            .clone()
+                            .ok_or_else(|| anyhow!("Cloudflare token not defined"))?;
 
-                    let token =
-                        fs::read_to_string(path).context("unable to read Cloudflare token")?;
+                        let http_client = clients_reqwest::new(
+                            (&cli.http_client).into(),
+                            Some(dns_resolver.clone()),
+                        )
+                        .context("unable to create HTTP client for Cloudflare")?;
 
-                    Arc::new(acme::dns::cloudflare::Cloudflare::new(
-                        cli.acme.acme_dns_cloudflare_url.clone(),
-                        token,
-                    )?) as Arc<dyn DnsManager>
-                }
+                        Arc::new(acme::dns::cloudflare::Cloudflare::new_with_http_client(
+                            cli.acme.acme_dns_cloudflare_url.clone(),
+                            token,
+                            http_client,
+                        )) as Arc<dyn DnsManager>
+                    }
 
-                _ => bail!("unsupported DNS backend: {}", cli.acme.acme_dns_backend),
+                    _ => bail!("unsupported DNS backend: {}", cli.acme.acme_dns_backend),
+                };
+
+                Arc::new(TokenManagerDns::new(
+                    Arc::new(dns_resolver.clone()),
+                    dns_backend,
+                    None,
+                )) as Arc<dyn TokenManager>
+            } else {
+                Arc::new(TokenManagerNoop)
             };
 
-            let token_manager = Arc::new(TokenManagerDns::new(dns_resolver, dns_backend, None));
+            let account_credentials = if let Some(v) = &cli.acme.acme_account_creds {
+                Some(
+                    serde_json::from_str(v)
+                        .context("unable to parse ACME account credentials as JSON")?,
+                )
+            } else {
+                None
+            };
 
             let opts = acme::dns::Opts {
                 acme_url: cli.acme.acme_url.clone(),
@@ -88,12 +116,16 @@ async fn setup_acme(
                 path: cache_path,
                 wildcard: cli.acme.acme_wildcard,
                 renew_before: cli.acme.acme_renew_before,
-                account_credentials: None,
+                account_credentials,
                 token_manager,
-                insecure_tls: false,
+                contact: cli.acme.acme_contact.clone(),
             };
 
-            let acme_dns = Arc::new(AcmeDns::new(opts).await.context("unable to init AcmeDns")?);
+            let acme_dns = Arc::new(
+                AcmeDns::new_with_http_opts(opts, (&cli.http_client).into(), dns_resolver)
+                    .await
+                    .context("unable to init AcmeDns")?,
+            );
             tasks.add_interval("acme_dns_runner", acme_dns.clone(), Duration::from_mins(10));
 
             acme_dns
@@ -109,7 +141,7 @@ pub async fn setup(
     tasks: &mut TaskManager,
     health_manager: Arc<HealthManager>,
     #[cfg(feature = "acme")] domains: Vec<FQDN>,
-    #[cfg(feature = "acme")] dns_resolver: Arc<dyn Resolves>,
+    #[cfg(feature = "acme")] dns_resolver: Resolver,
     certificate_providers: Vec<Arc<dyn ProvidesCertificates>>,
     registry: &Registry,
 ) -> Result<ServerConfig, Error> {

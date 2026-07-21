@@ -1,9 +1,11 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    os::unix::net::UnixDatagram,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use anyhow::{Context, Error};
 use serde::ser::{SerializeMap, Serializer as _};
 use serde_json::Serializer;
-use std::os::unix::net::UnixDatagram;
 use tracing::{Event, Level, Subscriber};
 use tracing_serde::AsSerde;
 use tracing_subscriber::{

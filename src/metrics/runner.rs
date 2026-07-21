@@ -17,7 +17,7 @@ use tikv_jemalloc_ctl::{epoch, stats};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 
-// https://prometheus.io/docs/instrumenting/exposition_formats/#basic-info
+/// https://prometheus.io/docs/instrumenting/exposition_formats/#basic-info
 const PROMETHEUS_CONTENT_TYPE: &str = "text/plain; version=0.0.4";
 
 pub struct MetricsCache {

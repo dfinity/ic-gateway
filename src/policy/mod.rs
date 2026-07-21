@@ -16,5 +16,6 @@ pub fn load_principal_list(path: &PathBuf) -> Result<AHashSet<Principal>, Error>
         .filter(|x| !x.trim().is_empty())
         .map(Principal::from_text)
         .collect::<Result<AHashSet<Principal>, _>>()?;
+
     Ok(set)
 }

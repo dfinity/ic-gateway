@@ -363,7 +363,7 @@ pub async fn main(
                 #[cfg(feature = "acme")]
                 domains.clone(),
                 #[cfg(feature = "acme")]
-                Arc::new(dns_resolver),
+                dns_resolver,
                 certificate_providers,
                 &registry,
             )
