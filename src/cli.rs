@@ -384,6 +384,7 @@ pub struct Acme {
     /// Currently supported:
     /// - alpn: all served domains must resolve to the host where this service is running.
     /// - dns: allows to request wildcard certificates, requires DNS backend to be configured.
+    /// - dns_persist: allows to request wildcard certificates and requires no DNS-interaction.
     #[clap(env, long, requires = "acme_cache_path")]
     pub acme_challenge: Option<Challenge>,
 
@@ -393,7 +394,13 @@ pub struct Acme {
     #[clap(env, long)]
     pub acme_cache_path: Option<PathBuf>,
 
-    /// DNS backend to use when using DNS challenge. Currently only "cloudflare" is supported.
+    /// ACME account credentials in JSON format.
+    /// If not provided - new account will be created.
+    #[clap(env, long)]
+    pub acme_account_creds: Option<String>,
+
+    /// DNS backend to use when using DNS challenge.
+    /// Currently only "cloudflare" is supported.
     #[clap(env, long, default_value = "cloudflare")]
     pub acme_dns_backend: DnsBackend,
 
@@ -409,12 +416,12 @@ pub struct Acme {
 
     /// Asks ACME client to request a wildcard certificate for each of the domains configured.
     /// So in addition to `foo.app` the certificate will be also valid for `*.foo.app`.
-    /// For obvious reasons this works only with DNS challenge, has no effect with ALPN.
+    /// For obvious reasons this works only with DNS/DNS-PERSIST challenge, has no effect with ALPN.
     #[clap(env, long)]
     pub acme_wildcard: bool,
 
     /// Attempt to renew the certificates when less than this duration is left until expiration.
-    /// This works only with DNS challenge, ALPN currently starts to renew after half of certificate
+    /// This works only with DNS/DNS-PERSIST challenge, ALPN currently starts to renew after half of certificate
     /// lifetime has passed (45d for LetsEncrypt)
     #[clap(env, long, value_parser = parse_duration, default_value = "30d")]
     pub acme_renew_before: Duration,

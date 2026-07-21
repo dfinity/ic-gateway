@@ -33,14 +33,12 @@ use tracing::info;
 
 use crate::{
     core::{ENV, HOSTNAME},
-    routing::RemoteAddr,
-};
-
-use crate::routing::{
-    CanisterId, RequestCtx,
-    error_cause::ErrorCause,
-    ic::{BNRequestMetadata, BNResponseMetadata, IcResponseStatus},
-    middleware::{geoip::CountryCode, request_id::RequestId},
+    routing::{
+        CanisterId, RemoteAddr, RequestCtx,
+        error_cause::ErrorCause,
+        ic::{BNRequestMetadata, BNResponseMetadata, IcResponseStatus},
+        middleware::{geoip::CountryCode, request_id::RequestId},
+    },
 };
 
 const KB: f64 = 1024.0;

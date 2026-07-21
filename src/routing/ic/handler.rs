@@ -12,6 +12,7 @@ use ic_bn_lib::http::{
 };
 use ic_http_gateway_protocol::{CanisterRequest, HttpGatewayClient, HttpGatewayRequestArgs};
 
+use super::{BNRequestMetadata, BNResponseMetadata};
 use crate::routing::{
     CanisterId, RequestCtx,
     error_cause::{CanisterError, ErrorCause},
@@ -21,8 +22,6 @@ use crate::routing::{
     },
     middleware::request_id::RequestId,
 };
-
-use super::{BNRequestMetadata, BNResponseMetadata};
 
 #[derive(derive_new::new)]
 pub struct HandlerState {
