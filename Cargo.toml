@@ -11,7 +11,11 @@ default = []
 smtp = ["ic-bn-lib/smtp"]
 sev-snp = ["ic-bn-lib/sev-snp"]
 acme = ["ic-bn-lib/acme-dns", "ic-bn-lib/acme-alpn"]
-bench = ["dep:ic-http-certification", "dep:rand_regex"]
+bench = [
+    "dep:ic-http-certification",
+    "dep:ic-transport-types",
+    "dep:rand_regex",
+]
 tokio_console = ["dep:console-subscriber"]
 debug = []
 
@@ -35,7 +39,7 @@ http = "1.3.1"
 http-body = "1.0.1"
 http-body-util = "0.1.2"
 humantime = "2.2.0"
-ic-bn-lib = { version = "0.4.1", features = [
+ic-bn-lib = { version = "0.5.0", features = [
     "cert-providers",
     "lb",
     "clients-hyper",
@@ -43,8 +47,9 @@ ic-bn-lib = { version = "0.4.1", features = [
     "vector",
 ] }
 ic-http-certification = { version = "3.1.0", optional = true }
-ic-transport-types = "0.47"
-ic-http-gateway-protocol = { package = "ic-http-gateway-protocol", git = "https://github.com/dfinity/ic-http-gateway-protocol", tag = "v0.5.1" }
+ic-http-gateway-protocol = { package = "ic-http-gateway-protocol", git = "https://github.com/dfinity/ic-http-gateway-protocol", tag = "v0.6.0" }
+# TODO: drop & re-export from ic-bn-lib
+ic-transport-types = { version = "0.49", optional = true }
 isbot = "0.1"
 itertools = "0.15.0"
 lazy_static = "1.5.0"
@@ -97,6 +102,8 @@ hex = "0.4.3"
 httptest = "0.16.1"
 ic-certified-assets = { git = "https://github.com/dfinity/sdk.git", rev = "d65717bd6d0c172247c37dd23395c9fb13b2ba20" }
 ic-http-certification = "3.1.0"
+# TODO: drop & re-export from ic-bn-lib
+ic-transport-types = "0.49"
 mockall = "0.15.0"
 nix = { version = "0.31.0", features = ["signal"] }
 pocket-ic = "=13.0.0"
