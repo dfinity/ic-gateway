@@ -50,14 +50,14 @@ pub async fn proxy_api_calls_test(env: &TestEnv) -> anyhow::Result<()> {
     info!("api/v2/query - query counter");
     let out = agent.query(&canister_id, "read").call().await?;
     if !out.eq(&[0, 0, 0, 0]) {
-        bail!("failed: got {:?}, expected {:?}", out, &[0, 0, 0, 0],)
+        bail!("failed: got {:?}, expected {:?}", out, [0, 0, 0, 0],)
     }
 
     info!("api/v3/call - increase counter");
     agent.update(&canister_id, "write").call_and_wait().await?;
     let out = agent.query(&canister_id, "read").call().await?;
     if !out.eq(&[1, 0, 0, 0]) {
-        bail!("failed: got {:?}, expected {:?}", out, &[1, 0, 0, 0],)
+        bail!("failed: got {:?}, expected {:?}", out, [1, 0, 0, 0],)
     }
 
     info!("api/v2/read_state - fetch canister module hash");
