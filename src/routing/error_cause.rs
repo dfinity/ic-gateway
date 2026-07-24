@@ -10,10 +10,9 @@ use ic_bn_lib::{
         Error as HttpError,
         headers::{CONTENT_TYPE_HTML, X_IC_ERROR_CAUSE},
     },
-    ic_agent::AgentError,
+    ic_agent::{AgentError, agent::RejectCode},
 };
 use ic_http_gateway_protocol::HttpGatewayError;
-use ic_transport_types::RejectCode;
 use serde::{Deserialize, Serialize};
 use serde_json::to_string_pretty;
 use strum::{Display, IntoStaticStr};
@@ -712,8 +711,11 @@ mod test {
     use fqdn::fqdn;
     use http::HeaderMap;
     use http_body_util::BodyExt;
-    use ic_bn_lib::{http::headers::X_IC_ERROR_CAUSE, hval, ic_agent::AgentError};
-    use ic_transport_types::RejectResponse;
+    use ic_bn_lib::{
+        http::headers::X_IC_ERROR_CAUSE,
+        hval,
+        ic_agent::{AgentError, agent::RejectResponse},
+    };
 
     #[tokio::test]
     async fn test_error_cause() {
