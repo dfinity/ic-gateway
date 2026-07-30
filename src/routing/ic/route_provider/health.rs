@@ -5,6 +5,7 @@ use std::{
 };
 
 use ahash::AHashMap;
+use arc_swap::ArcSwapOption;
 use async_trait::async_trait;
 use bytes::Bytes;
 use derive_new::new;
@@ -243,6 +244,7 @@ pub struct HealthCheckManager {
     check_interval: Duration,
     tx: mpsc::Sender<(Arc<Node>, HealthCheckResult)>,
     rx: mpsc::Receiver<(Arc<Node>, HealthCheckResult)>,
+    node_list: Arc<ArcSwapOption<NodeList>>,
     node_list_rx: watch::Receiver<NodeList>,
     healthy_nodes_tx: watch::Sender<Vec<HealthyNode>>,
     idle_interval: Interval,
@@ -263,10 +265,12 @@ impl Debug for HealthCheckManager {
 }
 
 impl HealthCheckManager {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         checker: Arc<dyn ChecksHealth>,
         check_interval: Duration,
         idle_period: Duration,
+        node_list: Arc<ArcSwapOption<NodeList>>,
         node_list_rx: watch::Receiver<NodeList>,
         healthy_nodes_tx: watch::Sender<Vec<HealthyNode>>,
         ewma_alpha: f64,
@@ -282,6 +286,7 @@ impl HealthCheckManager {
             check_interval,
             rx,
             tx,
+            node_list,
             node_list_rx,
             healthy_nodes_tx,
             idle_interval,
@@ -316,6 +321,7 @@ impl HealthCheckManager {
     /// Starts & stops actors to match the new list of nodes
     #[allow(clippy::cast_possible_wrap)]
     async fn update_node_list(&mut self, node_list: NodeList) {
+        self.node_list.store(Some(Arc::new(node_list.clone())));
         self.metrics.nodes.set(node_list.len() as i64);
 
         let start = Instant::now();
@@ -528,11 +534,13 @@ mod test {
         let checker = Arc::new(TestHealthChecker::default());
         let (node_list_tx, node_list_rx) = watch::channel(NodeList::new(vec![]));
         let (healthy_nodes_tx, mut healthy_nodes_rx) = watch::channel(vec![]);
+        let node_list = Arc::new(ArcSwapOption::empty());
 
         let manager = HealthCheckManager::new(
             checker,
             Duration::from_millis(50),
             Duration::from_secs(10),
+            node_list,
             node_list_rx,
             healthy_nodes_tx,
             0.5,

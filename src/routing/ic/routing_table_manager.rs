@@ -7,7 +7,7 @@ use std::{
 };
 
 use ahash::AHashMap;
-use anyhow::{Context, Error, anyhow};
+use anyhow::{Context, Error, anyhow, bail};
 use arc_swap::ArcSwapOption;
 use async_trait::async_trait;
 use candid::Principal;
@@ -136,11 +136,6 @@ impl LooksUpSubnetType for SubnetsRoutingTable {
 }
 
 /// Fetches the full routing table and subnet types.
-///
-/// Round trips performed per update cycle:
-/// 1. Read NNS `/subnet` to discover all subnet IDs.
-/// 2. Concurrently call `fetch_subnet_by_id` for each subnet, fetching both
-///    its type and canister ranges directly from the subnet.
 pub struct RoutingTableManager {
     subnet_info_fetcher: Arc<dyn AgentExt + Send + Sync + 'static>,
     root_subnet_id: Principal,
@@ -263,6 +258,11 @@ impl RoutingTableManager {
             .refresh_snapshot()
             .await
             .context("unablt to refresh snapshot")?;
+
+        if subnets_count == 0 {
+            bail!("No subnets were fetched");
+        }
+
         let snapshot = self.snapshot.lock().unwrap();
 
         // Check if we already have enough valid subnet data.

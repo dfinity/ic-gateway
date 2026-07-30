@@ -6,16 +6,14 @@ use std::{
 
 use anyhow::anyhow;
 use arc_swap::ArcSwapOption;
-use derive_new::new;
 use fqdn::FQDN;
 use ic_bn_lib::ic_agent::{
     AgentError,
     agent::route_provider::{RouteProvider, RoutesStats},
 };
 use prometheus::{IntCounterVec, Registry, register_int_counter_vec_with_registry};
-use tokio::{select, sync::watch};
+use tokio::sync::watch;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
-use tracing::{info, warn};
 use url::Url;
 
 use crate::routing::ic::route_provider::{
@@ -41,49 +39,6 @@ impl Metrics {
             )
             .unwrap(),
         }
-    }
-}
-
-/// Handles incoming updates of the node list on behalf of [`DynamicRouteProvider`]
-#[derive(new)]
-#[allow(clippy::struct_field_names)]
-pub struct RouteProviderManager {
-    node_list: Arc<ArcSwapOption<NodeList>>,
-    node_list_rx: watch::Receiver<NodeList>,
-}
-
-impl Display for RouteProviderManager {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "RouteProviderManager")
-    }
-}
-
-impl Debug for RouteProviderManager {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{self}")
-    }
-}
-
-impl RouteProviderManager {
-    async fn run(mut self, token: CancellationToken) {
-        warn!("{self}: Started");
-
-        loop {
-            select! {
-                // Process updates to the node list
-                Ok(()) = self.node_list_rx.changed() => {
-                    let node_list = self.node_list_rx.borrow_and_update().clone();
-                    info!("{self}: Got a new list of nodes ({}), storing", node_list.len());
-                    self.node_list.store(Some(Arc::new(node_list.clone())));
-                }
-
-                () = token.cancelled() => {
-                    break;
-                }
-            }
-        }
-
-        warn!("{self}: Shutting down");
     }
 }
 
@@ -163,16 +118,13 @@ impl DynamicRouteProvider {
         );
         tracker.spawn(fetcher_manager.run(node_fetch_interval, token.child_token()));
 
-        // Start route provider manager
-        let route_provider_manager = RouteProviderManager::new(node_list, node_list_rx.clone());
-        tracker.spawn(route_provider_manager.run(token.child_token()));
-
         // Start health checking
         let (healthy_nodes_tx, healthy_nodes_rx) = watch::channel(vec![]);
         let health_check_manager = HealthCheckManager::new(
             health_checker,
             health_check_interval,
             idle_period,
+            node_list,
             node_list_rx,
             healthy_nodes_tx,
             ewma_alpha,
