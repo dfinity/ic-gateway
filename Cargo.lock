@@ -2657,9 +2657,9 @@ dependencies = [
 
 [[package]]
 name = "ic-bn-lib"
-version = "0.5.0"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1ea8fa20bc6bac82a9491e26a43b70b9e0f276da534957c6cf0d589cf1a689ac"
+checksum = "b83872540bf299cf6dd63b09e04f603acb34a4e67e03c12db14022596982f6bd"
 dependencies = [
  "ahash",
  "anyhow",

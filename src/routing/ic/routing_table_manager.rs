@@ -6,27 +6,26 @@ use std::{
     time::{Duration, Instant},
 };
 
-use ahash::{AHashMap, AHashSet};
+use ahash::AHashMap;
 use anyhow::{Context, Error, anyhow};
 use arc_swap::ArcSwapOption;
 use async_trait::async_trait;
 use candid::Principal;
-use futures::future::join_all;
+pub use ic_bn_lib::ic_agent::agent::SubnetType;
 use ic_bn_lib::{
     BoolYesNo,
     health::Healthy,
-    ic_agent::{Agent, agent::SubnetType as AgentSubnetType, hash_tree::SubtreeLookupResult},
+    ic::{AgentExt, CanisterRange, SubnetData},
+    ic_agent::Agent,
     tasks::Run,
 };
 use prometheus::{
-    HistogramVec, IntCounterVec, IntGauge, Registry, register_histogram_vec_with_registry,
-    register_int_counter_vec_with_registry, register_int_gauge_with_registry,
+    IntCounterVec, IntGauge, Registry, register_int_counter_vec_with_registry,
+    register_int_gauge_with_registry,
 };
 use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
-
-use crate::metrics::HTTP_DURATION_BUCKETS;
 
 /// Retry interval used when no snapshot has been fetched yet and we are in the
 /// aggressive boot-strap loop.
@@ -36,24 +35,11 @@ const AGGRESSIVE_RETRY_INTERVAL: Duration = Duration::from_secs(1);
 /// the whole fetch a success.
 const SUCCESS_FRACTION: f64 = 2.0 / 3.0;
 
-/// The type of an IC subnet as reported in the NNS state tree.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SubnetType {
-    Application,
-    System,
-    VerifiedApplication,
-    CloudEngine,
-    Unknown,
-}
-
 #[derive(Clone)]
 pub struct Metrics {
     subnets: IntGauge,
     ranges: IntGauge,
-    id_fetches: IntCounterVec,
     data_fetches: IntCounterVec,
-    id_fetches_duration: HistogramVec,
-    data_fetches_duration: HistogramVec,
 }
 
 impl Metrics {
@@ -73,36 +59,10 @@ impl Metrics {
             )
             .unwrap(),
 
-            id_fetches: register_int_counter_vec_with_registry!(
-                format!("routing_table_manager_id_fetches"),
-                format!("Counts number of subnet-id fetches and their outcome"),
-                &["success"],
-                registry
-            )
-            .unwrap(),
-
             data_fetches: register_int_counter_vec_with_registry!(
                 format!("routing_table_manager_data_fetches"),
                 format!("Counts number of per-subnet data fetches"),
                 &["subnet_id", "success"],
-                registry
-            )
-            .unwrap(),
-
-            id_fetches_duration: register_histogram_vec_with_registry!(
-                format!("routing_table_manager_id_fetches_duration"),
-                format!("Records the duration of subnet_ids fetching in seconds"),
-                &["success"],
-                HTTP_DURATION_BUCKETS.to_vec(),
-                registry
-            )
-            .unwrap(),
-
-            data_fetches_duration: register_histogram_vec_with_registry!(
-                format!("routing_table_manager_data_fetches_duration"),
-                format!("Records the duration of per-subnet data fetching in seconds"),
-                &["subnet_id", "success"],
-                HTTP_DURATION_BUCKETS.to_vec(),
                 registry
             )
             .unwrap(),
@@ -115,106 +75,9 @@ pub trait LooksUpSubnetType: Send + Sync {
     fn lookup_subnet_type(&self, canister_id: &Principal) -> Option<SubnetType>;
 }
 
-#[async_trait]
-trait FetchesSubnetInfo: Send + Sync {
-    async fn fetch_subnet_ids(
-        &self,
-        root_subnet_id: Principal,
-    ) -> Result<AHashSet<Principal>, Error>;
-
-    async fn fetch_subnet_data(&self, subnet_id: &Principal) -> Result<SubnetData, Error>;
-}
-
-#[async_trait]
-impl FetchesSubnetInfo for Agent {
-    /// Returns the list of all subnet IDs as reported by the NNS state tree.
-    async fn fetch_subnet_ids(
-        &self,
-        root_subnet_id: Principal,
-    ) -> Result<AHashSet<Principal>, Error> {
-        let cert = self
-            .read_subnet_state_raw(vec![vec!["subnet".into()]], root_subnet_id)
-            .await
-            .context("failed to read /subnet from NNS")?;
-
-        let SubtreeLookupResult::Found(subnet_tree) =
-            cert.tree.lookup_subtree([b"subnet".as_ref()])
-        else {
-            return Err(anyhow!("/subnet subtree not found in NNS state tree"));
-        };
-
-        // list_paths() returns one entry per leaf, so the same subnet ID appears
-        // multiple times (once per sub-key: "type", "public_key", "node/...",
-        // etc.).  The AHashSet deduplicates them.
-        let subnet_ids = subnet_tree
-            .list_paths()
-            .iter()
-            .filter(|p| !p.is_empty())
-            .map(|p| {
-                Principal::try_from_slice(p[0].as_bytes())
-                    .context("malformed subnet ID in NNS tree")
-            })
-            .collect::<Result<_, _>>()?;
-
-        Ok(subnet_ids)
-    }
-
-    async fn fetch_subnet_data(&self, subnet_id: &Principal) -> Result<SubnetData, Error> {
-        let subnet = self
-            .fetch_subnet_by_id(subnet_id)
-            .await
-            .context("failed to fetch subnet info")?;
-
-        let ranges = subnet
-            .iter_canister_ranges()
-            .map(|r| CanisterRange {
-                start: *r.start(),
-                end: *r.end(),
-            })
-            .collect();
-
-        let subnet_type = SubnetType::from(subnet.subnet_type());
-        if subnet_type == SubnetType::Unknown {
-            return Err(anyhow!("unknown subnet type: {:?}", subnet.subnet_type()));
-        }
-
-        Ok(SubnetData {
-            ranges,
-            subnet_type,
-        })
-    }
-}
-
-impl From<Option<&AgentSubnetType>> for SubnetType {
-    fn from(t: Option<&AgentSubnetType>) -> Self {
-        match t {
-            Some(AgentSubnetType::Application) => Self::Application,
-            Some(AgentSubnetType::System) => Self::System,
-            Some(AgentSubnetType::VerifiedApplication) => Self::VerifiedApplication,
-            Some(AgentSubnetType::CloudEngine) => Self::CloudEngine,
-            Some(AgentSubnetType::Unknown(_)) | None => Self::Unknown,
-        }
-    }
-}
-
-/// Represents a single canister range of a subnet.
-/// start & end are inclusive.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct CanisterRange {
-    start: Principal,
-    end: Principal,
-}
-
-/// Subnet's canister ranges & its type
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct SubnetData {
-    ranges: Vec<CanisterRange>,
-    subnet_type: SubnetType,
-}
-
 /// A single NNS routing entry: a contiguous canister ID range assigned to a
 /// specific subnet, with the subnet's type embedded to avoid a secondary lookup.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct RoutingEntry {
     range: CanisterRange,
     subnet_type: SubnetType,
@@ -237,7 +100,7 @@ impl SubnetsRoutingTable {
             for range in data.ranges {
                 ranges.push(RoutingEntry {
                     range,
-                    subnet_type: data.subnet_type,
+                    subnet_type: data.subnet_type.clone(),
                 });
             }
         }
@@ -265,7 +128,7 @@ impl LooksUpSubnetType for SubnetsRoutingTable {
 
         let r = &self.ranges[idx];
         if id <= r.range.end.as_slice() {
-            Some(r.subnet_type)
+            Some(r.subnet_type.clone())
         } else {
             None
         }
@@ -279,7 +142,7 @@ impl LooksUpSubnetType for SubnetsRoutingTable {
 /// 2. Concurrently call `fetch_subnet_by_id` for each subnet, fetching both
 ///    its type and canister ranges directly from the subnet.
 pub struct RoutingTableManager {
-    subnet_info_fetcher: Arc<dyn FetchesSubnetInfo>,
+    subnet_info_fetcher: Arc<dyn AgentExt + Send + Sync + 'static>,
     root_subnet_id: Principal,
     snapshot: Mutex<AHashMap<Principal, SubnetData>>,
     /// `None` until the first successful fetch
@@ -325,7 +188,7 @@ impl RoutingTableManager {
     }
 
     fn new_with_fetcher(
-        fetcher: Arc<dyn FetchesSubnetInfo>,
+        fetcher: Arc<dyn AgentExt + Send + Sync + 'static>,
         root_subnet_id: Principal,
         interval: Duration,
         registry: &Registry,
@@ -346,30 +209,28 @@ impl RoutingTableManager {
     }
 
     /// Update the local snapshot with the fresh per-subnet data
-    async fn refresh_snapshot(&self, subnet_ids: &AHashSet<Principal>) {
+    #[allow(clippy::cast_possible_wrap)]
+    async fn refresh_snapshot(&self) -> Result<usize, Error> {
         // Fetch the per-subnet data concurrently
         let start = Instant::now();
-        let futures = subnet_ids.iter().map(|subnet_id| async move {
-            let start = Instant::now();
-            let res = self.subnet_info_fetcher.fetch_subnet_data(subnet_id).await;
-            (subnet_id, res, start.elapsed())
-        });
-        let results = join_all(futures).await;
+        let results = self
+            .subnet_info_fetcher
+            .fetch_all_subnets_data(self.root_subnet_id, Some(80))
+            .await
+            .context("unable to fetch subnets data")?;
         let dur = start.elapsed();
+        let subnets_count = results.len();
+        self.metrics.subnets.set(subnets_count as i64);
 
         let mut snapshot = self.snapshot.lock().unwrap();
         // Remove any subnets that are already gone from the list
-        snapshot.retain(|x, _| subnet_ids.contains(x));
+        snapshot.retain(|x, _| results.contains_key(x));
 
         // Insert/update the new data that was fetched.
         // If there was an error - the older data will stay in the snapshot.
         let mut ok = 0;
-        for (subnet_id, res, duration) in results {
+        for (subnet_id, res) in results {
             let subnet_id_str = subnet_id.to_string();
-            self.metrics
-                .data_fetches_duration
-                .with_label_values(&[subnet_id_str.as_str(), res.is_ok().yesno()])
-                .observe(duration.as_secs_f64());
             self.metrics
                 .data_fetches
                 .with_label_values(&[subnet_id_str.as_str(), res.is_ok().yesno()])
@@ -378,7 +239,7 @@ impl RoutingTableManager {
             match res {
                 Ok(data) => {
                     ok += 1;
-                    snapshot.insert(*subnet_id, data);
+                    snapshot.insert(subnet_id, data);
                 }
                 Err(e) => {
                     warn!("{self}: {subnet_id}: error fetching data: {e:#}");
@@ -387,45 +248,21 @@ impl RoutingTableManager {
         }
 
         info!(
-            "{self}: Successfully loaded data for {ok}/{} subnets in {}s",
-            subnet_ids.len(),
+            "{self}: Successfully loaded data for {ok}/{subnets_count} subnets in {}s",
             dur.as_secs_f64()
         );
+
+        Ok(subnets_count)
     }
 
     /// Tries to update the routing table by refreshing the per-subnet data
     #[allow(clippy::cast_precision_loss)]
     #[allow(clippy::cast_possible_wrap)]
     async fn update_routing_table(&self) -> Result<(), Error> {
-        // Get the list of all subnet's IDs
-        let start = Instant::now();
-        let res = self
-            .subnet_info_fetcher
-            .fetch_subnet_ids(self.root_subnet_id)
-            .await;
-        self.metrics
-            .id_fetches
-            .with_label_values(&[res.is_ok().yesno()])
-            .inc();
-        self.metrics
-            .id_fetches_duration
-            .with_label_values(&[res.is_ok().yesno()])
-            .observe(start.elapsed().as_secs_f64());
-
-        let subnet_ids = res.context("unable to fetch subnet IDs")?;
-        self.metrics.subnets.set(subnet_ids.len() as i64);
-
-        info!(
-            "{self}: Got a list of {} subnets in {}s",
-            subnet_ids.len(),
-            start.elapsed().as_secs_f64()
-        );
-
-        if subnet_ids.is_empty() {
-            return Err(anyhow!("no subnet ids were fetched"));
-        }
-
-        self.refresh_snapshot(&subnet_ids).await;
+        let subnets_count = self
+            .refresh_snapshot()
+            .await
+            .context("unablt to refresh snapshot")?;
         let snapshot = self.snapshot.lock().unwrap();
 
         // Check if we already have enough valid subnet data.
@@ -433,7 +270,7 @@ impl RoutingTableManager {
         // That is, if we have *some* info for at least SUCCESS_FRACTION subnets,
         // then we're good to publish a new routing table.
         // Some info is better than no info in this case, since it anyway changes very rarely.
-        let fraction = (snapshot.len() as f64) / (subnet_ids.len() as f64);
+        let fraction = (snapshot.len() as f64) / (subnets_count as f64);
         if fraction < SUCCESS_FRACTION {
             return Err(anyhow!(
                 "Less than {SUCCESS_FRACTION} of the subnets were successfully fetched: {fraction}"
@@ -514,7 +351,8 @@ impl Run for RoutingTableManager {
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use ic_bn_lib::{MAINNET_ROOT_SUBNET_ID, principal};
+    use ahash::AHashSet;
+    use ic_bn_lib::{MAINNET_ROOT_SUBNET_ID, ic_agent::AgentError, principal};
 
     use super::*;
 
@@ -563,45 +401,67 @@ mod tests {
     struct TestSubnetInfoFetcher(AtomicUsize);
 
     #[async_trait]
-    impl FetchesSubnetInfo for TestSubnetInfoFetcher {
+    impl AgentExt for TestSubnetInfoFetcher {
+        // Not used by `RoutingTableManager`, which calls `fetch_all_subnets_data` directly.
         async fn fetch_subnet_ids(
             &self,
             _root_subnet_id: Principal,
-        ) -> Result<AHashSet<Principal>, Error> {
+        ) -> Result<AHashSet<Principal>, AgentError> {
+            unimplemented!()
+        }
+
+        // Not used by `RoutingTableManager`, which calls `fetch_all_subnets_data` directly.
+        async fn fetch_subnet_data(
+            &self,
+            _subnet_id: &Principal,
+        ) -> Result<SubnetData, AgentError> {
+            unimplemented!()
+        }
+
+        async fn fetch_all_subnets_data(
+            &self,
+            _root_subnet_id: Principal,
+            _concurrency: Option<usize>,
+        ) -> Result<AHashMap<Principal, Result<SubnetData, AgentError>>, AgentError> {
             let v = self.0.fetch_add(1, Ordering::SeqCst);
 
-            if v == 0 {
-                Err(anyhow!("foo"))
+            let subnet_ids = if v == 0 {
+                return Err(AgentError::MessageError("foo".into()));
             } else if v == 1 {
-                Ok(AHashSet::from_iter([
+                AHashSet::from_iter([
                     principal!("uqzsh-gqaaa-aaaaq-qaada-cai"),
                     principal!("gjxif-ryaaa-aaaad-ae4ka-cai"),
                     principal!("aaaaa-aa"),
                     principal!("lusdn-iiaaa-aaaam-qivpa-cai"),
-                ]))
+                ])
             } else if v == 2 {
-                Ok(AHashSet::from_iter([
+                AHashSet::from_iter([
                     principal!("uqzsh-gqaaa-aaaaq-qaada-cai"),
                     principal!("gjxif-ryaaa-aaaad-ae4ka-cai"),
                     principal!("6hsbt-vqaaa-aaaaf-aaafq-cai"),
                     principal!("lusdn-iiaaa-aaaam-qivpa-cai"),
-                ]))
+                ])
             } else if v == 3 {
-                Ok(AHashSet::from_iter([
+                AHashSet::from_iter([
                     principal!("uqzsh-gqaaa-aaaaq-qaada-cai"),
                     principal!("gjxif-ryaaa-aaaad-ae4ka-cai"),
                     principal!("lusdn-iiaaa-aaaam-qivpa-cai"),
-                ]))
+                ])
             } else {
-                Err(anyhow!("foo"))
-            }
-        }
+                return Err(AgentError::MessageError("foo".into()));
+            };
 
-        async fn fetch_subnet_data(&self, subnet_id: &Principal) -> Result<SubnetData, Error> {
-            create_data()
-                .get(subnet_id)
-                .cloned()
-                .ok_or_else(|| anyhow!("foo"))
+            let data = create_data();
+            Ok(subnet_ids
+                .into_iter()
+                .map(|id| {
+                    let res = data
+                        .get(&id)
+                        .cloned()
+                        .ok_or_else(|| AgentError::MessageError("foo".into()));
+                    (id, res)
+                })
+                .collect())
         }
     }
 

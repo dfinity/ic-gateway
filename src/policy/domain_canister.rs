@@ -3,8 +3,9 @@ use std::sync::Arc;
 use ahash::AHashSet;
 use candid::Principal;
 use fqdn::{FQDN, Fqdn};
+use ic_bn_lib::ic_agent::agent::SubnetType;
 
-use crate::routing::ic::routing_table_manager::{LooksUpSubnetType, SubnetType};
+use crate::routing::ic::routing_table_manager::LooksUpSubnetType;
 
 /// Things needed to verify domain-canister match
 #[derive(derive_new::new)]
@@ -34,7 +35,7 @@ impl DomainCanisterMatcher {
             Some(SubnetType::System) => &self.domains_system,
             Some(SubnetType::CloudEngine) => &self.domains_engine,
             Some(
-                SubnetType::Application | SubnetType::VerifiedApplication | SubnetType::Unknown,
+                SubnetType::Application | SubnetType::VerifiedApplication | SubnetType::Unknown(_),
             )
             | None => &self.domains_app,
         };
