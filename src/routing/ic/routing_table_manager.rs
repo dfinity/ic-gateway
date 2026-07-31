@@ -398,10 +398,10 @@ mod tests {
     }
 
     #[derive(Default)]
-    struct TestSubnetInfoFetcher(AtomicUsize);
+    struct TestAgent(AtomicUsize);
 
     #[async_trait]
-    impl AgentExt for TestSubnetInfoFetcher {
+    impl AgentExt for TestAgent {
         // Not used by `RoutingTableManager`, which calls `fetch_all_subnets_data` directly.
         async fn fetch_subnet_ids(
             &self,
@@ -528,7 +528,7 @@ mod tests {
     #[tokio::test]
     #[allow(clippy::await_holding_lock)] // clippy is stupid
     async fn test_routing_table_manager() {
-        let fetcher = TestSubnetInfoFetcher::default();
+        let fetcher = TestAgent::default();
         let manager = RoutingTableManager::new_with_fetcher(
             Arc::new(fetcher),
             MAINNET_ROOT_SUBNET_ID,
