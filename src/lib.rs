@@ -9,6 +9,8 @@ mod api;
 mod cli;
 mod core;
 pub mod log;
+#[cfg(feature = "mcp")]
+mod mcp;
 pub mod metrics;
 mod policy;
 pub mod routing;

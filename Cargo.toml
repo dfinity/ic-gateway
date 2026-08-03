@@ -16,6 +16,7 @@ bench = [
     "dep:ic-transport-types",
     "dep:rand_regex",
 ]
+mcp = ["dep:imcp2"]
 tokio_console = ["dep:console-subscriber"]
 debug = []
 
@@ -50,6 +51,7 @@ ic-http-certification = { version = "3.1.0", optional = true }
 ic-http-gateway-protocol = { package = "ic-http-gateway-protocol", git = "https://github.com/dfinity/ic-http-gateway-protocol", tag = "v0.6.0" }
 # TODO: drop & re-export from ic-bn-lib
 ic-transport-types = { version = "0.49", optional = true }
+imcp2 = { git = "https://github.com/dfinity/imcp2", rev = "7f0293a991d8af5a8d18ae765c2ac476ee2783ba", optional = true }
 isbot = "0.1"
 itertools = "0.15.0"
 lazy_static = "1.5.0"

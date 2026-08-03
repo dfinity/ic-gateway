@@ -340,6 +340,18 @@ pub async fn main(
         Router::new().fallback(redirect_to_https)
     };
 
+    // Inject MCP router if configured
+    #[cfg(feature = "mcp")]
+    let (http_router, mcp) = if cli.mcp.mcp_ii_instance.is_some() {
+        use crate::mcp::setup_mcp;
+
+        let (router, mcp) =
+            setup_mcp(&cli.mcp, ic_agent.clone(), http_router).context("unable to set up MCP")?;
+        (router, Some(mcp))
+    } else {
+        (http_router, None)
+    };
+
     // Create HTTP server
     let http_server = Arc::new(
         bnhttp::ServerBuilder::new(http_router)
@@ -444,6 +456,11 @@ pub async fn main(
     #[cfg(feature = "smtp")]
     if let Some(v) = vector_smtp {
         v.stop().await;
+    }
+
+    #[cfg(feature = "mcp")]
+    if let Some(v) = mcp {
+        v.shutdown();
     }
 
     Ok(())
