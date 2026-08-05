@@ -655,11 +655,11 @@ pub struct Prerender {
 pub struct McpCli {
     /// Which II instance to use to authenticate with MCP ("beta" or "prod")
     /// Enables MCP.
-    #[clap(env, long)]
+    #[clap(env, long, requires = "mcp_public_url")]
     pub mcp_ii_instance: Option<crate::mcp::IiType>,
 
     /// MCP Public URL, required if MCP is enabled.
-    #[clap(env, long)]
+    #[clap(env, long, requires = "mcp_ii_instance")]
     pub mcp_public_url: Option<Url>,
 
     /// MCP path

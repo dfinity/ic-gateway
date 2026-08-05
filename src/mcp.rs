@@ -1,9 +1,9 @@
 use anyhow::{Error, anyhow};
 use axum::Router;
 use imcp2::{Agent, IiInstance, McpConfig, McpServer, SharedClients, auth_callbacks_router};
-use strum::EnumString;
+use strum::{Display, EnumString};
 
-#[derive(EnumString, Clone, Copy)]
+#[derive(EnumString, Clone, Copy, Display)]
 #[strum(serialize_all = "snake_case")]
 pub enum IiType {
     Prod,
@@ -27,7 +27,9 @@ pub fn setup_mcp(cli: &McpCli, agent: Agent, router: Router) -> Result<(Router, 
             .mcp_public_url
             .as_ref()
             .ok_or_else(|| anyhow!("MCP Public URL not specified"))?
-            .to_string(),
+            .to_string()
+            .trim_end_matches('/')
+            .into(),
         mcp_path: cli.mcp_path.clone(),
         clients: SharedClients::load(),
     };
