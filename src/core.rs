@@ -342,17 +342,17 @@ pub async fn main(
 
     // Inject MCP router if configured
     #[cfg(feature = "mcp")]
-    let (http_router, mcp) = if let Some(v) = cli.mcp.mcp_ii_instance {
+    let (gateway_router, mcp) = if let Some(v) = cli.mcp.mcp_ii_instance {
         warn!(
             "Starting MCP at {} (II {v})",
             cli.mcp.mcp_public_url.as_ref().unwrap(),
         );
 
-        let (router, mcp) = crate::mcp::setup_mcp(&cli.mcp, ic_agent.clone(), http_router)
+        let (router, mcp) = crate::mcp::setup_mcp(&cli.mcp, ic_agent.clone(), gateway_router)
             .context("unable to set up MCP")?;
         (router, Some(mcp))
     } else {
-        (http_router, None)
+        (gateway_router, None)
     };
 
     // Create HTTP server
