@@ -35,10 +35,12 @@ use crate::cli::Cli;
 async fn setup_acme(
     cli: &Cli,
     tasks: &mut TaskManager,
-    domains: Vec<FQDN>,
+    mut domains: Vec<FQDN>,
     challenge: &Challenge,
     dns_resolver: Resolver,
 ) -> Result<Arc<dyn ResolvesServerCertRustls>, Error> {
+    domains.extend_from_slice(&cli.acme.acme_additional_names);
+
     let cache_path = cli.acme.acme_cache_path.clone().unwrap();
 
     let resolver: Arc<dyn ResolvesServerCertRustls> = match challenge {

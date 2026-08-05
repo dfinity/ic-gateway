@@ -117,6 +117,10 @@ pub struct Cli {
     #[command(flatten, next_help_heading = "SMTP Server")]
     pub smtp_server: SmtpServerCli,
 
+    #[cfg(feature = "mcp")]
+    #[command(flatten, next_help_heading = "MCP")]
+    pub mcp: McpCli,
+
     #[cfg(all(target_os = "linux", feature = "sev-snp"))]
     #[command(flatten, next_help_heading = "SEV-SNP")]
     pub sev_snp: ic_bn_lib::sev_snp::SevSnpCli,
@@ -394,6 +398,11 @@ pub struct Acme {
     #[clap(env, long)]
     pub acme_cache_path: Option<PathBuf>,
 
+    /// Domain names to request during certificate issuance, in addition to
+    /// those listed in the base domains.
+    #[clap(env, long, value_delimiter = ',')]
+    pub acme_additional_names: Vec<FQDN>,
+
     /// ACME account credentials in JSON format.
     /// If not provided - new account will be created.
     #[clap(env, long)]
@@ -639,6 +648,23 @@ pub struct Prerender {
     /// Timeout for executing pre-render request
     #[clap(env, long, default_value = "1m", value_parser = parse_duration)]
     pub prerender_timeout: Duration,
+}
+
+#[cfg(feature = "mcp")]
+#[derive(Args)]
+pub struct McpCli {
+    /// Which II instance to use to authenticate with MCP ("beta" or "prod")
+    /// Enables MCP.
+    #[clap(env, long, requires = "mcp_public_url")]
+    pub mcp_ii_instance: Option<crate::mcp::IiType>,
+
+    /// MCP Public URL, required if MCP is enabled.
+    #[clap(env, long, requires = "mcp_ii_instance")]
+    pub mcp_public_url: Option<Url>,
+
+    /// MCP path
+    #[clap(env, long, default_value = "/mcp")]
+    pub mcp_path: String,
 }
 
 #[cfg(test)]
