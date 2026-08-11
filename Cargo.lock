@@ -2819,9 +2819,9 @@ dependencies = [
 
 [[package]]
 name = "ic-bn-lib"
-version = "0.5.1"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b83872540bf299cf6dd63b09e04f603acb34a4e67e03c12db14022596982f6bd"
+checksum = "6e8afb0869b99ca7da9a8aa5db2261bd5f15986b0577921ec28084dc814da5c7"
 dependencies = [
  "ahash",
  "anyhow",
@@ -4432,7 +4432,7 @@ version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "51e219e79014df21a225b1860a479e2dcd7cbd9130f4defd4bd0e191ea31d67d"
 dependencies = [
- "base64 0.21.7",
+ "base64 0.22.1",
  "chrono",
  "getrandom 0.2.17",
  "http 1.5.0",
