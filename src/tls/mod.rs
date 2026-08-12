@@ -68,27 +68,45 @@ async fn setup_acme(
 
             // Create a token manager for DNS challenge, or use a no-op one for DNS-PERSIST
             let token_manager = if *challenge == Challenge::Dns {
+                use ic_bn_lib::tls::acme::dns::DnsManager;
+
+                let http_client =
+                    clients_reqwest::new((&cli.http_client).into(), Some(dns_resolver.clone()))
+                        .context("unable to create HTTP client for Cloudflare")?;
+
                 let dns_backend = match cli.acme.acme_dns_backend {
                     DnsBackend::Cloudflare => {
-                        use ic_bn_lib::tls::acme::dns::DnsManager;
-
                         let token = cli
                             .acme
                             .acme_dns_cloudflare_token
                             .clone()
                             .ok_or_else(|| anyhow!("Cloudflare token not defined"))?;
 
-                        let http_client = clients_reqwest::new(
-                            (&cli.http_client).into(),
-                            Some(dns_resolver.clone()),
-                        )
-                        .context("unable to create HTTP client for Cloudflare")?;
+                        Arc::new(
+                            acme::dns::cloudflare::Cloudflare::new_with_http_client(
+                                cli.acme.acme_dns_cloudflare_url.clone(),
+                                token,
+                                http_client,
+                            )
+                            .context("unable to create Cloudflare token manager")?,
+                        ) as Arc<dyn DnsManager>
+                    }
 
-                        Arc::new(acme::dns::cloudflare::Cloudflare::new_with_http_client(
-                            cli.acme.acme_dns_cloudflare_url.clone(),
-                            token,
-                            http_client,
-                        )) as Arc<dyn DnsManager>
+                    DnsBackend::IcDnsLb => {
+                        let token = cli
+                            .acme
+                            .acme_dns_ic_dns_lb_token
+                            .clone()
+                            .ok_or_else(|| anyhow!("IC-DNS-LB token not defined"))?;
+
+                        Arc::new(
+                            acme::dns::ic_dns_lb::IcDnsLb::new_with_http_client(
+                                cli.acme.acme_dns_ic_dns_lb_urls.clone(),
+                                http_client,
+                                token,
+                            )
+                            .context("unable to create IC-DNS-LB token manager")?,
+                        ) as Arc<dyn DnsManager>
                     }
 
                     _ => bail!("unsupported DNS backend: {}", cli.acme.acme_dns_backend),

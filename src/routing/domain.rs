@@ -482,9 +482,20 @@ impl DomainResolver {
 
 impl ResolvesDomain for DomainResolver {
     fn resolve(&self, host: &Fqdn) -> Option<DomainLookup> {
-        // Try to resolve canister using different sources
-        self.resolve_domain(host)
-            .or_else(|| self.custom_domains.resolve(host))
+        // First, try the base domains
+        if let Some(v) = self.resolve_domain(host) {
+            // If the canister was found - use this lookup
+            if v.canister_id.is_some() {
+                Some(v)
+            } else {
+                // Otherwise try custom domains.
+                // If not found there - just return original lookup w/o canister id
+                self.custom_domains.resolve(host).or(Some(v))
+            }
+        } else {
+            // Try custom domains if base domains aren't matched
+            self.custom_domains.resolve(host)
+        }
     }
 }
 
@@ -552,7 +563,7 @@ mod test {
     }
 
     #[tokio::test]
-    async fn test_resolver() -> Result<(), Error> {
+    async fn test_domain_resolver() -> Result<(), Error> {
         let aliases = [
             "personhood:g3wsl-eqaaa-aaaan-aaaaa-cai",
             "identity:rdmx6-jaaaa-aaaaa-aaadq-cai",
@@ -607,6 +618,13 @@ mod test {
                 priority: 0,
                 flags: None,
             },
+            CustomDomain {
+                name: fqdn!("foo.ic0.app"),
+                canister_id: principal!(TEST_CANISTER_ID_3),
+                timestamp: 10,
+                priority: 0,
+                flags: None,
+            },
         ]);
 
         // Add one working and one broken provider to make sure that broken one doesn't affect the outcome
@@ -622,8 +640,8 @@ mod test {
         // Verify metrics are tracked correctly
         assert_eq!(
             custom_domain_storage.metric_count.get(),
-            3,
-            "should have 3 domains after deduplication"
+            4,
+            "should have 4 domains after deduplication"
         );
         assert_eq!(
             custom_domain_storage.metric_dupes.get(),
@@ -868,6 +886,24 @@ mod test {
                 },
                 canister_id: Some(principal!(TEST_CANISTER_ID_3)),
                 timestamp: 20,
+                verify: true,
+                priority: 0,
+                flags: None,
+            })
+        );
+
+        // Custom domain that intersects with a base domain - should resolve
+        assert_eq!(
+            resolver.resolve(&fqdn!("foo.ic0.app")),
+            Some(DomainLookup {
+                domain: Domain {
+                    name: fqdn!("foo.ic0.app"),
+                    http: true,
+                    api: true,
+                    custom: true,
+                },
+                canister_id: Some(principal!(TEST_CANISTER_ID_3)),
+                timestamp: 10,
                 verify: true,
                 priority: 0,
                 flags: None,

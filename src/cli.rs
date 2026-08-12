@@ -409,7 +409,7 @@ pub struct Acme {
     pub acme_account_creds: Option<String>,
 
     /// DNS backend to use when using DNS challenge.
-    /// Currently only "cloudflare" is supported.
+    /// Currently only "cloudflare" and "ic_dns_lb" are supported.
     #[clap(env, long, default_value = "cloudflare")]
     pub acme_dns_backend: DnsBackend,
 
@@ -422,6 +422,16 @@ pub struct Acme {
     /// Makes sense only when the DNS backend is set to `cloudflare`.
     #[clap(env, long)]
     pub acme_dns_cloudflare_token: Option<String>,
+
+    /// IC-DNS-LB API URLs.
+    /// Makes sense only when the DNS backend is set to `ic_dns_lb`.
+    #[clap(env, long, value_delimiter = ',')]
+    pub acme_dns_ic_dns_lb_urls: Vec<Url>,
+
+    /// IC-DNS-LB API token to use.
+    /// Makes sense only when the DNS backend is set to `ic_dns_lb`.
+    #[clap(env, long)]
+    pub acme_dns_ic_dns_lb_token: Option<String>,
 
     /// Asks ACME client to request a wildcard certificate for each of the domains configured.
     /// So in addition to `foo.app` the certificate will be also valid for `*.foo.app`.
