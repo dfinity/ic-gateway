@@ -163,7 +163,7 @@ pub async fn middleware(
 ) -> impl IntoResponse {
     let remote_addr = request.extensions_mut().get::<RemoteAddr>().copied();
     let tls_info = request.extensions().get::<Arc<TlsInfo>>().cloned();
-    let country_code = request.extensions_mut().remove::<CountryCode>();
+    let country_code = request.extensions_mut().get::<CountryCode>().copied();
 
     // Prepare to execute the request and count its body size
     let (parts, body) = request.into_parts();
