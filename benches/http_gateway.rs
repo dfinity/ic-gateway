@@ -15,7 +15,7 @@ use http::{
 };
 use http_body_util::BodyExt;
 use ic_bn_lib::{
-    http::{body::buffer_body, server::conn::ConnInfo},
+    http::{body::buffer_body, middleware::RequestId, server::conn::ConnInfo},
     hval,
     ic_agent::{
         Agent, AgentError,
@@ -32,7 +32,6 @@ use ic_gateway::{
         CanisterId, RequestCtx, RequestType,
         domain::Domain,
         ic::handler::{HandlerState, handler},
-        middleware::request_id::RequestId,
     },
     test::generate_response,
 };

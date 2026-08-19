@@ -8,7 +8,8 @@ use axum::{
 use bytes::Bytes;
 use http::{HeaderValue, StatusCode, header::HOST};
 use ic_bn_lib::http::{
-    Error as HttpError, body::buffer_body, headers::X_REQUEST_ID, server::conn::ConnInfo,
+    Error as HttpError, body::buffer_body, headers::X_REQUEST_ID, middleware::RequestId,
+    server::conn::ConnInfo,
 };
 use ic_http_gateway_protocol::{CanisterRequest, HttpGatewayClient, HttpGatewayRequestArgs};
 
@@ -20,7 +21,6 @@ use crate::routing::{
         IcResponseStatus,
         http_service::{CONTEXT, Context},
     },
-    middleware::request_id::RequestId,
 };
 
 #[derive(derive_new::new)]

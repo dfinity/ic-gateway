@@ -15,12 +15,17 @@ use axum::{
 };
 use http::header::{CONTENT_TYPE, ORIGIN, REFERER, USER_AGENT};
 use ic_bn_lib::{
+    SerializeOption,
     http::{
-        body::CountingBody, cache::CacheStatus, calc_headers_size, extract_host, http_method,
-        http_version, server::conn::ConnInfo,
+        body::CountingBody,
+        cache::CacheStatus,
+        calc_headers_size, extract_host, http_method, http_version,
+        middleware::{RemoteAddr, RequestId, request_meta::CountryCode},
+        server::conn::ConnInfo,
     },
     ic_agent::agent::route_provider::RouteProvider,
     network::TlsInfo,
+    show_option::ShowOption,
     tasks::TaskManager,
     vector::client::Vector,
 };
@@ -34,10 +39,9 @@ use tracing::info;
 use crate::{
     core::{ENV, HOSTNAME},
     routing::{
-        CanisterId, RemoteAddr, RequestCtx,
+        CanisterId, RequestCtx,
         error_cause::ErrorCause,
         ic::{BNRequestMetadata, BNResponseMetadata, IcResponseStatus},
-        middleware::{geoip::CountryCode, request_id::RequestId},
     },
 };
 
@@ -157,7 +161,7 @@ pub async fn middleware(
     mut request: Request,
     next: Next,
 ) -> impl IntoResponse {
-    let remote_addr = request.extensions_mut().remove::<RemoteAddr>();
+    let remote_addr = request.extensions_mut().get::<RemoteAddr>().copied();
     let tls_info = request.extensions().get::<Arc<TlsInfo>>().cloned();
     let country_code = request
         .extensions_mut()
@@ -213,7 +217,7 @@ pub async fn middleware(
     let canister_id = response.extensions_mut().get::<CanisterId>().copied();
     let error_cause = response.extensions_mut().remove::<ErrorCause>();
     let ic_status = response.extensions_mut().remove::<IcResponseStatus>();
-    let status = response.status().as_u16();
+    let status = response.status();
 
     // IC request metadata
     let req_meta = response
@@ -289,7 +293,7 @@ pub async fn middleware(
             tls_version,
             method,
             http_version,
-            &status.to_string(),
+            status.as_str(),
             &error_cause,
             cache_status_str,
             cache_bypass_reason_str,
@@ -326,8 +330,6 @@ pub async fn middleware(
         let conn_rcvd = conn_info.traffic.rcvd();
         let conn_sent = conn_info.traffic.sent();
         let conn_reqs = conn_info.req_count();
-        let remote_addr = remote_addr.map(|x| x.to_string()).unwrap_or_default();
-        let request_id_str = request_id.to_string();
 
         let (ic_http_streaming, ic_http_upgrade) = ic_status.as_ref().map_or((false, false), |x| {
             (x.streaming, x.metadata.upgraded_to_update_call)
@@ -336,11 +338,11 @@ pub async fn middleware(
         // Log the request
         if state.log_requests {
             info!(
-                request_id = request_id_str,
+                request_id = %request_id,
                 conn_id,
                 method,
                 http = http_version,
-                status,
+                status = %status,
                 status_upstream,
                 tls_version,
                 tls_cipher,
@@ -349,7 +351,7 @@ pub async fn middleware(
                 host,
                 path,
                 canister_id,
-                country_code,
+                country_code = %country_code,
                 header_origin,
                 header_referer,
                 header_user_agent,
@@ -368,7 +370,7 @@ pub async fn middleware(
                 ic_cache_bypass_reason = resp_meta.cache_bypass_reason,
                 error = error_cause,
                 error_details = error_cause_details,
-                remote_addr,
+                remote_addr = %remote_addr.show_or("unknown"),
                 req_size = request_size,
                 request_type,
                 resp_size = response_size,
@@ -422,14 +424,14 @@ pub async fn middleware(
                 "request_length": request_size,
                 "request_uri": uri.path_and_query().map(|x| x.as_str()).unwrap_or_default(),
                 "retries": resp_meta.retries,
-                "remote_addr": remote_addr,
-                "request_id": request_id_str,
+                "remote_addr": remote_addr.serialize_or("unknown"),
+                "request_id": request_id,
                 "request_method": method,
                 "request_time": duration_full.as_secs_f64(),
                 "server_protocol": http_version,
                 "ssl_protocol": tls_version,
                 "ssl_cipher": tls_cipher,
-                "status": status,
+                "status": status.as_str(),
                 "status_upstream": status_upstream,
                 "tls_handshake_msec": tls_handshake.as_millis(),
                 "upstream": upstream,
