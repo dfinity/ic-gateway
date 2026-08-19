@@ -33,7 +33,7 @@ jobs:
           sudo install -m755 repro-env -t /usr/bin
 
       - name: Install deps
-        run: sudo apt-get update && sudo apt-get -y install protobuf-compiler && cargo install cargo-all-features
+        run: sudo apt-get -y install catatonit && cargo install cargo-all-features
 
       - name: Run all unit and integration tests
         run: |
