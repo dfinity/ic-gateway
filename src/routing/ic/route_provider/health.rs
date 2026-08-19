@@ -532,7 +532,7 @@ mod test {
     #[tokio::test]
     async fn test_health_check_manager() {
         let checker = Arc::new(TestHealthChecker::default());
-        let (node_list_tx, node_list_rx) = watch::channel(NodeList::new(vec![]));
+        let (node_list_tx, node_list_rx) = watch::channel(NodeList::from_iter(vec![]));
         let (healthy_nodes_tx, mut healthy_nodes_rx) = watch::channel(vec![]);
         let node_list = Arc::new(ArcSwapOption::empty());
 
@@ -550,7 +550,7 @@ mod test {
         let handle = tokio::spawn(manager.run(token.child_token()));
 
         // Send a new node list
-        node_list_tx.send_replace(NodeList::new(vec![fqdn!("always.healthy")]));
+        node_list_tx.send_replace(NodeList::from_iter(vec![fqdn!("always.healthy")]));
 
         // Wait for a healthy node list
         healthy_nodes_rx.changed().await.unwrap();
@@ -559,7 +559,10 @@ mod test {
         assert_eq!(list[0].node.hostname, fqdn!("always.healthy"));
 
         // Send a new node list
-        node_list_tx.send_replace(NodeList::new(vec![fqdn!("foo.bar"), fqdn!("dead.beef")]));
+        node_list_tx.send_replace(NodeList::from_iter(vec![
+            fqdn!("foo.bar"),
+            fqdn!("dead.beef"),
+        ]));
 
         // Initially both should be healthy
         healthy_nodes_rx.changed().await.unwrap();
@@ -581,7 +584,7 @@ mod test {
             .unwrap();
 
         // Send a new node list
-        node_list_tx.send_replace(NodeList::new(vec![fqdn!("dead.beef")]));
+        node_list_tx.send_replace(NodeList::from_iter(vec![fqdn!("dead.beef")]));
 
         // All nodes are dead
         healthy_nodes_rx.changed().await.unwrap();

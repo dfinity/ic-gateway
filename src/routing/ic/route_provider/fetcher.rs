@@ -5,6 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use ahash::AHashSet;
 use anyhow::Context;
 use async_trait::async_trait;
 use fqdn::FQDN;
@@ -150,25 +151,33 @@ impl FetcherManager {
         self.metrics.fetches.with_label_values(&[success]).inc();
 
         let nodes = res?;
-        self.metrics.nodes.set(nodes.len() as i64);
+        let nodes_fetched = nodes.len();
+        self.metrics.nodes.set(nodes_fetched as i64);
 
-        // Safeguard against a case when (for whatever reason) an empty node list is fetched.
-        // If we remove all nodes, then we'll end up in a deadlock situation: we can't fetch a new (correct)
+        let nodes = nodes
+            .iter()
+            .filter_map(|x| {
+                // Hostname should be a valid FQDN & have at least one label
+                let hostname = FQDN::from_str(x).ok()?;
+                (hostname.depth() > 0).then_some(hostname)
+            })
+            .collect::<AHashSet<_>>();
+
+        // Safeguard against a case when (for whatever reason) an empty node list is fetched (or all of hosts are bad).
+        // If we remove all the nodes, then we'll end up in a deadlock situation: we can't fetch a new (correct)
         // list because there are no nodes anymore to handle the next fetch request.
+        //
+        // This doesn't protect us from a case when only unhealthy nodes are fetched, but it's still better than nothing.
         if nodes.is_empty() {
             return Err(RouteError::EmptyNodeList);
         }
 
-        let node_list = NodeList::new(nodes.iter().filter_map(|x| {
-            // Hostname should be a valid FQDN & have at least one label
-            let hostname = FQDN::from_str(x).ok()?;
-            (hostname.depth() > 0).then_some(hostname)
-        }));
+        let node_list = NodeList::new(nodes);
 
         info!(
             "{self}: Got a list of API BNs ({}, {} invalid skipped): {node_list:?}",
             node_list.len(),
-            nodes.len() - node_list.len()
+            nodes_fetched - node_list.len()
         );
 
         // Check if the new list is different
@@ -247,7 +256,7 @@ mod test {
     #[tokio::test]
     async fn test_fetcher() {
         let fetcher = TestFetcher::default();
-        let (tx, mut rx) = watch::channel(NodeList::new(vec![]));
+        let (tx, mut rx) = watch::channel(NodeList::from_iter(vec![]));
         let mut manager = FetcherManager::new(Arc::new(fetcher), tx, &Registry::new());
 
         // Consume the initial value
@@ -258,7 +267,7 @@ mod test {
         rx.changed().await.unwrap();
         assert_eq!(
             rx.borrow_and_update().clone(),
-            NodeList::new(vec![fqdn!("foo.bar")])
+            NodeList::from_iter(vec![fqdn!("foo.bar")])
         );
 
         // 2nd run fails, data should remain the sanme
@@ -266,7 +275,7 @@ mod test {
         assert!(!rx.has_changed().unwrap());
         assert_eq!(
             rx.borrow_and_update().clone(),
-            NodeList::new(vec![fqdn!("foo.bar")])
+            NodeList::from_iter(vec![fqdn!("foo.bar")])
         );
 
         // 3rd run 2 nodes, sorted
@@ -274,7 +283,7 @@ mod test {
         rx.changed().await.unwrap();
         assert_eq!(
             rx.borrow_and_update().clone(),
-            NodeList::new(vec![fqdn!("bar.baz"), fqdn!("dead.beef")])
+            NodeList::from_iter(vec![fqdn!("bar.baz"), fqdn!("dead.beef")])
         );
 
         // 4th run data is the same, so shouldn't send over channel
@@ -282,7 +291,7 @@ mod test {
         assert!(!rx.has_changed().unwrap());
         assert_eq!(
             rx.borrow_and_update().clone(),
-            NodeList::new(vec![fqdn!("bar.baz"), fqdn!("dead.beef")])
+            NodeList::from_iter(vec![fqdn!("bar.baz"), fqdn!("dead.beef")])
         );
 
         // 5th run empty list, should fail the refresh.
@@ -291,7 +300,7 @@ mod test {
         assert!(!rx.has_changed().unwrap());
         assert_eq!(
             rx.borrow_and_update().clone(),
-            NodeList::new(vec![fqdn!("bar.baz"), fqdn!("dead.beef")])
+            NodeList::from_iter(vec![fqdn!("bar.baz"), fqdn!("dead.beef")])
         );
     }
 }
