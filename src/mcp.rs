@@ -30,8 +30,9 @@ pub fn setup_mcp(cli: &McpCli, agent: Agent, router: Router) -> Result<(Router, 
             .to_string()
             .trim_end_matches('/')
             .into(),
-        mcp_path: cli.mcp_path.clone(),
+        mcp_path: cli.mcp_url_path.clone(),
         clients: SharedClients::load(),
+        require_resource: false,
     };
 
     let mcp = McpServer::new(config);

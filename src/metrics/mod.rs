@@ -163,11 +163,7 @@ pub async fn middleware(
 ) -> impl IntoResponse {
     let remote_addr = request.extensions_mut().get::<RemoteAddr>().copied();
     let tls_info = request.extensions().get::<Arc<TlsInfo>>().cloned();
-    let country_code = request
-        .extensions_mut()
-        .remove::<CountryCode>()
-        .map(|x| x.0)
-        .unwrap_or_default();
+    let country_code = request.extensions_mut().remove::<CountryCode>();
 
     // Prepare to execute the request and count its body size
     let (parts, body) = request.into_parts();
@@ -351,7 +347,7 @@ pub async fn middleware(
                 host,
                 path,
                 canister_id,
-                country_code = %country_code,
+                country_code = %country_code.show_or(""),
                 header_origin,
                 header_referer,
                 header_user_agent,
@@ -401,7 +397,7 @@ pub async fn middleware(
                 "env": ENV.get().unwrap().as_str(),
                 "error_cause": error_cause,
                 "error_details": error_cause_details,
-                "geo_country_code": country_code,
+                "geo_country_code": country_code.serialize_or(""),
                 "hostname": HOSTNAME.get().unwrap().as_str(),
                 "http_host": host,
                 "http_origin": header_origin,

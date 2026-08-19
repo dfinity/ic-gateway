@@ -21,12 +21,12 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Install repro-env
         run: |
-          wget 'https://github.com/kpcyrd/repro-env/releases/download/v0.4.4/repro-env'
-          echo 'eaae57fbb51f6f802cb1c5ea4c07588feb18f8f533d7175b3cde599a974bb0d3  repro-env' | sha256sum -c -
+          wget 'https://github.com/kpcyrd/repro-env/releases/download/v0.4.5/repro-env'
+          echo 'd6a52bc7cfce4ff2e20dcdd01daf83968429f03f225178ef7f687f286a0d0ab4  repro-env' | sha256sum -c -
           sudo install -m755 repro-env -t /usr/bin
 
       - name: Install deps
@@ -113,7 +113,7 @@ jobs:
           push-to-registry: true
 
       - name: Send Slack message
-        uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a
+        uses: slackapi/slack-github-action@45a88b9581bfab2566dc881e2cd66d334e621e2c # v3.0.3
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
           webhook-type: incoming-webhook
