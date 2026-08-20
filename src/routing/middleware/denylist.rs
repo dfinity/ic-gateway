@@ -7,7 +7,10 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use ic_bn_lib::{http::Client, tasks::Run};
+use ic_bn_lib::{
+    http::{Client, middleware::request_meta::CountryCode},
+    tasks::Run,
+};
 use prometheus::{IntCounterVec, Registry, register_int_counter_vec_with_registry};
 use reqwest::Url;
 use tokio_util::sync::CancellationToken;
@@ -15,7 +18,7 @@ use tracing::{info, warn};
 
 use crate::{
     policy::denylist::Denylist,
-    routing::{CanisterId, ErrorCause, middleware::geoip::CountryCode},
+    routing::{CanisterId, ErrorCause},
 };
 
 #[derive(Clone)]
@@ -84,7 +87,7 @@ pub async fn middleware(
     request: Request,
     next: Next,
 ) -> Result<Response, ErrorCause> {
-    let country_code = request.extensions().get::<CountryCode>().cloned();
+    let country_code = request.extensions().get::<CountryCode>().copied();
     let canister_id = request.extensions().get::<CanisterId>().copied();
 
     // Check denylisting if configured

@@ -79,7 +79,13 @@ impl Debug for HealthyNode {
 pub struct NodeList(AHashSet<FQDN>);
 
 impl NodeList {
-    fn new(iter: impl IntoIterator<Item = FQDN>) -> Self {
+    const fn new(set: AHashSet<FQDN>) -> Self {
+        Self(set)
+    }
+}
+
+impl FromIterator<FQDN> for NodeList {
+    fn from_iter<T: IntoIterator<Item = FQDN>>(iter: T) -> Self {
         Self(AHashSet::from_iter(iter))
     }
 }

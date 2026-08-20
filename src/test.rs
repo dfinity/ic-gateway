@@ -19,11 +19,11 @@ use ic_bn_lib::{
     health::HealthManager,
     http::{Client, ClientHttp, Error as HttpError},
     ic_agent::agent::{ReplyResponse, route_provider::RoundRobinRouteProvider},
+    ic_transport_types::QueryResponse,
     principal,
     tasks::TaskManager,
 };
 use ic_http_certification::HttpResponse;
-use ic_transport_types::QueryResponse;
 use prometheus::Registry;
 use rand::{Rng, SeedableRng};
 use serde_cbor::to_vec;
@@ -112,6 +112,15 @@ impl LooksUpSubnetType for TestSubnetTypeLookuperEmpty {
 
 /// Creates a test router with some defaults and returns it along with a list of random custom domains that it serves
 pub async fn setup_test_router(tasks: &mut TaskManager) -> (Router, Vec<String>) {
+    setup_test_router_with_http_client(tasks, Arc::new(TestClient(512))).await
+}
+
+/// Same as [`setup_test_router`] but allows supplying a custom client for the requests that
+/// the router proxies upstream (e.g. to inspect the headers it was called with).
+pub async fn setup_test_router_with_http_client(
+    tasks: &mut TaskManager,
+    http_client_hyper: Arc<dyn ClientHttp<Full<Bytes>>>,
+) -> (Router, Vec<String>) {
     // SmallRng is Send which we require
     let mut rng = rand::rngs::SmallRng::from_entropy();
 
@@ -126,7 +135,10 @@ pub async fn setup_test_router(tasks: &mut TaskManager) -> (Router, Vec<String>)
     let args = vec![
         "",
         "--ic-unsafe-disable-response-verification",
-        "--network-trust-x-request-id",
+        "--network-trust-x-request-id-from",
+        "127.0.0.0/8,::1/128",
+        "--network-trust-x-real-ip-from",
+        "127.0.0.0/8,::1/128",
         "--cache-size",
         "2gb",
         "--domain",
@@ -169,8 +181,8 @@ pub async fn setup_test_router(tasks: &mut TaskManager) -> (Router, Vec<String>)
         reload_handle,
         tasks,
         health_manager,
-        http_client.clone(),
         http_client,
+        http_client_hyper,
         Arc::new(route_provider),
         &Registry::new(),
         CancellationToken::new(),

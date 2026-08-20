@@ -22,6 +22,7 @@ use ic_bn_lib::{
         server::{ProxyProtocolMode, cli::HttpServerCli},
         shed::{ShedShardedCli, ShedSystemCli},
     },
+    ipnet::IpNet,
     parse_size, parse_size_decimal, parse_size_usize,
     vector::cli::VectorCli,
 };
@@ -137,9 +138,13 @@ pub struct Network {
     #[clap(env, long)]
     pub network_http_client_insecure_bypass_tls_verification: bool,
 
-    /// Whether to trust incoming `X-Request-Id` header or override it
-    #[clap(env, long)]
-    pub network_trust_x_request_id: bool,
+    /// Trust `x-request-id` header from these networks.
+    #[clap(env, long, value_delimiter = ',')]
+    pub network_trust_x_request_id_from: Vec<IpNet>,
+
+    /// Trust `x-real-ip` header from these networks.
+    #[clap(env, long, value_delimiter = ',')]
+    pub network_trust_x_real_ip_from: Vec<IpNet>,
 }
 
 #[derive(Args)]
@@ -405,7 +410,7 @@ pub struct Acme {
 
     /// ACME account credentials in JSON format.
     /// If not provided - new account will be created.
-    #[clap(env, long)]
+    #[clap(env)]
     pub acme_account_creds: Option<String>,
 
     /// DNS backend to use when using DNS challenge.
@@ -420,7 +425,7 @@ pub struct Acme {
 
     /// Cloudflare token to use.
     /// Makes sense only when the DNS backend is set to `cloudflare`.
-    #[clap(env, long)]
+    #[clap(env)]
     pub acme_dns_cloudflare_token: Option<String>,
 
     /// IC-DNS-LB API URLs.
@@ -665,16 +670,21 @@ pub struct Prerender {
 pub struct McpCli {
     /// Which II instance to use to authenticate with MCP ("beta" or "prod")
     /// Enables MCP.
-    #[clap(env, long, requires = "mcp_public_url")]
+    #[clap(env, long, requires = "mcp_public_url", requires = "mcp_state_dir")]
     pub mcp_ii_instance: Option<crate::mcp::IiType>,
 
     /// MCP Public URL, required if MCP is enabled.
     #[clap(env, long, requires = "mcp_ii_instance")]
     pub mcp_public_url: Option<Url>,
 
-    /// MCP path
+    /// MCP URL path
     #[clap(env, long, default_value = "/mcp")]
-    pub mcp_path: String,
+    pub mcp_url_path: String,
+
+    /// Folder where to store MCP state files.
+    /// Required if MCP is enabled.
+    #[clap(env, long)]
+    pub mcp_state_dir: Option<PathBuf>,
 }
 
 #[cfg(test)]

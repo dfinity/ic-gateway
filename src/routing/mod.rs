@@ -4,13 +4,13 @@ pub mod ic;
 pub mod middleware;
 pub mod proxy;
 
-use std::{net::IpAddr, ops::Deref, str::FromStr, sync::Arc, time::Duration};
+use std::{ops::Deref, str::FromStr, sync::Arc, time::Duration};
 
 use anyhow::{Context, Error, anyhow};
 use axum::{
     Extension, Router,
     extract::Request,
-    middleware::{FromFnLayer, from_fn, from_fn_with_state},
+    middleware::{from_fn, from_fn_with_state},
     response::{IntoResponse, Redirect},
     routing::{get, post},
 };
@@ -27,7 +27,7 @@ use ic_bn_lib::{
         Client, ClientHttp,
         cache::{CacheBuilder, KeyExtractorUriRange},
         extract_authority, extract_host,
-        middleware::waf::WafLayer,
+        middleware::{request_meta, waf::WafLayer},
         shed::{
             ShardedOptions, ShedResponse, TypeExtractor,
             sharded::ShardedLittleLoadShedderLayer,
@@ -54,11 +54,11 @@ use crate::{
         error_cause::ClientError,
         ic::routing_table_manager::LooksUpSubnetType,
         middleware::{
-            canister_match, cors, geoip, headers,
+            canister_match, cors, headers,
             is_bot::{self, IsBotState},
             preprocess,
             prerender::{self, PrerenderState},
-            request_id, validate,
+            validate,
         },
     },
 };
@@ -184,18 +184,6 @@ impl TypeExtractor for RequestTypeExtractor {
     }
 }
 
-/// Client address
-#[derive(Debug, Clone, Copy)]
-pub struct RemoteAddr(pub IpAddr);
-
-impl Deref for RemoteAddr {
-    type Target = IpAddr;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
 // TODO: make it less horrible by using maybe builder pattern or just a struct
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::cognitive_complexity)]
@@ -241,19 +229,6 @@ pub async fn setup_router(
         custom_domain_storage,
         cli.domain.domain_skip_authority_validation,
     )) as Arc<dyn ResolvesDomain>;
-
-    // GeoIP
-    let geoip_mw = option_layer(
-        cli.misc
-            .geoip_db
-            .as_ref()
-            .map(|x| -> Result<FromFnLayer<_, _, _>, Error> {
-                let geoip_db = geoip::GeoIp::new(x)?;
-                Ok(from_fn_with_state(Arc::new(geoip_db), geoip::middleware))
-            })
-            .transpose()
-            .context("unable to init GeoIP")?,
-    );
 
     // Denylist
     let denylist_mw = option_layer(
@@ -521,15 +496,21 @@ pub async fn setup_router(
     // Common layers for all routes
     let common_layers = ServiceBuilder::new()
         .layer(from_fn_with_state(
-            request_id::RequestIdState::new(cli.network.network_trust_x_request_id),
-            request_id::middleware,
+            Arc::new(
+                request_meta::RequestMetaState::new_with_geoip(
+                    cli.network.network_trust_x_real_ip_from.clone(),
+                    cli.network.network_trust_x_request_id_from.clone(),
+                    cli.misc.geoip_db.clone(),
+                )
+                .context("unable to build RequestMeta state")?,
+            ),
+            request_meta::middleware,
         ))
         .layer(from_fn(headers::middleware))
         .layer(from_fn_with_state(
             request_type_state,
             preprocess::middleware,
         ))
-        .layer(geoip_mw)
         .layer(metrics_mw)
         .layer(option_layer(waf_layer))
         .layer(load_shedder_system_mw)
@@ -645,18 +626,20 @@ mod test {
     use ic_bn_lib::{
         http::{
             headers::{X_REAL_IP, X_REQUEST_ID},
+            middleware::{RemoteAddr, RequestId, request_meta::CountryCode},
             server::conn::ConnInfo,
         },
+        network::Addr,
         uuid::Uuid,
     };
     use rand::{seq::SliceRandom, thread_rng};
-    use std::str::FromStr;
+    use std::{
+        net::{IpAddr, SocketAddr},
+        str::FromStr,
+    };
     use tower::Service;
 
-    use crate::{
-        routing::middleware::{geoip::CountryCode, request_id::RequestId},
-        test::setup_test_router,
-    };
+    use crate::test::setup_test_router;
 
     use super::*;
 
@@ -760,6 +743,7 @@ mod test {
     }
 
     #[tokio::test]
+    #[allow(clippy::field_reassign_with_default)]
     async fn test_setup_router() {
         let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 
@@ -776,8 +760,11 @@ mod test {
         let domain = domains.choose(&mut rng).unwrap();
         let mut req = axum::extract::Request::new(Body::from(""));
         *req.uri_mut() = Uri::try_from(format!("http://{domain}")).unwrap();
-        let conn_info = Arc::new(ConnInfo::default());
+        let mut conn_info = ConnInfo::default();
+        conn_info.remote_addr = Addr::Tcp(SocketAddr::from_str("127.0.0.1:12345").unwrap());
+        let conn_info = Arc::new(conn_info);
         req.extensions_mut().insert(conn_info);
+
         // Some Swiss IP
         let remote_addr = IpAddr::from_str("77.109.180.4").unwrap();
         req.headers_mut().insert(
@@ -799,7 +786,10 @@ mod test {
             resp.extensions().get::<RemoteAddr>().unwrap().0,
             remote_addr,
         );
-        assert_eq!(resp.extensions().get::<CountryCode>().unwrap().0, "CH");
+        assert_eq!(
+            resp.extensions().get::<CountryCode>().copied().unwrap(),
+            CountryCode("CH".try_into().unwrap()),
+        );
         assert_eq!(resp.extensions().get::<RequestId>().unwrap().0, request_id);
 
         let body = resp.into_body();

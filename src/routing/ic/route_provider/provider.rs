@@ -93,6 +93,10 @@ impl DynamicRouteProvider {
             )));
         }
 
+        if k_top.is_some_and(|x| x == 0) {
+            return Err(RouteError::Other(anyhow!("k_top must be > 0")));
+        }
+
         let token = CancellationToken::new();
         let routes = Arc::new(ArcSwapOption::empty());
         let node_list = Arc::new(ArcSwapOption::empty());
@@ -107,7 +111,7 @@ impl DynamicRouteProvider {
         });
 
         // [`NodeList`] distribution channels - initialize with a seed list & mark it as changed to trigger updates
-        let (node_list_tx, mut node_list_rx) = watch::channel(NodeList::new(seed_list));
+        let (node_list_tx, mut node_list_rx) = watch::channel(NodeList::from_iter(seed_list));
         node_list_rx.mark_changed();
 
         // Start node fetcher

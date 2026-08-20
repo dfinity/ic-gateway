@@ -4,14 +4,13 @@ use ahash::{AHashMap, AHashSet};
 use anyhow::{Context, Error, anyhow};
 use arc_swap::ArcSwapOption;
 use candid::Principal;
-use ic_bn_lib::http::Client;
+use ic_bn_lib::http::{Client, middleware::request_meta::CountryCode};
 use serde::Deserialize;
 use serde_json as json;
 use tracing::warn;
 use url::Url;
 
 use super::load_principal_list;
-use crate::routing::middleware::geoip::CountryCode;
 
 pub struct Denylist {
     url: Option<Url>,
@@ -81,7 +80,7 @@ impl Denylist {
 
         // If there's no country code info -> then we don't block by default
         // TODO discuss
-        country_code.is_some_and(|code| entry.contains(&code.0))
+        country_code.is_some_and(|code| entry.iter().any(|x| x == code.0.as_str()))
     }
 
     pub async fn update(&self) -> Result<usize, Error> {
@@ -196,18 +195,18 @@ mod tests {
         // blocked in given regions
         assert!(denylist.is_blocked(
             principal!("qoctq-giaaa-aaaaa-aaaea-cai"),
-            Some(CountryCode("CH".into()))
+            Some(CountryCode("CH".try_into().unwrap()))
         ));
 
         assert!(denylist.is_blocked(
             principal!("qoctq-giaaa-aaaaa-aaaea-cai"),
-            Some(CountryCode("US".into()))
+            Some(CountryCode("US".try_into().unwrap()))
         ));
 
         // unblocked in other
         assert!(!denylist.is_blocked(
             principal!("qoctq-giaaa-aaaaa-aaaea-cai"),
-            Some(CountryCode("RU".into()))
+            Some(CountryCode("RU".try_into().unwrap()))
         ));
 
         // no country code
@@ -216,18 +215,18 @@ mod tests {
         // blocked regardless of region
         assert!(denylist.is_blocked(
             principal!("s6hwe-laaaa-aaaab-qaeba-cai"),
-            Some(CountryCode("foobar".into()))
+            Some(CountryCode("ZZ".try_into().unwrap()))
         ));
 
         assert!(denylist.is_blocked(
             principal!("2dcn6-oqaaa-aaaai-abvoq-cai"),
-            Some(CountryCode("foobar".into()))
+            Some(CountryCode("ZZ".try_into().unwrap()))
         ));
 
         // allowlisted allowed regardless
         assert!(!denylist.is_blocked(
             principal!("g3wsl-eqaaa-aaaan-aaaaa-cai"),
-            Some(CountryCode("foo".into()))
+            Some(CountryCode("ZZ".try_into().unwrap()))
         ));
 
         Ok(())
