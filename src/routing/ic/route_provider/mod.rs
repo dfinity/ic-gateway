@@ -82,8 +82,10 @@ impl NodeList {
     const fn new(set: AHashSet<FQDN>) -> Self {
         Self(set)
     }
+}
 
-    fn from_iter(iter: impl IntoIterator<Item = FQDN>) -> Self {
+impl FromIterator<FQDN> for NodeList {
+    fn from_iter<T: IntoIterator<Item = FQDN>>(iter: T) -> Self {
         Self(AHashSet::from_iter(iter))
     }
 }
