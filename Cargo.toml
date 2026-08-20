@@ -46,7 +46,7 @@ ic-bn-lib = { version = "0.7", features = [
 ] }
 ic-http-certification = { version = "3.1.0", optional = true }
 ic-http-gateway-protocol = { package = "ic-http-gateway-protocol", git = "https://github.com/dfinity/ic-http-gateway-protocol", tag = "v0.6.0" }
-imcp2 = { version = "0.1", optional = true }
+imcp2 = { version = "0.2", optional = true }
 isbot = "0.1"
 itertools = "0.15.0"
 lazy_static = "1.5.0"

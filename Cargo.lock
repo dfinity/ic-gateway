@@ -3509,9 +3509,9 @@ dependencies = [
 
 [[package]]
 name = "imcp2"
-version = "0.1.1"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a19460822552434b70f11b3f15d603162709ce40230b855313eb628e1b935349"
+checksum = "5cd98dd4a89084c09983e2bdaa843604b35dd2668a6faa08f89ea105041c4ad3"
 dependencies = [
  "anyhow",
  "axum",

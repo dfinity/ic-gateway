@@ -20,6 +20,11 @@ pub fn setup_mcp(cli: &McpCli, agent: Agent, router: Router) -> Result<(Router, 
     }
     .map_err(Error::msg)?;
 
+    let state_dir = cli
+        .mcp_state_dir
+        .clone()
+        .ok_or_else(|| anyhow!("MCP State directory not specified"))?;
+
     let config = McpConfig {
         agent,
         instance: ii_instance,
@@ -31,8 +36,9 @@ pub fn setup_mcp(cli: &McpCli, agent: Agent, router: Router) -> Result<(Router, 
             .trim_end_matches('/')
             .into(),
         mcp_path: cli.mcp_url_path.clone(),
-        clients: SharedClients::load(),
-        require_resource: false,
+        clients: SharedClients::load(&state_dir),
+        state_dir,
+        require_resource: true,
     };
 
     let mcp = McpServer::new(config);
