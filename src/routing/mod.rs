@@ -663,6 +663,8 @@ mod test {
     use tower::Service;
 
     use crate::test::setup_test_router;
+    #[cfg(feature = "mcp")]
+    use crate::test::{TestClient, setup_test_router_with_http_client};
 
     use super::*;
 
@@ -818,5 +820,52 @@ mod test {
         let body = resp.into_body();
         let body = to_bytes(body, 1024).await.unwrap();
         assert_eq!(body, b"X".repeat(512));
+    }
+
+    #[cfg(feature = "mcp")]
+    #[tokio::test]
+    async fn test_mcp_redirect() {
+        fn request_to(host: &str) -> Request {
+            let mut req = Request::new(Body::from(""));
+            *req.uri_mut() = Uri::try_from(format!("http://{host}/")).unwrap();
+            let conn_info = Arc::new(ConnInfo {
+                remote_addr: Addr::Tcp(SocketAddr::from_str("127.0.0.1:12345").unwrap()),
+                ..Default::default()
+            });
+            req.extensions_mut().insert(conn_info);
+            req
+        }
+
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
+        let mut tasks = TaskManager::new();
+        let (mut router, _domains) = setup_test_router_with_http_client(
+            &mut tasks,
+            Arc::new(TestClient(512)),
+            &[
+                "--mcp-ii-instance",
+                "prod",
+                "--mcp-public-url",
+                "https://mcp.ic0.app",
+                "--mcp-state-dir",
+                "/tmp/ic-gateway-test-mcp-state",
+                "--mcp-root-redirect",
+                "https://internetcomputer.org/mcp",
+            ],
+        )
+        .await;
+        tasks.start();
+
+        // A request to the MCP hostname should be redirected to the MCP root redirect URL.
+        let resp = router.call(request_to("mcp.ic0.app")).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::PERMANENT_REDIRECT);
+        assert_eq!(
+            resp.headers().get(http::header::LOCATION).unwrap(),
+            "https://internetcomputer.org/mcp",
+        );
+
+        // A request to some other hostname should not be redirected.
+        let resp = router.call(request_to("ic0.app")).await.unwrap();
+        assert_ne!(resp.status(), StatusCode::PERMANENT_REDIRECT);
     }
 }
