@@ -278,7 +278,7 @@ pub async fn main(
         )) as Arc<dyn ProvidesCustomDomains>);
     }
 
-    // Create IC Agent for use by RoutingTableManager / SMTP
+    // Create IC Agent for use by RoutingTableManager / SMTP / MCP
     let ic_agent = create_agent(cli, http_service_ll, route_provider.clone())
         .await
         .context("unable to create agent for subnets info fetcher")?;
@@ -322,6 +322,8 @@ pub async fn main(
         health_manager.clone(),
         http_client.clone(),
         http_client_hyper_ll,
+        #[cfg(feature = "mcp")]
+        ic_agent.clone(),
         route_provider.clone(),
         &registry,
         shutdown_token.clone(),
@@ -338,21 +340,6 @@ pub async fn main(
         gateway_router.clone()
     } else {
         Router::new().fallback(redirect_to_https)
-    };
-
-    // Inject MCP router if configured
-    #[cfg(feature = "mcp")]
-    let (gateway_router, mcp) = if let Some(v) = cli.mcp.mcp_ii_instance {
-        warn!(
-            "Starting MCP at {} (II {v})",
-            cli.mcp.mcp_public_url.as_ref().unwrap(),
-        );
-
-        let (router, mcp) = crate::mcp::setup_mcp(&cli.mcp, ic_agent.clone(), gateway_router)
-            .context("unable to set up MCP")?;
-        (router, Some(mcp))
-    } else {
-        (gateway_router, None)
     };
 
     // Create HTTP server
@@ -459,11 +446,6 @@ pub async fn main(
     #[cfg(feature = "smtp")]
     if let Some(v) = vector_smtp {
         v.stop().await;
-    }
-
-    #[cfg(feature = "mcp")]
-    if let Some(v) = mcp {
-        v.shutdown();
     }
 
     Ok(())

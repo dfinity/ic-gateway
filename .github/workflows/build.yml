@@ -9,6 +9,8 @@ env:
   CARGO_TERM_COLOR: never
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  GIT_SHA: ${{ github.sha }}
+  RELEASE_TAG: ${{ github.ref }}
 
 permissions:
   contents: write
@@ -35,6 +37,13 @@ jobs:
       # Improves reproducibility
       - name: Set SOURCE_DATE_EPOCH
         run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+
+      - name: Set Cargo.toml version
+        shell: bash
+        run: |
+          mv Cargo.toml Cargo.toml.orig
+          sed "s/0\\.0\\.0-git/${RELEASE_TAG##*\/v}/" Cargo.toml.orig > Cargo.toml
+          rm -f Cargo.toml.orig
 
       - name: Build
         run: repro-env build --env SOURCE_DATE_EPOCH -- cargo build --features sev-snp,smtp,mcp --release --target x86_64-unknown-linux-musl --bin ic-gateway

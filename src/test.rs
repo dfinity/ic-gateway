@@ -18,7 +18,10 @@ use ic_bn_lib::{
     custom_domains::{CustomDomain, ProvidesCustomDomains},
     health::HealthManager,
     http::{Client, ClientHttp, Error as HttpError},
-    ic_agent::agent::{ReplyResponse, route_provider::RoundRobinRouteProvider},
+    ic_agent::{
+        Agent,
+        agent::{ReplyResponse, route_provider::RoundRobinRouteProvider},
+    },
     ic_transport_types::QueryResponse,
     principal,
     tasks::TaskManager,
@@ -112,14 +115,17 @@ impl LooksUpSubnetType for TestSubnetTypeLookuperEmpty {
 
 /// Creates a test router with some defaults and returns it along with a list of random custom domains that it serves
 pub async fn setup_test_router(tasks: &mut TaskManager) -> (Router, Vec<String>) {
-    setup_test_router_with_http_client(tasks, Arc::new(TestClient(512))).await
+    setup_test_router_with_http_client(tasks, Arc::new(TestClient(512)), &[]).await
 }
 
 /// Same as [`setup_test_router`] but allows supplying a custom client for the requests that
 /// the router proxies upstream (e.g. to inspect the headers it was called with).
+///
+/// `extra_args` are appended to the CLI arguments used to build the router (e.g. to enable MCP).
 pub async fn setup_test_router_with_http_client(
     tasks: &mut TaskManager,
     http_client_hyper: Arc<dyn ClientHttp<Full<Bytes>>>,
+    extra_args: &[&str],
 ) -> (Router, Vec<String>) {
     // SmallRng is Send which we require
     let mut rng = rand::rngs::SmallRng::from_entropy();
@@ -153,7 +159,10 @@ pub async fn setup_test_router_with_http_client(
         "test_data/GeoLite2-Country.mmdb",
         "--log-vector-url",
         "http://127.0.0.1/vector",
-    ];
+    ]
+    .into_iter()
+    .chain(extra_args.iter().copied())
+    .collect::<Vec<_>>();
     let cli = Cli::parse_from(args);
 
     let custom_domains = domains
@@ -183,6 +192,8 @@ pub async fn setup_test_router_with_http_client(
         health_manager,
         http_client,
         http_client_hyper,
+        #[cfg(feature = "mcp")]
+        Agent::builder().with_url("https://foo").build().unwrap(),
         Arc::new(route_provider),
         &Registry::new(),
         CancellationToken::new(),

@@ -1,6 +1,7 @@
 [package]
 name = "ic-gateway"
-version = "0.2.0"
+# Version is set by a Github workflow from the git tag
+version = "0.0.0-git"
 description = "HTTP-to-IC gateway"
 edition = "2024"
 default-run = "ic-gateway"

@@ -35,7 +35,7 @@ use ic_bn_lib::{
         },
     },
     hval,
-    ic_agent::agent::route_provider::RouteProvider,
+    ic_agent::{Agent, agent::route_provider::RouteProvider},
     tasks::TaskManager,
     vector::client::Vector,
 };
@@ -195,6 +195,7 @@ pub async fn setup_router(
     health_manager: Arc<HealthManager>,
     http_client: Arc<dyn Client>,
     http_client_hyper: Arc<dyn ClientHttp<Full<Bytes>>>,
+    #[cfg(feature = "mcp")] ic_agent: Agent,
     route_provider: Arc<dyn RouteProvider>,
     registry: &Registry,
     shutdown_token: CancellationToken,
@@ -525,6 +526,30 @@ pub async fn setup_router(
 
     let api_hostname = cli.api.api_hostname.clone().map(|x| x.to_string());
 
+    #[cfg(feature = "mcp")]
+    let mcp = if let Some(v) = cli.mcp.mcp_ii_instance {
+        warn!(
+            "Starting MCP at {} (II {v})",
+            cli.mcp.mcp_public_url.as_ref().unwrap(),
+        );
+
+        let mcp_hostname = cli
+            .mcp
+            .mcp_public_url
+            .clone()
+            .unwrap()
+            .host_str()
+            .unwrap()
+            .to_string();
+
+        let router = crate::mcp::setup_mcp(&cli.mcp, ic_agent.clone(), registry, &mut *tasks)
+            .context("unable to set up MCP")?;
+
+        Some((router, mcp_hostname))
+    } else {
+        None
+    };
+
     let custom_domains_router = custom_domains_router.map(|x| {
         Router::new()
             .nest("/custom-domains", x)
@@ -548,6 +573,14 @@ pub async fn setup_router(
                 let Some(host) = extract_authority(&request) else {
                     return Ok(ErrorCause::Client(ClientError::NoAuthority).into_response());
                 };
+
+                // Check if MCP is enabled & the request's host matches MCP hostname
+                #[cfg(feature = "mcp")]
+                if let (Some((mcp_router, mcp_hostname)), Some(host)) = (mcp, extract_host(host))
+                    && host.eq_ignore_ascii_case(&mcp_hostname)
+                {
+                    return mcp_router.oneshot(request).await;
+                }
 
                 // Check if the request's host matches API hostname
                 if api_hostname
@@ -640,6 +673,8 @@ mod test {
     use tower::Service;
 
     use crate::test::setup_test_router;
+    #[cfg(feature = "mcp")]
+    use crate::test::{TestClient, setup_test_router_with_http_client};
 
     use super::*;
 
@@ -795,5 +830,247 @@ mod test {
         let body = resp.into_body();
         let body = to_bytes(body, 1024).await.unwrap();
         assert_eq!(body, b"X".repeat(512));
+    }
+
+    #[cfg(feature = "mcp")]
+    #[tokio::test]
+    async fn test_mcp() {
+        use http::header::{
+            ACCESS_CONTROL_ALLOW_METHODS, AUTHORIZATION, CACHE_CONTROL, LOCATION, WWW_AUTHENTICATE,
+        };
+
+        const MCP_HOST: &str = "mcp.ic0.app";
+        const ISSUER: &str = "https://mcp.ic0.app/mcp";
+        const PROTECTED_RESOURCE_URL: &str =
+            "https://mcp.ic0.app/.well-known/oauth-protected-resource/mcp";
+
+        fn request(method: Method, host: &str, path_and_query: &str) -> Request {
+            let mut req = Request::new(Body::from(""));
+            *req.method_mut() = method;
+            *req.uri_mut() = Uri::try_from(format!("http://{host}{path_and_query}")).unwrap();
+            let conn_info = Arc::new(ConnInfo {
+                remote_addr: Addr::Tcp(SocketAddr::from_str("127.0.0.1:12345").unwrap()),
+                ..Default::default()
+            });
+            req.extensions_mut().insert(conn_info);
+            req
+        }
+
+        async fn json_body(resp: axum::response::Response) -> serde_json::Value {
+            let body = to_bytes(resp.into_body(), 8192).await.unwrap();
+            serde_json::from_slice(&body).unwrap()
+        }
+
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
+        let mut tasks = TaskManager::new();
+        let (mut router, _domains) = setup_test_router_with_http_client(
+            &mut tasks,
+            Arc::new(TestClient(512)),
+            &[
+                "--mcp-ii-instance",
+                "prod",
+                "--mcp-public-url",
+                "https://mcp.ic0.app",
+                "--mcp-state-dir",
+                "/tmp/ic-gateway-test-mcp-state",
+                "--mcp-root-redirect",
+                "https://internetcomputer.org/mcp",
+            ],
+        )
+        .await;
+        tasks.start();
+
+        // Any request to the MCP hostname that doesn't match a real MCP/OAuth/well-known
+        // route falls through to a permanent redirect to the configured root-redirect URL —
+        // regardless of method, path, or query string (the fallback matches on path only).
+        for (method, path) in [
+            (Method::GET, "/"),
+            (Method::POST, "/"),
+            (Method::GET, "/?foo=bar"),
+            (Method::GET, "/some/unknown/path"),
+            (Method::GET, "/MCP"), // path matching is case-sensitive: doesn't hit the /mcp mount
+        ] {
+            let resp = router.call(request(method, MCP_HOST, path)).await.unwrap();
+            assert_eq!(resp.status(), StatusCode::PERMANENT_REDIRECT, "path {path}");
+            assert_eq!(
+                resp.headers().get(LOCATION).unwrap(),
+                "https://internetcomputer.org/mcp",
+                "path {path}",
+            );
+        }
+
+        // A request to some other hostname is untouched by MCP entirely: it falls through to
+        // the ordinary gateway logic instead (here, the base-domain-root dashboard redirect).
+        let resp = router
+            .call(request(Method::GET, "ic0.app", "/"))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::TEMPORARY_REDIRECT);
+        assert_eq!(
+            resp.headers().get(LOCATION).unwrap(),
+            "https://dashboard.internetcomputer.org/",
+        );
+
+        // -- Discovery documents (RFC 8414 authorization-server metadata, RFC 9728
+        // protected-resource metadata) --
+
+        // Root discovery documents (this is the only/default MCP instance on the origin).
+        let resp = router
+            .call(request(
+                Method::GET,
+                MCP_HOST,
+                "/.well-known/oauth-authorization-server",
+            ))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = json_body(resp).await;
+        assert_eq!(body["issuer"], ISSUER);
+        assert_eq!(
+            body["authorization_endpoint"],
+            format!("{ISSUER}/oauth/authorize")
+        );
+        assert_eq!(body["token_endpoint"], format!("{ISSUER}/oauth/token"));
+        assert_eq!(
+            body["registration_endpoint"],
+            format!("{ISSUER}/oauth/register")
+        );
+
+        let resp = router
+            .call(request(
+                Method::GET,
+                MCP_HOST,
+                "/.well-known/oauth-protected-resource",
+            ))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = json_body(resp).await;
+        assert_eq!(body["resource"], ISSUER);
+        assert_eq!(body["authorization_servers"], serde_json::json!([ISSUER]));
+
+        // Path-inserted authorization-server metadata: both the RFC 8414 location and the
+        // OIDC-style alternate living inside the /mcp mount serve the same document.
+        for well_known in [
+            "/.well-known/oauth-authorization-server/mcp",
+            "/mcp/.well-known/oauth-authorization-server",
+        ] {
+            let resp = router
+                .call(request(Method::GET, MCP_HOST, well_known))
+                .await
+                .unwrap();
+            assert_eq!(resp.status(), StatusCode::OK, "well-known {well_known}");
+            let body = json_body(resp).await;
+            assert_eq!(body["issuer"], ISSUER, "well-known {well_known}");
+        }
+
+        let resp = router
+            .call(request(
+                Method::GET,
+                MCP_HOST,
+                "/.well-known/oauth-protected-resource/mcp",
+            ))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = json_body(resp).await;
+        assert_eq!(body["resource"], ISSUER);
+
+        // II's connect-callback allow-list (dfinity/internet-identity#4091): must declare
+        // this instance's callback verbatim and forbid caching by any intermediary.
+        let resp = router
+            .call(request(
+                Method::GET,
+                MCP_HOST,
+                "/.well-known/ii-auth-callbacks",
+            ))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(resp.headers().get(CACHE_CONTROL).unwrap(), "no-store");
+        let body = json_body(resp).await;
+        assert_eq!(
+            body["callbacks"],
+            serde_json::json!([format!("{ISSUER}/oauth/connect/callback")]),
+        );
+
+        // A wrong method on a GET-only discovery route is a plain 405 — the redirect
+        // fallback only fires for paths that match no route at all.
+        let resp = router
+            .call(request(
+                Method::POST,
+                MCP_HOST,
+                "/.well-known/oauth-authorization-server",
+            ))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
+
+        // -- The bearer-gated MCP resource itself --
+
+        // No Authorization header at all: 401 with a bare WWW-Authenticate challenge (no
+        // `error=`, per RFC 6750 — that's reserved for a token that WAS presented but is
+        // bad). Both the bare mount path and its trailing-slash form hit the same gate
+        // rather than the redirect fallback.
+        for path in ["/mcp", "/mcp/"] {
+            let resp = router
+                .call(request(Method::GET, MCP_HOST, path))
+                .await
+                .unwrap();
+            assert_eq!(resp.status(), StatusCode::UNAUTHORIZED, "path {path}");
+            let challenge = resp
+                .headers()
+                .get(WWW_AUTHENTICATE)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_string();
+            assert!(
+                challenge.contains(&format!("resource_metadata=\"{PROTECTED_RESOURCE_URL}\"")),
+                "path {path}: {challenge}"
+            );
+            assert!(!challenge.contains("error="), "path {path}: {challenge}");
+        }
+
+        // A bad bearer token: still 401, but now the challenge carries
+        // `error="invalid_token"` so a client can tell "expired/invalid -> reconnect" apart
+        // from "no token yet -> just authenticate".
+        let mut req = request(Method::GET, MCP_HOST, "/mcp");
+        req.headers_mut().insert(
+            AUTHORIZATION,
+            HeaderValue::from_static("Bearer bogus-token"),
+        );
+        let resp = router.call(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+        let challenge = resp
+            .headers()
+            .get(WWW_AUTHENTICATE)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert!(challenge.contains("error=\"invalid_token\""), "{challenge}");
+        assert!(
+            challenge.contains(&format!("resource_metadata=\"{PROTECTED_RESOURCE_URL}\"")),
+            "{challenge}"
+        );
+
+        // CORS preflight is answered before authentication: an OPTIONS request never
+        // reaches the bearer gate, even with no token and no Origin header at all.
+        let resp = router
+            .call(request(Method::OPTIONS, MCP_HOST, "/mcp"))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert!(resp.headers().get(WWW_AUTHENTICATE).is_none());
+        assert!(
+            resp.headers()
+                .get(ACCESS_CONTROL_ALLOW_METHODS)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .contains("POST")
+        );
     }
 }
