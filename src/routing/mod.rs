@@ -524,6 +524,15 @@ pub async fn setup_router(
         .layer(option_layer(prerender_mw));
 
     let api_hostname = cli.api.api_hostname.clone().map(|x| x.to_string());
+    #[cfg(feature = "mcp")]
+    let mcp_hostname = cli
+        .mcp
+        .mcp_public_url
+        .as_ref()
+        .and_then(|url| url.host_str())
+        .map(|s| s.to_string());
+    #[cfg(feature = "mcp")]
+    let mcp_redirect_url = cli.mcp.mcp_root_redirect.clone().to_string();
 
     let custom_domains_router = custom_domains_router.map(|x| {
         Router::new()
@@ -548,6 +557,20 @@ pub async fn setup_router(
                 let Some(host) = extract_authority(&request) else {
                     return Ok(ErrorCause::Client(ClientError::NoAuthority).into_response());
                 };
+
+                // Check if the request's host matches MCP hostname.
+                // We end up in the fallback handler only if the request didn't match any of the MCP API routes,
+                // so we can safely redirect if the hosts match.
+                #[cfg(feature = "mcp")]
+                {
+                    if mcp_hostname
+                        .as_ref()
+                        .zip(extract_host(host))
+                        .is_some_and(|(a, b)| a == b)
+                    {
+                        return Ok(Redirect::permanent(&mcp_redirect_url).into_response());
+                    }
+                }
 
                 // Check if the request's host matches API hostname
                 if api_hostname

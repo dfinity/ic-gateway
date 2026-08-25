@@ -677,6 +677,10 @@ pub struct McpCli {
     #[clap(env, long, requires = "mcp_ii_instance")]
     pub mcp_public_url: Option<Url>,
 
+    /// URL to redirect to when a user requests the root of the MCP public URL
+    #[clap(env, long, default_value = "https://internetcomputer.org/mcp")]
+    pub mcp_root_redirect: Url,
+
     /// MCP URL path
     #[clap(env, long, default_value = "/mcp")]
     pub mcp_url_path: String,
