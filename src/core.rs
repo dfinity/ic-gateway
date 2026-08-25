@@ -348,8 +348,9 @@ pub async fn main(
             cli.mcp.mcp_public_url.as_ref().unwrap(),
         );
 
-        let (router, mcp) = crate::mcp::setup_mcp(&cli.mcp, ic_agent.clone(), gateway_router)
-            .context("unable to set up MCP")?;
+        let (router, mcp) =
+            crate::mcp::setup_mcp(&cli.mcp, ic_agent.clone(), gateway_router, &registry)
+                .context("unable to set up MCP")?;
         (router, Some(mcp))
     } else {
         (gateway_router, None)
