@@ -1,13 +1,19 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use anyhow::{Context, Error, anyhow};
-use axum::{Router, middleware::from_fn_with_state};
+use async_trait::async_trait;
+use axum::{Router, middleware::from_fn_with_state, response::Redirect};
+use ic_bn_lib::tasks::{Run, TaskManager};
 use imcp2::{
     Agent, IiInstance, McpConfig, McpServer, SharedClients, auth_callbacks_router,
     metrics::{Metrics, write_request_metrics},
 };
 use prometheus::Registry;
 use strum::{Display, EnumString};
+use tokio_util::sync::CancellationToken;
 
 #[derive(EnumString, Clone, Copy, Display)]
 #[strum(serialize_all = "snake_case")]
@@ -18,13 +24,25 @@ pub enum IiType {
 
 use crate::cli::McpCli;
 
+struct McpWrapper(McpServer);
+
+#[async_trait]
+impl Run for McpWrapper {
+    async fn run(&self, token: CancellationToken) -> Result<(), Error> {
+        self.0.spawn_session_reaper();
+        token.cancelled().await;
+        self.0.shutdown();
+        Ok(())
+    }
+}
+
 /// Inject MCP routes into Router
 pub fn setup_mcp(
     cli: &McpCli,
     agent: Agent,
-    router: Router,
     registry: &Registry,
-) -> Result<(Router, McpServer), Error> {
+    tasks: &mut TaskManager,
+) -> Result<Router, Error> {
     let ii_instance = match cli.mcp_ii_instance.as_ref().unwrap() {
         IiType::Beta => IiInstance::beta(),
         IiType::Prod => IiInstance::prod(),
@@ -53,7 +71,6 @@ pub fn setup_mcp(
     };
 
     let mcp = McpServer::new(config);
-    mcp.spawn_session_reaper();
 
     let metrics = Metrics::new(
         registry,
@@ -66,12 +83,16 @@ pub fn setup_mcp(
     )
     .context("unable to create MCP metrics")?;
 
-    let router = router
+    let mcp_redirect_url = cli.mcp_root_redirect.to_string();
+    let router = Router::new()
         .nest_service(mcp.mcp_path(), mcp.mcp_router())
         .merge(mcp.well_known_router())
         .merge(mcp.root_well_known_router())
         .merge(auth_callbacks_router(&[&mcp]))
+        .fallback(|| async move { Redirect::permanent(&mcp_redirect_url) })
         .layer(from_fn_with_state(metrics, write_request_metrics));
 
-    Ok((router, mcp))
+    tasks.add("mcp", Arc::new(McpWrapper(mcp)));
+
+    Ok(router)
 }

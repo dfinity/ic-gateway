@@ -18,7 +18,10 @@ use ic_bn_lib::{
     custom_domains::{CustomDomain, ProvidesCustomDomains},
     health::HealthManager,
     http::{Client, ClientHttp, Error as HttpError},
-    ic_agent::agent::{ReplyResponse, route_provider::RoundRobinRouteProvider},
+    ic_agent::{
+        Agent,
+        agent::{ReplyResponse, route_provider::RoundRobinRouteProvider},
+    },
     ic_transport_types::QueryResponse,
     principal,
     tasks::TaskManager,
@@ -189,6 +192,8 @@ pub async fn setup_test_router_with_http_client(
         health_manager,
         http_client,
         http_client_hyper,
+        #[cfg(feature = "mcp")]
+        Agent::builder().with_url("https://foo").build().unwrap(),
         Arc::new(route_provider),
         &Registry::new(),
         CancellationToken::new(),

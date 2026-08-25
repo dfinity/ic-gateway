@@ -35,7 +35,7 @@ use ic_bn_lib::{
         },
     },
     hval,
-    ic_agent::agent::route_provider::RouteProvider,
+    ic_agent::{Agent, agent::route_provider::RouteProvider},
     tasks::TaskManager,
     vector::client::Vector,
 };
@@ -195,6 +195,7 @@ pub async fn setup_router(
     health_manager: Arc<HealthManager>,
     http_client: Arc<dyn Client>,
     http_client_hyper: Arc<dyn ClientHttp<Full<Bytes>>>,
+    #[cfg(feature = "mcp")] ic_agent: Agent,
     route_provider: Arc<dyn RouteProvider>,
     registry: &Registry,
     shutdown_token: CancellationToken,
@@ -524,15 +525,30 @@ pub async fn setup_router(
         .layer(option_layer(prerender_mw));
 
     let api_hostname = cli.api.api_hostname.clone().map(|x| x.to_string());
+
     #[cfg(feature = "mcp")]
-    let mcp_hostname = cli
-        .mcp
-        .mcp_public_url
-        .as_ref()
-        .and_then(|url| url.host_str())
-        .map(|s| s.to_string());
-    #[cfg(feature = "mcp")]
-    let mcp_redirect_url = cli.mcp.mcp_root_redirect.clone().to_string();
+    let mcp = if let Some(v) = cli.mcp.mcp_ii_instance {
+        warn!(
+            "Starting MCP at {} (II {v})",
+            cli.mcp.mcp_public_url.as_ref().unwrap(),
+        );
+
+        let mcp_hostname = cli
+            .mcp
+            .mcp_public_url
+            .clone()
+            .unwrap()
+            .host_str()
+            .unwrap()
+            .to_string();
+
+        let router = crate::mcp::setup_mcp(&cli.mcp, ic_agent.clone(), registry, &mut *tasks)
+            .context("unable to set up MCP")?;
+
+        Some((router, mcp_hostname))
+    } else {
+        None
+    };
 
     let custom_domains_router = custom_domains_router.map(|x| {
         Router::new()
@@ -558,18 +574,12 @@ pub async fn setup_router(
                     return Ok(ErrorCause::Client(ClientError::NoAuthority).into_response());
                 };
 
-                // Check if the request's host matches MCP hostname.
-                // We end up in the fallback handler only if the request didn't match any of the MCP API routes,
-                // so we can safely redirect if the hosts match.
+                // Check if MCP is enabled & the request's host matches MCP hostname
                 #[cfg(feature = "mcp")]
+                if let (Some((mcp_router, mcp_hostname)), Some(host)) = (mcp, extract_host(host))
+                    && host == mcp_hostname
                 {
-                    if mcp_hostname
-                        .as_ref()
-                        .zip(extract_host(host))
-                        .is_some_and(|(a, b)| a == b)
-                    {
-                        return Ok(Redirect::permanent(&mcp_redirect_url).into_response());
-                    }
+                    return mcp_router.oneshot(request).await;
                 }
 
                 // Check if the request's host matches API hostname
