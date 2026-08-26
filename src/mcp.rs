@@ -28,6 +28,8 @@ use tokio_util::sync::CancellationToken;
 use tower::ServiceExt;
 use url::Url;
 
+use crate::cli::McpCli;
+
 #[derive(Clone)]
 pub enum IiType {
     Prod,
@@ -74,8 +76,6 @@ impl FromStr for IiType {
         })
     }
 }
-
-use crate::cli::McpCli;
 
 struct McpWrapper(McpServer);
 
@@ -159,7 +159,7 @@ pub fn setup_mcp(
     let mcp_redirect_url = cli.mcp_root_redirect.to_string();
     let hostname = cli
         .mcp_public_url
-        .clone()
+        .as_ref()
         .unwrap()
         .host_str()
         .unwrap()
