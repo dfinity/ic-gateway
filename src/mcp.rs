@@ -58,7 +58,7 @@ impl FromStr for IiType {
             "beta" => Self::Beta,
             _ => {
                 let (canister_id, url) = s.splitn(2, ':').collect_tuple().ok_or_else(|| {
-                    anyhow!("invalid custom II instance format, expected name:canister_id:url")
+                    anyhow!("invalid custom II instance format, expected canister_id:url")
                 })?;
 
                 let canister_id =
