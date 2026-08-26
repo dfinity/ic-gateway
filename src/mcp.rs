@@ -5,8 +5,16 @@ use std::{
 
 use anyhow::{Context, Error, anyhow};
 use async_trait::async_trait;
-use axum::{Router, middleware::from_fn_with_state, response::Redirect};
-use ic_bn_lib::tasks::{Run, TaskManager};
+use axum::{
+    Router,
+    extract::{Request, State},
+    middleware::{Next, from_fn_with_state},
+    response::{IntoResponse, Redirect, Response},
+};
+use ic_bn_lib::{
+    http::extract_authority,
+    tasks::{Run, TaskManager},
+};
 use imcp2::{
     Agent, IiInstance, McpConfig, McpServer, SharedClients, auth_callbacks_router,
     metrics::{Metrics, write_request_metrics},
@@ -14,6 +22,7 @@ use imcp2::{
 use prometheus::Registry;
 use strum::{Display, EnumString};
 use tokio_util::sync::CancellationToken;
+use tower::ServiceExt;
 
 #[derive(EnumString, Clone, Copy, Display)]
 #[strum(serialize_all = "snake_case")]
@@ -36,13 +45,33 @@ impl Run for McpWrapper {
     }
 }
 
+pub struct McpState {
+    hostname: String,
+    router: Router,
+}
+
+pub async fn middleware(
+    State(state): State<Arc<McpState>>,
+    request: Request,
+    next: Next,
+) -> Response {
+    // If the request is for the MCP hostname, route it to the MCP router directly
+    if let Some(authority) = extract_authority(&request)
+        && authority == state.hostname
+    {
+        return state.router.clone().oneshot(request).await.into_response();
+    }
+
+    next.run(request).await.into_response()
+}
+
 /// Inject MCP routes into Router
 pub fn setup_mcp(
     cli: &McpCli,
     agent: Agent,
     registry: &Registry,
     tasks: &mut TaskManager,
-) -> Result<Router, Error> {
+) -> Result<McpState, Error> {
     let ii_instance = match cli.mcp_ii_instance.as_ref().unwrap() {
         IiType::Beta => IiInstance::beta(),
         IiType::Prod => IiInstance::prod(),
@@ -84,6 +113,14 @@ pub fn setup_mcp(
     .context("unable to create MCP metrics")?;
 
     let mcp_redirect_url = cli.mcp_root_redirect.to_string();
+    let hostname = cli
+        .mcp_public_url
+        .clone()
+        .unwrap()
+        .host_str()
+        .unwrap()
+        .to_string();
+
     let router = Router::new()
         .nest_service(mcp.mcp_path(), mcp.mcp_router())
         .merge(mcp.well_known_router())
@@ -94,5 +131,5 @@ pub fn setup_mcp(
 
     tasks.add("mcp", Arc::new(McpWrapper(mcp)));
 
-    Ok(router)
+    Ok(McpState { hostname, router })
 }

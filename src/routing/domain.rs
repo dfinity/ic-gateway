@@ -105,24 +105,6 @@ pub struct DomainLookup {
     pub flags: Option<DomainFlags>,
 }
 
-impl DomainLookup {
-    pub fn new(domain: &Fqdn) -> Self {
-        Self {
-            domain: Domain {
-                name: domain.into(),
-                custom: false,
-                http: true,
-                api: true,
-            },
-            canister_id: None,
-            timestamp: 0,
-            verify: true,
-            priority: 0,
-            flags: None,
-        }
-    }
-}
-
 /// Resolves hostname to a canister id
 pub trait ResolvesDomain: Send + Sync {
     fn resolve(&self, host: &Fqdn) -> Option<DomainLookup>;

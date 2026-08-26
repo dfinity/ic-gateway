@@ -481,13 +481,7 @@ mod tests {
 
         let svc = ServiceBuilder::new()
             .layer(from_fn_with_state(
-                ValidateState::new(
-                    Arc::new(resolver),
-                    false,
-                    false,
-                    #[cfg(feature = "mcp")]
-                    None,
-                ),
+                ValidateState::new(Arc::new(resolver), false, false),
                 validate::middleware,
             ))
             .layer(from_fn_with_state(

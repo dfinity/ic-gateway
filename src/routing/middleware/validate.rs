@@ -24,8 +24,6 @@ pub struct ValidateState {
     pub resolver: Arc<dyn ResolvesDomain>,
     pub canister_id_from_query_params: bool,
     pub canister_id_from_referer: bool,
-    #[cfg(feature = "mcp")]
-    pub mcp_hostname: Option<FQDN>,
 }
 
 pub async fn middleware(
@@ -45,26 +43,10 @@ pub async fn middleware(
     });
 
     // Resolve the domain
-
-    // Check if it's an MCP hostname first, if configured
-    #[cfg(feature = "mcp")]
-    let lookup = if let Some(mcp_hostname) = &state.mcp_hostname
-        && &authority == mcp_hostname
-    {
-        use crate::routing::domain::DomainLookup;
-
-        // Override request type
-        request.extensions_mut().insert(RequestType::Mcp);
-
-        // Emit some stub lookup
-        Some(DomainLookup::new(mcp_hostname))
-    } else {
-        // Otherwise, resolve the domain normally
-        state.resolver.resolve(&authority)
-    };
-
-    let mut lookup =
-        lookup.ok_or_else(|| ErrorCause::Client(ClientError::UnknownDomain(authority.clone())))?;
+    let mut lookup = state
+        .resolver
+        .resolve(&authority)
+        .ok_or_else(|| ErrorCause::Client(ClientError::UnknownDomain(authority.clone())))?;
 
     if let Some(v) = lookup.flags {
         request.extensions_mut().insert(v);

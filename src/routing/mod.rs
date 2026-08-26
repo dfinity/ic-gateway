@@ -104,8 +104,6 @@ pub enum RequestType {
     CustomDomains,
     #[strum(transparent)]
     Api(RequestTypeApi),
-    #[cfg(feature = "mcp")]
-    Mcp,
     #[default]
     Unknown,
 }
@@ -122,8 +120,6 @@ impl FromStr for RequestType {
             "registrations" => Self::Registrations,
             "custom_domains" => Self::CustomDomains,
             "unknown" => Self::Unknown,
-            #[cfg(feature = "mcp")]
-            "mcp" => Self::Mcp,
             _ => Self::Api(RequestTypeApi::from_str(s).context("unable to parse API type")?),
         })
     }
@@ -232,24 +228,6 @@ pub async fn setup_router(
         custom_domain_storage,
         cli.domain.domain_skip_authority_validation,
     )) as Arc<dyn ResolvesDomain>;
-
-    #[cfg(feature = "mcp")]
-    let mcp = if let Some(v) = cli.mcp.mcp_ii_instance {
-        warn!(
-            "Starting MCP at {} (II {v})",
-            cli.mcp.mcp_public_url.as_ref().unwrap(),
-        );
-
-        let mcp_hostname =
-            FQDN::from_str(cli.mcp.mcp_public_url.clone().unwrap().host_str().unwrap()).unwrap();
-
-        let router = crate::mcp::setup_mcp(&cli.mcp, ic_agent.clone(), registry, &mut *tasks)
-            .context("unable to set up MCP")?;
-
-        Some((router, mcp_hostname))
-    } else {
-        None
-    };
 
     // Denylist
     let denylist_mw = option_layer(
@@ -481,8 +459,6 @@ pub async fn setup_router(
         domain_resolver,
         cli.domain.domain_canister_id_from_query_params,
         cli.domain.domain_canister_id_from_referer,
-        #[cfg(feature = "mcp")]
-        mcp.as_ref().map(|x| x.1.clone()),
     );
 
     // Request type state for alternate error domain configuration
@@ -568,14 +544,6 @@ pub async fn setup_router(
         .nest("/api/v4", router_api_v4)
         .fallback(
             |Extension(ctx): Extension<Arc<RequestCtx>>, request: Request| async move {
-                // Check if MCP is enabled & the request's host matches MCP hostname
-                #[cfg(feature = "mcp")]
-                if let Some((mcp_router, mcp_hostname)) = mcp
-                    && mcp_hostname == ctx.authority
-                {
-                    return mcp_router.oneshot(request).await;
-                }
-
                 // Check if API is enabled & the request's host matches API hostname
                 if api_hostname.is_some_and(|x| x == ctx.authority) {
                     return router_api.oneshot(request).await;
@@ -616,6 +584,23 @@ pub async fn setup_router(
             },
         )
         .layer(common_layers);
+
+    #[cfg(feature = "mcp")]
+    if let Some(v) = cli.mcp.mcp_ii_instance {
+        use crate::mcp;
+
+        warn!(
+            "Starting MCP at {} (II {v})",
+            cli.mcp.mcp_public_url.as_ref().unwrap(),
+        );
+
+        let state = mcp::setup_mcp(&cli.mcp, ic_agent.clone(), registry, &mut *tasks)
+            .context("unable to set up MCP")?;
+
+        // Inject MCP middleware to the top of the chain that will intercept the calls
+        // to the MCP hostname and route them to the MCP router directly
+        router = router.layer(from_fn_with_state(Arc::new(state), mcp::middleware));
+    }
 
     #[cfg(all(target_os = "linux", feature = "sev-snp"))]
     if cli.sev_snp.sev_snp_enable {
