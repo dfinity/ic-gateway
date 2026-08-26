@@ -586,7 +586,7 @@ pub async fn setup_router(
         .layer(common_layers);
 
     #[cfg(feature = "mcp")]
-    if let Some(v) = cli.mcp.mcp_ii_instance {
+    if let Some(v) = &cli.mcp.mcp_ii_instance {
         use crate::mcp;
 
         warn!(

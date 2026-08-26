@@ -1,4 +1,6 @@
 use std::{
+    fmt::Display,
+    str::FromStr,
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -11,6 +13,7 @@ use axum::{
     middleware::{Next, from_fn_with_state},
     response::{IntoResponse, Redirect, Response},
 };
+use candid::Principal;
 use ic_bn_lib::{
     http::extract_authority,
     tasks::{Run, TaskManager},
@@ -19,16 +22,57 @@ use imcp2::{
     Agent, IiInstance, McpConfig, McpServer, SharedClients, auth_callbacks_router,
     metrics::{Metrics, write_request_metrics},
 };
+use itertools::Itertools;
 use prometheus::Registry;
-use strum::{Display, EnumString};
 use tokio_util::sync::CancellationToken;
 use tower::ServiceExt;
+use url::Url;
 
-#[derive(EnumString, Clone, Copy, Display)]
-#[strum(serialize_all = "snake_case")]
+#[derive(Clone)]
 pub enum IiType {
     Prod,
     Beta,
+    Custom(IiInstance),
+}
+
+impl Display for IiType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Prod => write!(f, "prod"),
+            Self::Beta => write!(f, "beta"),
+            Self::Custom(instance) => write!(
+                f,
+                "{}:{}:{}",
+                instance.name, instance.ii_canister, instance.ii_url
+            ),
+        }
+    }
+}
+
+impl FromStr for IiType {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s {
+            "prod" => Self::Prod,
+            "beta" => Self::Beta,
+            _ => {
+                let (canister_id, url) = s.splitn(2, ':').collect_tuple().ok_or_else(|| {
+                    anyhow!("invalid custom II instance format, expected name:canister_id:url")
+                })?;
+
+                let canister_id =
+                    Principal::from_str(canister_id).context("invalid canister id")?;
+                let url = Url::parse(url).context("invalid URL")?;
+
+                Self::Custom(IiInstance {
+                    name: "custom",
+                    ii_canister: canister_id,
+                    ii_url: url.to_string(),
+                })
+            }
+        })
+    }
 }
 
 use crate::cli::McpCli;
@@ -73,10 +117,10 @@ pub fn setup_mcp(
     tasks: &mut TaskManager,
 ) -> Result<McpState, Error> {
     let ii_instance = match cli.mcp_ii_instance.as_ref().unwrap() {
-        IiType::Beta => IiInstance::beta(),
-        IiType::Prod => IiInstance::prod(),
-    }
-    .map_err(Error::msg)?;
+        IiType::Beta => IiInstance::beta().map_err(Error::msg)?,
+        IiType::Prod => IiInstance::prod().map_err(Error::msg)?,
+        IiType::Custom(instance) => instance.clone(),
+    };
 
     let state_dir = cli
         .mcp_state_dir
@@ -132,4 +176,51 @@ pub fn setup_mcp(
     tasks.add("mcp", Arc::new(McpWrapper(mcp)));
 
     Ok(McpState { hostname, router })
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_ii_type_from_str_prod() {
+        assert!(matches!(IiType::from_str("prod").unwrap(), IiType::Prod));
+    }
+
+    #[test]
+    fn test_ii_type_from_str_beta() {
+        assert!(matches!(IiType::from_str("beta").unwrap(), IiType::Beta));
+    }
+
+    #[test]
+    fn test_ii_type_from_str_custom() {
+        let s = "aaaaa-aa:https://example.com";
+        let ii_type = IiType::from_str(s).unwrap();
+
+        let IiType::Custom(instance) = ii_type else {
+            panic!("expected IiType::Custom");
+        };
+
+        assert_eq!(instance.name, "custom");
+        assert_eq!(
+            instance.ii_canister,
+            Principal::from_str("aaaaa-aa").unwrap()
+        );
+        assert_eq!(instance.ii_url, "https://example.com/");
+    }
+
+    #[test]
+    fn test_ii_type_from_str_custom_invalid_format() {
+        assert!(IiType::from_str("no-colon-here").is_err());
+    }
+
+    #[test]
+    fn test_ii_type_from_str_custom_invalid_canister_id() {
+        assert!(IiType::from_str("not-a-canister-id:https://example.com").is_err());
+    }
+
+    #[test]
+    fn test_ii_type_from_str_custom_invalid_url() {
+        assert!(IiType::from_str("aaaaa-aa:not a url").is_err());
+    }
 }
