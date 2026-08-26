@@ -101,7 +101,7 @@ pub async fn middleware(
 ) -> Response {
     // If the request is for the MCP hostname, route it to the MCP router directly
     if let Some(authority) = extract_authority(&request)
-        && authority == state.hostname
+        && authority.eq_ignore_ascii_case(&state.hostname)
     {
         return state.router.clone().oneshot(request).await.into_response();
     }
