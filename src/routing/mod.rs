@@ -830,10 +830,12 @@ mod test {
             ACCESS_CONTROL_ALLOW_METHODS, AUTHORIZATION, CACHE_CONTROL, LOCATION, WWW_AUTHENTICATE,
         };
 
-        const MCP_HOST: &str = "mcp.ic0.app";
-        const ISSUER: &str = "https://mcp.ic0.app/mcp";
+        // Deliberately doesn't overlap with any base domain (e.g. ic0.app) to make sure MCP
+        // works on an arbitrary hostname rather than base domain or under it.
+        const MCP_HOST: &str = "mcp.example.com";
+        const ISSUER: &str = "https://mcp.example.com/mcp";
         const PROTECTED_RESOURCE_URL: &str =
-            "https://mcp.ic0.app/.well-known/oauth-protected-resource/mcp";
+            "https://mcp.example.com/.well-known/oauth-protected-resource/mcp";
 
         fn request(method: Method, host: &str, path_and_query: &str) -> Request {
             let mut req = Request::new(Body::from(""));
@@ -862,7 +864,7 @@ mod test {
                 "--mcp-ii-instance",
                 "prod",
                 "--mcp-public-url",
-                "https://mcp.ic0.app",
+                "https://mcp.example.com",
                 "--mcp-state-dir",
                 "/tmp/ic-gateway-test-mcp-state",
                 "--mcp-root-redirect",
