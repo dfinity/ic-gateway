@@ -26,7 +26,6 @@ use ic_bn_lib::{
     http::{
         Client, ClientHttp,
         cache::{CacheBuilder, KeyExtractorUriRange},
-        extract_authority, extract_host,
         middleware::{request_meta, waf::WafLayer},
         shed::{
             ShardedOptions, ShedResponse, TypeExtractor,
@@ -51,7 +50,6 @@ use crate::{
     cli::Cli,
     metrics::{self},
     routing::{
-        error_cause::ClientError,
         ic::routing_table_manager::LooksUpSubnetType,
         middleware::{
             canister_match, cors, headers,
@@ -106,6 +104,8 @@ pub enum RequestType {
     CustomDomains,
     #[strum(transparent)]
     Api(RequestTypeApi),
+    #[cfg(feature = "mcp")]
+    Mcp,
     #[default]
     Unknown,
 }
@@ -122,6 +122,8 @@ impl FromStr for RequestType {
             "registrations" => Self::Registrations,
             "custom_domains" => Self::CustomDomains,
             "unknown" => Self::Unknown,
+            #[cfg(feature = "mcp")]
+            "mcp" => Self::Mcp,
             _ => Self::Api(RequestTypeApi::from_str(s).context("unable to parse API type")?),
         })
     }
@@ -230,6 +232,24 @@ pub async fn setup_router(
         custom_domain_storage,
         cli.domain.domain_skip_authority_validation,
     )) as Arc<dyn ResolvesDomain>;
+
+    #[cfg(feature = "mcp")]
+    let mcp = if let Some(v) = cli.mcp.mcp_ii_instance {
+        warn!(
+            "Starting MCP at {} (II {v})",
+            cli.mcp.mcp_public_url.as_ref().unwrap(),
+        );
+
+        let mcp_hostname =
+            FQDN::from_str(cli.mcp.mcp_public_url.clone().unwrap().host_str().unwrap()).unwrap();
+
+        let router = crate::mcp::setup_mcp(&cli.mcp, ic_agent.clone(), registry, &mut *tasks)
+            .context("unable to set up MCP")?;
+
+        Some((router, mcp_hostname))
+    } else {
+        None
+    };
 
     // Denylist
     let denylist_mw = option_layer(
@@ -461,6 +481,8 @@ pub async fn setup_router(
         domain_resolver,
         cli.domain.domain_canister_id_from_query_params,
         cli.domain.domain_canister_id_from_referer,
+        #[cfg(feature = "mcp")]
+        mcp.as_ref().map(|x| x.1.clone()),
     );
 
     // Request type state for alternate error domain configuration
@@ -524,31 +546,7 @@ pub async fn setup_router(
         ))
         .layer(option_layer(prerender_mw));
 
-    let api_hostname = cli.api.api_hostname.clone().map(|x| x.to_string());
-
-    #[cfg(feature = "mcp")]
-    let mcp = if let Some(v) = cli.mcp.mcp_ii_instance {
-        warn!(
-            "Starting MCP at {} (II {v})",
-            cli.mcp.mcp_public_url.as_ref().unwrap(),
-        );
-
-        let mcp_hostname = cli
-            .mcp
-            .mcp_public_url
-            .clone()
-            .unwrap()
-            .host_str()
-            .unwrap()
-            .to_string();
-
-        let router = crate::mcp::setup_mcp(&cli.mcp, ic_agent.clone(), registry, &mut *tasks)
-            .context("unable to set up MCP")?;
-
-        Some((router, mcp_hostname))
-    } else {
-        None
-    };
+    let api_hostname = cli.api.api_hostname.clone();
 
     let custom_domains_router = custom_domains_router.map(|x| {
         Router::new()
@@ -570,23 +568,16 @@ pub async fn setup_router(
         .nest("/api/v4", router_api_v4)
         .fallback(
             |Extension(ctx): Extension<Arc<RequestCtx>>, request: Request| async move {
-                let Some(host) = extract_authority(&request) else {
-                    return Ok(ErrorCause::Client(ClientError::NoAuthority).into_response());
-                };
-
                 // Check if MCP is enabled & the request's host matches MCP hostname
                 #[cfg(feature = "mcp")]
-                if let (Some((mcp_router, mcp_hostname)), Some(host)) = (mcp, extract_host(host))
-                    && host.eq_ignore_ascii_case(&mcp_hostname)
+                if let Some((mcp_router, mcp_hostname)) = mcp
+                    && mcp_hostname == ctx.authority
                 {
                     return mcp_router.oneshot(request).await;
                 }
 
-                // Check if the request's host matches API hostname
-                if api_hostname
-                    .zip(extract_host(host))
-                    .is_some_and(|(a, b)| a == b)
-                {
+                // Check if API is enabled & the request's host matches API hostname
+                if api_hostname.is_some_and(|x| x == ctx.authority) {
                     return router_api.oneshot(request).await;
                 }
 
