@@ -26,7 +26,6 @@ use ic_bn_lib::{
     http::{
         Client, ClientHttp,
         cache::{CacheBuilder, KeyExtractorUriRange},
-        extract_authority, extract_host,
         middleware::{request_meta, waf::WafLayer},
         shed::{
             ShardedOptions, ShedResponse, TypeExtractor,
@@ -51,7 +50,6 @@ use crate::{
     cli::Cli,
     metrics::{self},
     routing::{
-        error_cause::ClientError,
         ic::routing_table_manager::LooksUpSubnetType,
         middleware::{
             canister_match, cors, headers,
@@ -524,31 +522,7 @@ pub async fn setup_router(
         ))
         .layer(option_layer(prerender_mw));
 
-    let api_hostname = cli.api.api_hostname.clone().map(|x| x.to_string());
-
-    #[cfg(feature = "mcp")]
-    let mcp = if let Some(v) = cli.mcp.mcp_ii_instance {
-        warn!(
-            "Starting MCP at {} (II {v})",
-            cli.mcp.mcp_public_url.as_ref().unwrap(),
-        );
-
-        let mcp_hostname = cli
-            .mcp
-            .mcp_public_url
-            .clone()
-            .unwrap()
-            .host_str()
-            .unwrap()
-            .to_string();
-
-        let router = crate::mcp::setup_mcp(&cli.mcp, ic_agent.clone(), registry, &mut *tasks)
-            .context("unable to set up MCP")?;
-
-        Some((router, mcp_hostname))
-    } else {
-        None
-    };
+    let api_hostname = cli.api.api_hostname.clone();
 
     let custom_domains_router = custom_domains_router.map(|x| {
         Router::new()
@@ -570,23 +544,8 @@ pub async fn setup_router(
         .nest("/api/v4", router_api_v4)
         .fallback(
             |Extension(ctx): Extension<Arc<RequestCtx>>, request: Request| async move {
-                let Some(host) = extract_authority(&request) else {
-                    return Ok(ErrorCause::Client(ClientError::NoAuthority).into_response());
-                };
-
-                // Check if MCP is enabled & the request's host matches MCP hostname
-                #[cfg(feature = "mcp")]
-                if let (Some((mcp_router, mcp_hostname)), Some(host)) = (mcp, extract_host(host))
-                    && host.eq_ignore_ascii_case(&mcp_hostname)
-                {
-                    return mcp_router.oneshot(request).await;
-                }
-
-                // Check if the request's host matches API hostname
-                if api_hostname
-                    .zip(extract_host(host))
-                    .is_some_and(|(a, b)| a == b)
-                {
+                // Check if API is enabled & the request's host matches API hostname
+                if api_hostname.is_some_and(|x| x == ctx.authority) {
                     return router_api.oneshot(request).await;
                 }
 
@@ -625,6 +584,23 @@ pub async fn setup_router(
             },
         )
         .layer(common_layers);
+
+    #[cfg(feature = "mcp")]
+    if let Some(v) = &cli.mcp.mcp_ii_instance {
+        use crate::mcp;
+
+        warn!(
+            "Starting MCP at {} (II {v})",
+            cli.mcp.mcp_public_url.as_ref().unwrap(),
+        );
+
+        let state = mcp::setup_mcp(&cli.mcp, ic_agent.clone(), registry, &mut *tasks)
+            .context("unable to set up MCP")?;
+
+        // Inject MCP middleware to the top of the chain that will intercept the calls
+        // to the MCP hostname and route them to the MCP router directly
+        router = router.layer(from_fn_with_state(Arc::new(state), mcp::middleware));
+    }
 
     #[cfg(all(target_os = "linux", feature = "sev-snp"))]
     if cli.sev_snp.sev_snp_enable {
@@ -839,10 +815,12 @@ mod test {
             ACCESS_CONTROL_ALLOW_METHODS, AUTHORIZATION, CACHE_CONTROL, LOCATION, WWW_AUTHENTICATE,
         };
 
-        const MCP_HOST: &str = "mcp.ic0.app";
-        const ISSUER: &str = "https://mcp.ic0.app/mcp";
+        // Deliberately doesn't overlap with any base domain (e.g. ic0.app) to make sure MCP
+        // works on an arbitrary hostname rather than base domain or under it.
+        const MCP_HOST: &str = "mcp.example.com";
+        const ISSUER: &str = "https://mcp.example.com/mcp";
         const PROTECTED_RESOURCE_URL: &str =
-            "https://mcp.ic0.app/.well-known/oauth-protected-resource/mcp";
+            "https://mcp.example.com/.well-known/oauth-protected-resource/mcp";
 
         fn request(method: Method, host: &str, path_and_query: &str) -> Request {
             let mut req = Request::new(Body::from(""));
@@ -871,7 +849,7 @@ mod test {
                 "--mcp-ii-instance",
                 "prod",
                 "--mcp-public-url",
-                "https://mcp.ic0.app",
+                "https://mcp.example.com",
                 "--mcp-state-dir",
                 "/tmp/ic-gateway-test-mcp-state",
                 "--mcp-root-redirect",
