@@ -2839,9 +2839,9 @@ dependencies = [
 
 [[package]]
 name = "ic-bn-lib"
-version = "0.8.0"
+version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "14d52d8b6b07598a685448a0e9bc1656750f2ac8c78205a246b6469eee11957d"
+checksum = "6f688aa5369ac80c4d6deb8fe9956bce126415a110650a22ef798b1725c7a78b"
 dependencies = [
  "ahash",
  "anyhow",
@@ -3079,9 +3079,9 @@ dependencies = [
 
 [[package]]
 name = "ic-custom-domains-canister-api"
-version = "0.2.7"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2de86775118895562a2a7213de27c767c3d66237b6370e99e84727dc948b70a5"
+checksum = "1dd5c4195dd9e82325f95e1a07add4d09a36a2b96655b006e9f2904b640642a8"
 dependencies = [
  "candid",
  "derive-new",
