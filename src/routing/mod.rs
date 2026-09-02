@@ -26,11 +26,7 @@ use ic_bn_lib::{
     http::{
         Client, ClientHttp,
         cache::{CacheBuilder, KeyExtractorUriRange},
-        middleware::{
-            rate_limiter::{Bypasser, NeverBypasser, TokenBypasser},
-            request_meta,
-            waf::WafLayer,
-        },
+        middleware::{request_meta, waf::WafLayer},
         shed::{
             ShardedOptions, ShedResponse, TypeExtractor,
             sharded::ShardedLittleLoadShedderLayer,
@@ -183,23 +179,6 @@ impl TypeExtractor for RequestTypeExtractor {
         req.extensions()
             .get::<Arc<RequestCtx>>()
             .map(|x| x.request_type)
-    }
-}
-
-/// Uses either `TokenBypasser` or `NeverBypasser` depending on whether a
-/// bypass token is configured. Needed because bypasser is generic and we need a single type.
-#[derive(Clone)]
-enum RateLimitBypasser {
-    Token(TokenBypasser),
-    Never(NeverBypasser),
-}
-
-impl Bypasser for RateLimitBypasser {
-    fn should_bypass<B>(&self, req: &Request<B>) -> bool {
-        match self {
-            Self::Token(b) => b.should_bypass(req),
-            Self::Never(b) => b.should_bypass(req),
-        }
     }
 }
 
@@ -625,6 +604,25 @@ pub async fn setup_router(
 
     #[cfg(all(target_os = "linux", feature = "sev-snp"))]
     if cli.sev_snp.sev_snp_enable {
+        use ic_bn_lib::http::middleware::rate_limiter::{Bypasser, NeverBypasser, TokenBypasser};
+
+        /// Uses either `TokenBypasser` or `NeverBypasser` depending on whether a
+        /// bypass token is configured. Needed because bypasser is generic and we need a single type.
+        #[derive(Clone)]
+        enum RateLimitBypasser {
+            Token(TokenBypasser),
+            Never(NeverBypasser),
+        }
+
+        impl Bypasser for RateLimitBypasser {
+            fn should_bypass<B>(&self, req: &Request<B>) -> bool {
+                match self {
+                    Self::Token(b) => b.should_bypass(req),
+                    Self::Never(b) => b.should_bypass(req),
+                }
+            }
+        }
+
         let router_sev_snp = Router::new().route(
             "/sev-snp/report",
             post(ic_bn_lib::sev_snp::handler)
