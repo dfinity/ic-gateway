@@ -883,21 +883,69 @@ mod test {
 
         // Any request to the MCP hostname that doesn't match a real MCP/OAuth/well-known
         // route falls through to a permanent redirect to the configured root-redirect URL —
-        // regardless of method, path, or query string (the fallback matches on path only).
-        for (method, path) in [
-            (Method::GET, "/"),
-            (Method::POST, "/"),
-            (Method::GET, "/?foo=bar"),
-            (Method::GET, "/some/unknown/path"),
-            (Method::GET, "/MCP"), // path matching is case-sensitive: doesn't hit the /mcp mount
+        // regardless of method (the fallback matches on path only). The path and query of
+        // the original request are appended to the root-redirect URL, so the target site
+        // sees where the client was actually headed.
+        for (method, path, location) in [
+            (Method::GET, "/", "https://internetcomputer.org/mcp/"),
+            (Method::POST, "/", "https://internetcomputer.org/mcp/"),
+            (
+                Method::GET,
+                "/?foo=bar",
+                "https://internetcomputer.org/mcp/?foo=bar",
+            ),
+            (
+                Method::GET,
+                "/some/unknown/path?a=1&b=2",
+                "https://internetcomputer.org/mcp/some/unknown/path?a=1&b=2",
+            ),
+            // Path matching is case-sensitive: doesn't hit the /mcp mount.
+            (Method::GET, "/MCP", "https://internetcomputer.org/mcp/MCP"),
         ] {
             let resp = router.call(request(method, MCP_HOST, path)).await.unwrap();
             assert_eq!(resp.status(), StatusCode::PERMANENT_REDIRECT, "path {path}");
             assert_eq!(
                 resp.headers().get(LOCATION).unwrap(),
-                "https://internetcomputer.org/mcp",
+                location,
                 "path {path}",
             );
+        }
+
+        // A trailing slash on the configured root-redirect URL is trimmed before the path
+        // is appended, so the redirect target never ends up with a doubled slash.
+        {
+            let mut tasks = TaskManager::new();
+            let (mut router, _domains) = setup_test_router_with_http_client(
+                &mut tasks,
+                Arc::new(TestClient(512)),
+                &[
+                    "--mcp-ii-instance",
+                    "prod",
+                    "--mcp-public-url",
+                    "https://mcp.example.com",
+                    "--mcp-state-dir",
+                    "/tmp/ic-gateway-test-mcp-state-slash",
+                    "--mcp-root-redirect",
+                    "https://internetcomputer.org/",
+                ],
+            )
+            .await;
+
+            for (path, location) in [
+                ("/", "https://internetcomputer.org/"),
+                ("/foo?a=1", "https://internetcomputer.org/foo?a=1"),
+            ] {
+                let resp = router
+                    .call(request(Method::GET, MCP_HOST, path))
+                    .await
+                    .unwrap();
+                assert_eq!(resp.status(), StatusCode::PERMANENT_REDIRECT, "path {path}");
+                assert_eq!(
+                    resp.headers().get(LOCATION).unwrap(),
+                    location,
+                    "path {path}",
+                );
+            }
         }
 
         // A request to some other hostname is untouched by MCP entirely: it falls through to

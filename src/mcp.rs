@@ -167,7 +167,11 @@ pub fn setup_mcp(
     )
     .context("unable to create MCP metrics")?;
 
-    let mcp_redirect_url = cli.mcp_root_redirect.to_string();
+    let mcp_redirect_url = cli
+        .mcp_root_redirect
+        .to_string()
+        .trim_end_matches('/')
+        .to_string();
     let hostname = cli
         .mcp_public_url
         .as_ref()
@@ -185,7 +189,7 @@ pub fn setup_mcp(
             // Preserve path & query of the original request
             let redirect_url = uri.query().map_or_else(
                 || format!("{}{}", mcp_redirect_url, uri.path()),
-                |query| format!("{}{}{query}", mcp_redirect_url, uri.path()),
+                |query| format!("{}{}?{query}", mcp_redirect_url, uri.path()),
             );
 
             Redirect::permanent(&redirect_url)
