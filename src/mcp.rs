@@ -2,7 +2,7 @@ use std::{
     fmt::Display,
     str::FromStr,
     sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{Context, Error, anyhow};
@@ -14,6 +14,7 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
 };
 use candid::Principal;
+use http::Uri;
 use ic_bn_lib::{
     http::extract_authority,
     tasks::{Run, TaskManager},
@@ -89,6 +90,16 @@ impl Run for McpWrapper {
     }
 }
 
+struct MetricsWrapper(Metrics);
+
+#[async_trait]
+impl Run for MetricsWrapper {
+    async fn run(&self, _token: CancellationToken) -> Result<(), Error> {
+        self.0.refresh().await;
+        Ok(())
+    }
+}
+
 pub struct McpState {
     hostname: String,
     router: Router,
@@ -156,7 +167,11 @@ pub fn setup_mcp(
     )
     .context("unable to create MCP metrics")?;
 
-    let mcp_redirect_url = cli.mcp_root_redirect.to_string();
+    let mcp_redirect_url = cli
+        .mcp_root_redirect
+        .to_string()
+        .trim_end_matches('/')
+        .to_string();
     let hostname = cli
         .mcp_public_url
         .as_ref()
@@ -170,10 +185,23 @@ pub fn setup_mcp(
         .merge(mcp.well_known_router())
         .merge(mcp.root_well_known_router())
         .merge(auth_callbacks_router(&[&mcp]))
-        .fallback(|| async move { Redirect::permanent(&mcp_redirect_url) })
-        .layer(from_fn_with_state(metrics, write_request_metrics));
+        .fallback(|uri: Uri| async move {
+            // Preserve path & query of the original request
+            let redirect_url = uri.query().map_or_else(
+                || format!("{}{}", mcp_redirect_url, uri.path()),
+                |query| format!("{}{}?{query}", mcp_redirect_url, uri.path()),
+            );
+
+            Redirect::permanent(&redirect_url)
+        })
+        .layer(from_fn_with_state(metrics.clone(), write_request_metrics));
 
     tasks.add("mcp", Arc::new(McpWrapper(mcp)));
+    tasks.add_interval(
+        "mcp-metrics-refresh",
+        Arc::new(MetricsWrapper(metrics)),
+        Duration::from_secs(5),
+    );
 
     Ok(McpState { hostname, router })
 }
