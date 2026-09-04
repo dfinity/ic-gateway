@@ -37,8 +37,7 @@ http = "1.3.1"
 http-body = "1.0.1"
 http-body-util = "0.1.2"
 humantime = "2.2.0"
-hyper = "=1.11.0"
-ic-bn-lib = { version = "0.8.1", features = [
+ic-bn-lib = { version = "0.8.2", features = [
     "acme-dns",
     "cert-providers",
     "lb",
@@ -47,8 +46,8 @@ ic-bn-lib = { version = "0.8.1", features = [
     "vector",
 ] }
 ic-http-certification = { version = "3.1.0", optional = true }
-ic-http-gateway-protocol = { package = "ic-http-gateway-protocol", git = "https://github.com/dfinity/ic-http-gateway-protocol", tag = "v0.6.0" }
-imcp2 = { version = "0.3", optional = true }
+ic-http-gateway-protocol = { package = "ic-http-gateway-protocol", git = "https://github.com/dfinity/ic-http-gateway-protocol", tag = "v0.6.1" }
+imcp2 = { version = "0.4", optional = true }
 isbot = "0.1"
 itertools = "0.15.0"
 lazy_static = "1.5.0"
