@@ -496,7 +496,7 @@ pub async fn setup_router(
     let common_layers = ServiceBuilder::new()
         .layer(from_fn_with_state(
             Arc::new(
-                request_meta::RequestMetaState::new_with_geoip(
+                request_meta::RequestMetaState::new_with_geoip_db(
                     cli.network.network_trust_x_real_ip_from.clone(),
                     cli.network.network_trust_x_request_id_from.clone(),
                     cli.misc.geoip_db.clone(),
@@ -655,9 +655,10 @@ mod test {
     use axum::body::{Body, to_bytes};
     use http::{HeaderValue, Uri};
     use ic_bn_lib::{
+        geoip::CountryCode,
         http::{
             headers::{X_REAL_IP, X_REQUEST_ID},
-            middleware::{RemoteAddr, RequestId, request_meta::CountryCode},
+            middleware::{RemoteAddr, RequestId},
             server::conn::ConnInfo,
         },
         network::Addr,

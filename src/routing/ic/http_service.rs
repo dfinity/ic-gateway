@@ -8,7 +8,7 @@ use http::{Request, Response, StatusCode};
 use http_body_util::{BodyExt, Full, Limited};
 use ic_bn_lib::{
     http::{ClientHttp, Error as HttpError},
-    ic_agent::{AgentError, agent::HttpService},
+    ic_agent::{AgentError, agent::HttpService, agent_error::TransportError},
 };
 use reqwest::header::{HeaderMap, HeaderValue};
 use tokio::task_local;
@@ -125,8 +125,9 @@ impl HttpService for AgentHttpService {
                 Err(e) => {
                     let should_retry = http_error_needs_retrying(&e) && retries > 0;
                     if !should_retry {
-                        // TransportError requires reqwest::Error which cannot be instantiated outside reqwest
-                        return Err(AgentError::InvalidHttpResponse(e.to_string()));
+                        return Err(AgentError::TransportError(TransportError::Generic(
+                            e.to_string(),
+                        )));
                     }
                 }
             }
