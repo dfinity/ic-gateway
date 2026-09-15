@@ -6,7 +6,7 @@ use anyhow::Error;
 use async_trait::async_trait;
 use axum::{Router, body::Body as AxumBody, response::Response};
 use bytes::Bytes;
-use candid::{Encode, Principal};
+use candid::Encode;
 use clap::Parser;
 use fqdn::fqdn;
 use http::{
@@ -35,11 +35,7 @@ use tracing_subscriber::{EnvFilter, reload};
 
 use crate::{
     Cli, log,
-    routing::{
-        domain::CustomDomainStorage,
-        ic::routing_table_manager::{LooksUpSubnetType, SubnetType},
-        setup_router,
-    },
+    routing::{domain::CustomDomainStorage, setup_router},
 };
 
 /// The NNS (root) subnet ID for the test fixtures in src/routing/ic/testdata/.
@@ -103,13 +99,6 @@ impl ClientHttp<Full<Bytes>> for TestClient {
 impl ClientHttp<AxumBody> for TestClient {
     async fn execute(&self, _req: Request<AxumBody>) -> Result<Response<AxumBody>, HttpError> {
         Ok(generate_response(self.0))
-    }
-}
-
-pub(crate) struct TestSubnetTypeLookuperEmpty;
-impl LooksUpSubnetType for TestSubnetTypeLookuperEmpty {
-    fn lookup_subnet_type(&self, _canister_id: &Principal) -> Option<SubnetType> {
-        None
     }
 }
 
@@ -200,7 +189,7 @@ pub async fn setup_test_router_with_http_client(
         None,
         None,
         None,
-        Arc::new(TestSubnetTypeLookuperEmpty),
+        None,
     )
     .await
     .unwrap();

@@ -200,7 +200,7 @@ pub async fn setup_router(
     vector: Option<Arc<Vector>>,
     waf_layer: Option<WafLayer>,
     custom_domains_router: Option<Router>,
-    subnet_type_lookup: Arc<dyn LooksUpSubnetType>,
+    subnet_type_lookup: Option<Arc<dyn LooksUpSubnetType>>,
 ) -> Result<Router, Error> {
     // Setup API router
     let router_api = setup_api_router(
@@ -260,12 +260,15 @@ pub async fn setup_router(
     // CLI makes sure that domains_system is also set
     let canister_match_mw = option_layer(
         (!cli.domain.domain_app.is_empty())
-            .then(|| -> Result<_, Error> {
-                Ok(from_fn_with_state(
-                    canister_match::CanisterMatcherState::new(cli, subnet_type_lookup)?,
-                    canister_match::middleware,
-                ))
+            .then(|| {
+                subnet_type_lookup.map(|x| -> Result<_, Error> {
+                    Ok(from_fn_with_state(
+                        canister_match::CanisterMatcherState::new(cli, x)?,
+                        canister_match::middleware,
+                    ))
+                })
             })
+            .flatten()
             .transpose()
             .context("unable to init Domain-Canister matcher")?,
     );

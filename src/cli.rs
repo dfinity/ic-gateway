@@ -565,6 +565,11 @@ pub struct Misc {
     /// Instead it produces more detailed JSON-encoded errors.
     #[clap(env, long)]
     pub disable_html_error_messages: bool,
+
+    /// Disable fetching of the subnet routing table from the registry.
+    /// This also disables domain canister matching.
+    #[clap(env, long)]
+    pub disable_routing_table_fetcher: bool,
 }
 
 #[derive(Args)]

@@ -50,15 +50,20 @@ mod tests {
     use ic_bn_lib::principal;
 
     use super::*;
-    use crate::{
-        routing::ic::routing_table_manager::SubnetType, test::TestSubnetTypeLookuperEmpty,
-    };
+    use crate::routing::ic::routing_table_manager::SubnetType;
 
     // Canisters that fall inside the ranges defined below
     const CANISTER_SYSTEM: &str = "qoctq-giaaa-aaaaa-aaaea-cai"; // NNS
     const CANISTER_ENGINE: &str = "s6hwe-laaaa-aaaab-qaeba-cai";
     const CANISTER_APP: &str = "oydqf-haaaa-aaaao-afpsa-cai";
     const CANISTER_PIC: &str = "2dcn6-oqaaa-aaaai-abvoq-cai"; // pre-isolation
+
+    struct TestSubnetTypeLookuperEmpty;
+    impl LooksUpSubnetType for TestSubnetTypeLookuperEmpty {
+        fn lookup_subnet_type(&self, _canister_id: &Principal) -> Option<SubnetType> {
+            None
+        }
+    }
 
     struct TestSubnetTypeLookuper;
     impl LooksUpSubnetType for TestSubnetTypeLookuper {
