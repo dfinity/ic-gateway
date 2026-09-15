@@ -16,11 +16,12 @@ use axum::{
 use http::header::{CONTENT_TYPE, ORIGIN, REFERER, USER_AGENT};
 use ic_bn_lib::{
     SerializeOption,
+    geoip::CountryCode,
     http::{
         body::CountingBody,
         cache::CacheStatus,
         calc_headers_size, extract_host, http_method, http_version,
-        middleware::{RemoteAddr, RequestId, request_meta::CountryCode},
+        middleware::{RemoteAddr, RequestId},
         server::conn::ConnInfo,
     },
     ic_agent::agent::route_provider::RouteProvider,

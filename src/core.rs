@@ -40,7 +40,7 @@ use crate::{
             create_agent,
             http_service::AgentHttpService,
             route_provider::{RouteProviderWrapper, setup_route_provider},
-            routing_table_manager::RoutingTableManager,
+            routing_table_manager::{LooksUpSubnetType, RoutingTableManager},
         },
     },
     tls::{self},
@@ -284,14 +284,20 @@ pub async fn main(
         .context("unable to create agent for subnets info fetcher")?;
 
     // Create a routing table manager that handles per-subnet information fetching
-    let routing_table_manager = Arc::new(RoutingTableManager::new(
-        ic_agent.clone(),
-        MAINNET_ROOT_SUBNET_ID,
-        cli.ic.ic_routing_table_poll_interval,
-        &registry,
-    ));
-    health_manager.add(routing_table_manager.clone());
-    tasks.add("subnets_info_fetcher", routing_table_manager.clone());
+    let routing_table_manager = if cli.misc.disable_routing_table_fetcher {
+        None
+    } else {
+        let rtm = Arc::new(RoutingTableManager::new(
+            ic_agent.clone(),
+            MAINNET_ROOT_SUBNET_ID,
+            cli.ic.ic_routing_table_poll_interval,
+            &registry,
+        ));
+        health_manager.add(rtm.clone());
+        tasks.add("routing_table_manager", rtm.clone());
+
+        Some(rtm as Arc<dyn LooksUpSubnetType>)
+    };
 
     // Setup WAF
     let waf_layer = if cli.waf.waf_enable {
