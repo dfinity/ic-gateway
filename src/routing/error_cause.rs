@@ -986,4 +986,523 @@ mod test {
             })
             .await;
     }
+
+    /// Every `ErrorClientFacing` variant, so the table-driven tests below can't
+    /// silently skip a new one.
+    fn all_client_facing() -> Vec<ErrorClientFacing> {
+        let p = ic_bn_lib::principal!("s6hwe-laaaa-aaaab-qaeba-cai");
+
+        vec![
+            ErrorClientFacing::SubnetUnavailable,
+            ErrorClientFacing::Denylisted,
+            ErrorClientFacing::Forbidden,
+            ErrorClientFacing::LoadShed,
+            ErrorClientFacing::RateLimited,
+            ErrorClientFacing::Other("boom".into()),
+            ErrorClientFacing::Client(ClientError::BodyTooLarge),
+            ErrorClientFacing::Client(ClientError::BodyTimeout),
+            ErrorClientFacing::Client(ClientError::Body("body".into())),
+            ErrorClientFacing::Client(ClientError::IncorrectPrincipal),
+            ErrorClientFacing::Client(ClientError::MalformedRequest("bad".into())),
+            ErrorClientFacing::Client(ClientError::NoAuthority),
+            ErrorClientFacing::Client(ClientError::UnknownDomain(fqdn!("foo.bar"))),
+            ErrorClientFacing::Client(ClientError::DomainCanisterMismatch(p)),
+            ErrorClientFacing::Client(ClientError::SubnetNotFound),
+            ErrorClientFacing::Backend(BackendError::Dns("dns".into())),
+            ErrorClientFacing::Backend(BackendError::Connect),
+            ErrorClientFacing::Backend(BackendError::Timeout),
+            ErrorClientFacing::Backend(BackendError::BodyTimeout),
+            ErrorClientFacing::Backend(BackendError::Body("body".into())),
+            ErrorClientFacing::Backend(BackendError::TLSOther("tls".into())),
+            ErrorClientFacing::Backend(BackendError::TLSCert("cert".into())),
+            ErrorClientFacing::Backend(BackendError::BoundaryNode("bn".into())),
+            ErrorClientFacing::Backend(BackendError::HttpGateway("gw".into())),
+            ErrorClientFacing::Backend(BackendError::Other("other".into())),
+            ErrorClientFacing::Backend(BackendError::ResponseVerification("verify".into())),
+            ErrorClientFacing::Canister(CanisterError::NotFound(Some(p))),
+            ErrorClientFacing::Canister(CanisterError::NotFound(None)),
+            ErrorClientFacing::Canister(CanisterError::RouteNotFound(Some(p))),
+            ErrorClientFacing::Canister(CanisterError::RouteNotFound(None)),
+            ErrorClientFacing::Canister(CanisterError::Reject),
+            ErrorClientFacing::Canister(CanisterError::Error("err".into())),
+            ErrorClientFacing::Canister(CanisterError::Frozen),
+            ErrorClientFacing::Canister(CanisterError::IdIncorrect("id".into())),
+            ErrorClientFacing::Canister(CanisterError::IdNotResolved),
+        ]
+    }
+
+    fn browser_context() -> RefCell<ErrorContext> {
+        RefCell::new(ErrorContext {
+            is_browser: true,
+            request_type: RequestType::Http,
+            authority: Some(fqdn!("foo.bar")),
+            ..Default::default()
+        })
+    }
+
+    /// The error pages are rendered by string substitution, so a template
+    /// placeholder that nobody replaces would be served to users verbatim.
+    #[test]
+    fn test_error_pages_fully_rendered() {
+        for e in all_client_facing() {
+            let data = e.data();
+            let html = data.html();
+
+            assert!(
+                !html.contains("{{"),
+                "unsubstituted placeholder in page for {e}: {:?}",
+                html.split("{{").nth(1).map(|x| x.split("}}").next()),
+            );
+
+            // The basics actually made it in
+            assert!(
+                html.contains(data.status_code.as_str()),
+                "status code missing from page for {e}"
+            );
+            if !data.title.is_empty() {
+                assert!(html.contains(&data.title), "title missing from page for {e}");
+            }
+        }
+    }
+
+    /// The optional sections are included exactly when the error asks for them.
+    #[test]
+    fn test_error_page_sections() {
+        // Retry section: only `SubnetUnavailable` sets a retry message
+        let html = ErrorClientFacing::SubnetUnavailable.data().html();
+        assert!(html.contains("Wait a few minutes and refresh this page."));
+        assert!(html.contains(RETRY_LOGIC));
+
+        let html = ErrorClientFacing::Forbidden.data().html();
+        assert!(!html.contains(RETRY_LOGIC));
+
+        // Canister section: only when we know which canister it was
+        let p = ic_bn_lib::principal!("s6hwe-laaaa-aaaab-qaeba-cai");
+        let html = ErrorClientFacing::Canister(CanisterError::NotFound(Some(p)))
+            .data()
+            .html();
+        assert!(html.contains(&p.to_string()));
+
+        let html = ErrorClientFacing::Canister(CanisterError::NotFound(None))
+            .data()
+            .html();
+        assert!(html.contains("unknown"));
+
+        // Appeal section: denylisting only
+        let html = ErrorClientFacing::Denylisted.data().html();
+        assert!(html.contains(APPEAL_SECTION));
+
+        let html = ErrorClientFacing::Forbidden.data().html();
+        assert!(!html.contains(APPEAL_SECTION));
+    }
+
+    /// `description_html` wins over `description` when rendering a page, but the
+    /// JSON reply always carries the plain-text one.
+    #[tokio::test]
+    async fn test_error_page_html_description() {
+        let error = ErrorClientFacing::Canister(CanisterError::Frozen);
+        let plain = error.data().description;
+
+        let html = error.data().html();
+        assert!(html.contains("Learn how to top up a canister."));
+        assert!(!html.contains(&plain));
+
+        ERROR_CONTEXT
+            .scope(RefCell::default(), async {
+                let resp = ErrorClientFacing::Canister(CanisterError::Frozen).into_response();
+                let body = resp.into_body().collect().await.unwrap().to_bytes();
+                let msg: ErrorMessage = serde_json::from_slice(&body).unwrap();
+                assert_eq!(msg.description, plain);
+                assert!(!msg.description.contains('<'));
+            })
+            .await;
+    }
+
+    #[test]
+    fn test_error_client_facing_status_codes() {
+        let p = ic_bn_lib::principal!("s6hwe-laaaa-aaaab-qaeba-cai");
+
+        let cases = [
+            (ErrorClientFacing::SubnetUnavailable, StatusCode::SERVICE_UNAVAILABLE),
+            (ErrorClientFacing::Denylisted, StatusCode::UNAVAILABLE_FOR_LEGAL_REASONS),
+            (ErrorClientFacing::Forbidden, StatusCode::FORBIDDEN),
+            (ErrorClientFacing::LoadShed, StatusCode::TOO_MANY_REQUESTS),
+            (ErrorClientFacing::RateLimited, StatusCode::TOO_MANY_REQUESTS),
+            (ErrorClientFacing::Other("x".into()), StatusCode::INTERNAL_SERVER_ERROR),
+            (ErrorClientFacing::Client(ClientError::SubnetNotFound), StatusCode::BAD_REQUEST),
+            (
+                ErrorClientFacing::Client(ClientError::UnknownDomain(fqdn!("foo.bar"))),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                ErrorClientFacing::Client(ClientError::DomainCanisterMismatch(p)),
+                StatusCode::BAD_REQUEST,
+            ),
+            (ErrorClientFacing::Client(ClientError::IncorrectPrincipal), StatusCode::BAD_REQUEST),
+            (
+                ErrorClientFacing::Client(ClientError::MalformedRequest("x".into())),
+                StatusCode::BAD_REQUEST,
+            ),
+            (ErrorClientFacing::Client(ClientError::NoAuthority), StatusCode::BAD_REQUEST),
+            (ErrorClientFacing::Client(ClientError::BodyTooLarge), StatusCode::PAYLOAD_TOO_LARGE),
+            // These never reach the client - 408 is for logging only
+            (ErrorClientFacing::Client(ClientError::BodyTimeout), StatusCode::REQUEST_TIMEOUT),
+            (
+                ErrorClientFacing::Client(ClientError::Body("x".into())),
+                StatusCode::REQUEST_TIMEOUT,
+            ),
+            (ErrorClientFacing::Backend(BackendError::Connect), StatusCode::SERVICE_UNAVAILABLE),
+            (
+                ErrorClientFacing::Backend(BackendError::ResponseVerification("x".into())),
+                StatusCode::SERVICE_UNAVAILABLE,
+            ),
+            (
+                ErrorClientFacing::Canister(CanisterError::NotFound(None)),
+                StatusCode::NOT_FOUND,
+            ),
+            (
+                ErrorClientFacing::Canister(CanisterError::RouteNotFound(None)),
+                StatusCode::NOT_FOUND,
+            ),
+            (ErrorClientFacing::Canister(CanisterError::Reject), StatusCode::SERVICE_UNAVAILABLE),
+            (
+                ErrorClientFacing::Canister(CanisterError::Error("x".into())),
+                StatusCode::SERVICE_UNAVAILABLE,
+            ),
+            (ErrorClientFacing::Canister(CanisterError::Frozen), StatusCode::SERVICE_UNAVAILABLE),
+            (
+                ErrorClientFacing::Canister(CanisterError::IdNotResolved),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                ErrorClientFacing::Canister(CanisterError::IdIncorrect("x".into())),
+                StatusCode::BAD_REQUEST,
+            ),
+        ];
+
+        for (e, code) in cases {
+            assert_eq!(e.data().status_code, code, "wrong status code for {e}");
+        }
+    }
+
+    /// Every variant must produce a response with a valid `x-ic-error-cause`
+    /// header - `into_response` unwraps the conversion.
+    #[tokio::test]
+    async fn test_error_cause_header_always_valid() {
+        for e in all_client_facing() {
+            let name = e.to_string();
+
+            // Both as JSON...
+            let resp = ERROR_CONTEXT
+                .scope(RefCell::default(), async { e.clone().into_response() })
+                .await;
+            assert_eq!(resp.headers().get(X_IC_ERROR_CAUSE).unwrap(), name.as_str());
+            assert_eq!(resp.headers().get(CONTENT_TYPE).unwrap(), CONTENT_TYPE_JSON);
+
+            // ...and as an HTML page
+            let resp = ERROR_CONTEXT
+                .scope(browser_context(), async { e.into_response() })
+                .await;
+            assert_eq!(resp.headers().get(X_IC_ERROR_CAUSE).unwrap(), name.as_str());
+            assert_eq!(resp.headers().get(CONTENT_TYPE).unwrap(), CONTENT_TYPE_HTML);
+        }
+    }
+
+    /// `ErrorCause` is what ends up in metrics & logs, so the names matter.
+    #[test]
+    fn test_error_cause_names() {
+        let p = ic_bn_lib::principal!("s6hwe-laaaa-aaaab-qaeba-cai");
+
+        let cases = [
+            (ErrorCause::LoadShed, "load_shed"),
+            (ErrorCause::SubnetUnavailable, "subnet_unavailable"),
+            (ErrorCause::NoRoutingTable, "no_routing_table"),
+            (ErrorCause::Denylisted, "denylisted"),
+            (ErrorCause::Forbidden, "forbidden"),
+            (ErrorCause::Other("x".into()), "internal_server_error"),
+            (
+                ErrorCause::RateLimited(RateLimitCause::Normal),
+                "rate_limited_normal",
+            ),
+            (
+                ErrorCause::RateLimited(RateLimitCause::BoundaryNode),
+                "rate_limited_boundary_node",
+            ),
+            (
+                ErrorCause::Client(ClientError::NoAuthority),
+                "client_no_authority",
+            ),
+            (
+                ErrorCause::Client(ClientError::UnknownDomain(fqdn!("foo.bar"))),
+                "client_unknown_domain",
+            ),
+            (
+                ErrorCause::Client(ClientError::DomainCanisterMismatch(p)),
+                "client_domain_canister_mismatch",
+            ),
+            (
+                ErrorCause::Backend(BackendError::Connect),
+                "backend_connect",
+            ),
+            (
+                ErrorCause::Backend(BackendError::ResponseVerification("x".into())),
+                "backend_response_verification",
+            ),
+            (
+                ErrorCause::Canister(CanisterError::RouteNotFound(None)),
+                "canister_route_not_found",
+            ),
+            (
+                ErrorCause::Canister(CanisterError::IdNotResolved),
+                "canister_id_not_resolved",
+            ),
+        ];
+
+        for (e, name) in cases {
+            assert_eq!(e.to_string(), name);
+        }
+    }
+
+    #[test]
+    fn test_error_cause_details() {
+        let p = ic_bn_lib::principal!("s6hwe-laaaa-aaaab-qaeba-cai");
+
+        // Variants that carry a payload expose it as details
+        assert_eq!(
+            ErrorCause::Client(ClientError::Body("boom".into())).details(),
+            Some("boom".into())
+        );
+        assert_eq!(
+            ErrorCause::Client(ClientError::MalformedRequest("boom".into())).details(),
+            Some("boom".into())
+        );
+        assert_eq!(
+            ErrorCause::Client(ClientError::UnknownDomain(fqdn!("foo.bar"))).details(),
+            Some("foo.bar".into())
+        );
+        assert_eq!(
+            ErrorCause::Client(ClientError::DomainCanisterMismatch(p)).details(),
+            Some(format!("The canister {p} is not served by this domain"))
+        );
+        assert_eq!(
+            ErrorCause::Backend(BackendError::Dns("boom".into())).details(),
+            Some("boom".into())
+        );
+        assert_eq!(
+            ErrorCause::Canister(CanisterError::IdIncorrect("boom".into())).details(),
+            Some("boom".into())
+        );
+        assert_eq!(
+            ErrorCause::Other("boom".into()).details(),
+            Some("boom".into())
+        );
+        assert_eq!(
+            ErrorCause::RateLimited(RateLimitCause::BoundaryNode).details(),
+            Some("boundary_node".into())
+        );
+
+        // Payload-free ones have nothing to show
+        assert_eq!(ErrorCause::Client(ClientError::BodyTooLarge).details(), None);
+        assert_eq!(ErrorCause::Backend(BackendError::Connect).details(), None);
+        assert_eq!(ErrorCause::Canister(CanisterError::Frozen).details(), None);
+        assert_eq!(ErrorCause::Denylisted.details(), None);
+        assert_eq!(ErrorCause::LoadShed.details(), None);
+
+        // `Canister::Error` details go via the client-facing type, not here
+        assert_eq!(
+            ErrorCause::Canister(CanisterError::Error("boom".into())).details(),
+            None
+        );
+    }
+
+    #[test]
+    fn test_from_client_error() {
+        assert_eq!(
+            ErrorCause::from_client_error(HttpError::BodyTimedOut),
+            ErrorCause::Client(ClientError::BodyTimeout)
+        );
+        assert_eq!(
+            ErrorCause::from_client_error(HttpError::BodyTooBig),
+            ErrorCause::Client(ClientError::BodyTooLarge)
+        );
+        assert_eq!(
+            ErrorCause::from_client_error(HttpError::BodyReadingFailed("boom".into())),
+            ErrorCause::Client(ClientError::Body("boom".into()))
+        );
+
+        // Anything else is on us, not the client
+        assert!(matches!(
+            ErrorCause::from_client_error(HttpError::NoProxyProtocolDetected),
+            ErrorCause::Other(_)
+        ));
+    }
+
+    #[test]
+    fn test_from_backend_error() {
+        assert_eq!(
+            ErrorCause::from_backend_error(HttpError::BodyTimedOut),
+            ErrorCause::Backend(BackendError::BodyTimeout)
+        );
+        assert_eq!(
+            ErrorCause::from_backend_error(HttpError::BodyReadingFailed("boom".into())),
+            ErrorCause::Backend(BackendError::Body("boom".into()))
+        );
+
+        // A client-side error class must not be misattributed to the backend
+        assert!(matches!(
+            ErrorCause::from_backend_error(HttpError::BodyTooBig),
+            ErrorCause::Backend(BackendError::Other(_))
+        ));
+        assert!(matches!(
+            ErrorCause::from_backend_error(HttpError::DnsError("boom".into())),
+            ErrorCause::Backend(BackendError::Other(_))
+        ));
+    }
+
+    /// Real errors arrive wrapped in several layers of `.context()`, so the
+    /// mapping has to walk the whole chain rather than look at the top only.
+    #[test]
+    fn test_error_infer_walks_the_chain() {
+        let err = anyhow::Error::new(rustls::Error::NoCertificatesPresented)
+            .context("unable to establish TLS")
+            .context("request failed");
+
+        assert!(error_infer::<rustls::Error>(&err).is_some());
+        assert_eq!(
+            ErrorCause::from(err),
+            ErrorCause::Backend(BackendError::TLSCert("no certificate presented".into()))
+        );
+    }
+
+    /// `error_infer` downcasts, so a cause that was flattened into a string on the
+    /// way up can no longer be classified - it degrades to a generic error.
+    #[test]
+    fn test_error_infer_needs_a_typed_cause() {
+        let err = anyhow::anyhow!("TLS error: {}", rustls::Error::NoCertificatesPresented);
+
+        assert!(error_infer::<rustls::Error>(&err).is_none());
+        assert!(matches!(ErrorCause::from(err), ErrorCause::Other(_)));
+    }
+
+    #[test]
+    fn test_from_anyhow_unknown() {
+        assert!(matches!(
+            ErrorCause::from(anyhow::anyhow!("just some error")),
+            ErrorCause::Other(_)
+        ));
+    }
+
+    #[test]
+    fn test_bn_metadata_rate_limited() {
+        // ic-boundary reports these with a suffix (e.g. `rate_limited_normal`),
+        // all of which are ours-to-report as a boundary node rate limit.
+        for cause in ["rate_limited", "rate_limited_normal", "rate_limited_foo"] {
+            let mut hm = HeaderMap::new();
+            hm.insert(X_IC_ERROR_CAUSE, HeaderValue::from_static("placeholder"));
+            hm.insert(X_IC_ERROR_CAUSE, HeaderValue::from_str(cause).unwrap());
+            let meta = BNResponseMetadata::from(&mut hm);
+
+            assert_eq!(
+                Option::<ErrorCause>::from(&meta),
+                Some(ErrorCause::RateLimited(RateLimitCause::BoundaryNode)),
+                "cause {cause}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_bn_metadata_canister_id_from_context() {
+        let canister_id = ic_bn_lib::principal!("s6hwe-laaaa-aaaab-qaeba-cai");
+
+        let context = RefCell::new(ErrorContext {
+            canister_id: Some(canister_id),
+            ..Default::default()
+        });
+
+        // The canister id isn't in the BN headers - it's taken from the request
+        // context so the error page can name it.
+        let error = ERROR_CONTEXT
+            .scope(context, async {
+                let mut hm = HeaderMap::new();
+                hm.insert(X_IC_ERROR_CAUSE, hval!(CANISTER_ROUTE_NOT_FOUND));
+                let meta = BNResponseMetadata::from(&mut hm);
+                Option::<ErrorCause>::from(&meta)
+            })
+            .await;
+
+        assert_eq!(
+            error,
+            Some(ErrorCause::Canister(CanisterError::RouteNotFound(Some(
+                canister_id
+            ))))
+        );
+    }
+
+    #[test]
+    fn test_bn_metadata_non_success_status_with_no_cause() {
+        // A failing status without an error cause header isn't ours to interpret
+        let mut hm = HeaderMap::new();
+        let mut meta = BNResponseMetadata::from(&mut hm);
+        meta.status = Some(StatusCode::BAD_GATEWAY);
+
+        assert_eq!(Option::<ErrorCause>::from(&meta), None);
+    }
+
+    #[test]
+    fn test_error_cause_to_client_facing() {
+        // `NoRoutingTable` is internal - the client just sees a generic 500
+        let e = ErrorClientFacing::from(&ErrorCause::NoRoutingTable);
+        assert_eq!(e.to_string(), "internal_server_error");
+        assert_eq!(e.data().status_code, StatusCode::INTERNAL_SERVER_ERROR);
+
+        // The rate limit cause isn't leaked either
+        let e = ErrorClientFacing::from(&ErrorCause::RateLimited(RateLimitCause::BoundaryNode));
+        assert_eq!(e.to_string(), "rate_limited");
+    }
+
+    #[tokio::test]
+    async fn test_rate_limit_cause_into_response() {
+        let resp = ERROR_CONTEXT
+            .scope(RefCell::default(), async {
+                RateLimitCause::Normal.into_response()
+            })
+            .await;
+
+        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(resp.headers().get(X_IC_ERROR_CAUSE).unwrap(), "rate_limited");
+    }
+
+    #[tokio::test]
+    async fn test_error_cause_attached_to_response() {
+        // Metrics & logging read the cause back off the response extensions
+        let mut resp = ERROR_CONTEXT
+            .scope(RefCell::default(), async {
+                ErrorCause::Canister(CanisterError::Frozen).into_response()
+            })
+            .await;
+
+        assert_eq!(
+            resp.extensions_mut().remove::<ErrorCause>(),
+            Some(ErrorCause::Canister(CanisterError::Frozen))
+        );
+    }
+
+    /// Non-HTTP request types (i.e. the IC API) always get JSON, never a page.
+    #[tokio::test]
+    async fn test_api_requests_get_json() {
+        let context = RefCell::new(ErrorContext {
+            is_browser: true,
+            request_type: RequestType::Api(ic_bn_lib::RequestType::QueryV2),
+            authority: Some(fqdn!("icp-api.io")),
+            ..Default::default()
+        });
+
+        let resp = ERROR_CONTEXT
+            .scope(context, async {
+                ErrorCause::SubnetUnavailable.into_response()
+            })
+            .await;
+
+        assert_eq!(resp.headers().get(CONTENT_TYPE).unwrap(), CONTENT_TYPE_JSON);
+    }
 }

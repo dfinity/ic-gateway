@@ -1028,4 +1028,201 @@ mod test {
         assert!(CustomDomainHttpProvider::from_str("http://foo/bar|blah").is_err());
         assert!(CustomDomainHttpProvider::from_str("|||foo/bar|blah").is_err());
     }
+
+    /// Custom domains can be marked critical for the gateway's health, so the
+    /// health signal has to be exact: healthy only once *every* provider has
+    /// delivered at least one set of domains.
+    #[tokio::test]
+    async fn test_custom_domain_storage_health() {
+        let good = Arc::new(TestCustomDomainProvider(vec![CustomDomain {
+            name: fqdn!("foo.bar"),
+            canister_id: principal!(TEST_CANISTER_ID),
+            timestamp: 1,
+            priority: 0,
+            flags: None,
+        }]));
+
+        // With no providers at all there's nothing to wait for
+        let storage = CustomDomainStorage::new(
+            vec![],
+            &Registry::new_custom(Some("health_none".into()), None).unwrap(),
+        );
+        assert!(storage.healthy());
+
+        // One broken provider keeps us unhealthy no matter how many times we try
+        let storage = CustomDomainStorage::new(
+            vec![good.clone(), Arc::new(TestCustomDomainProviderBroken)],
+            &Registry::new_custom(Some("health_partial".into()), None).unwrap(),
+        );
+        assert!(!storage.healthy());
+        storage.refresh().await;
+        assert!(!storage.healthy());
+        storage.refresh().await;
+        assert!(!storage.healthy());
+
+        // All providers working
+        let storage = CustomDomainStorage::new(
+            vec![good],
+            &Registry::new_custom(Some("health_ok".into()), None).unwrap(),
+        );
+        assert!(!storage.healthy());
+        storage.refresh().await;
+        assert!(storage.healthy());
+    }
+
+    /// Before the first refresh nothing resolves - the gateway must not report
+    /// "unknown domain" as "found with no canister".
+    #[tokio::test]
+    async fn test_custom_domain_storage_before_refresh() {
+        let storage = CustomDomainStorage::new(
+            vec![Arc::new(TestCustomDomainProvider(vec![CustomDomain {
+                name: fqdn!("foo.bar"),
+                canister_id: principal!(TEST_CANISTER_ID),
+                timestamp: 1,
+                priority: 0,
+                flags: None,
+            }]))],
+            &Registry::new_custom(Some("before_refresh".into()), None).unwrap(),
+        );
+
+        assert_eq!(storage.resolve(&fqdn!("foo.bar")), None);
+        assert_eq!(storage.lookup_custom_domain(&fqdn!("foo.bar")), None);
+
+        storage.refresh().await;
+
+        assert!(storage.resolve(&fqdn!("foo.bar")).is_some());
+        assert_eq!(
+            storage.lookup_custom_domain(&fqdn!("foo.bar")),
+            Some(principal!(TEST_CANISTER_ID))
+        );
+        // Still nothing for a domain we don't serve
+        assert_eq!(storage.lookup_custom_domain(&fqdn!("nope.bar")), None);
+    }
+
+    /// `run` is what the task manager calls, and it must not fail the task on a
+    /// provider error - the retry happens on the next interval.
+    #[tokio::test]
+    async fn test_custom_domain_storage_run() {
+        let storage = CustomDomainStorage::new(
+            vec![Arc::new(TestCustomDomainProviderBroken)],
+            &Registry::new_custom(Some("run_broken".into()), None).unwrap(),
+        );
+
+        assert!(storage.run(CancellationToken::new()).await.is_ok());
+        assert_eq!(storage.metric_failures.get(), 1);
+    }
+
+    /// A refresh that yields the same set must be a no-op, so the lookup tree
+    /// isn't needlessly rebuilt on every poll.
+    #[tokio::test]
+    async fn test_custom_domain_storage_unchanged_refresh() {
+        let storage = CustomDomainStorage::new(
+            vec![Arc::new(TestCustomDomainProvider(vec![CustomDomain {
+                name: fqdn!("foo.bar"),
+                canister_id: principal!(TEST_CANISTER_ID),
+                timestamp: 1,
+                priority: 0,
+                flags: None,
+            }]))],
+            &Registry::new_custom(Some("unchanged".into()), None).unwrap(),
+        );
+
+        storage.refresh().await;
+        let first = storage.inner.load_full().unwrap();
+
+        storage.refresh().await;
+        let second = storage.inner.load_full().unwrap();
+
+        assert!(
+            Arc::ptr_eq(&first, &second),
+            "lookup tree was rebuilt despite no change"
+        );
+        assert_eq!(storage.metric_count.get(), 1);
+    }
+
+    /// Providers are ordered, and a later one replacing an earlier one's entry
+    /// must respect priority & timestamp the same way duplicates within one
+    /// provider do.
+    #[tokio::test]
+    async fn test_custom_domain_storage_across_providers() {
+        let low = CustomDomain {
+            name: fqdn!("foo.bar"),
+            canister_id: principal!(TEST_CANISTER_ID),
+            timestamp: 100,
+            priority: 0,
+            flags: None,
+        };
+        let high = CustomDomain {
+            name: fqdn!("foo.bar"),
+            canister_id: principal!(TEST_CANISTER_ID_3),
+            timestamp: 1,
+            priority: 5,
+            flags: None,
+        };
+
+        // Higher priority wins regardless of which provider it came from
+        for (a, b) in [(low.clone(), high.clone()), (high, low)] {
+            let storage = CustomDomainStorage::new(
+                vec![
+                    Arc::new(TestCustomDomainProvider(vec![a])),
+                    Arc::new(TestCustomDomainProvider(vec![b])),
+                ],
+                &Registry::new(),
+            );
+            storage.refresh().await;
+
+            assert_eq!(
+                storage.lookup_custom_domain(&fqdn!("foo.bar")),
+                Some(principal!(TEST_CANISTER_ID_3))
+            );
+            assert_eq!(storage.metric_dupes.get(), 1);
+        }
+    }
+
+    /// A provider that goes from returning domains to erroring keeps serving the
+    /// last known set.
+    #[tokio::test]
+    async fn test_custom_domain_storage_keeps_snapshot_on_failure() {
+        /// Succeeds once, then fails
+        #[derive(Debug, Default)]
+        struct FlakyProvider(std::sync::atomic::AtomicUsize);
+
+        #[async_trait]
+        impl ProvidesCustomDomains for FlakyProvider {
+            async fn get_custom_domains(&self) -> Result<Vec<CustomDomain>, Error> {
+                if self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                    return Ok(vec![CustomDomain {
+                        name: fqdn!("foo.bar"),
+                        canister_id: principal!(TEST_CANISTER_ID),
+                        timestamp: 1,
+                        priority: 0,
+                        flags: None,
+                    }]);
+                }
+
+                Err(anyhow!("I'm dead now"))
+            }
+        }
+
+        let storage = CustomDomainStorage::new(
+            vec![Arc::new(FlakyProvider::default())],
+            &Registry::new_custom(Some("flaky".into()), None).unwrap(),
+        );
+
+        storage.refresh().await;
+        assert_eq!(
+            storage.lookup_custom_domain(&fqdn!("foo.bar")),
+            Some(principal!(TEST_CANISTER_ID))
+        );
+        assert!(storage.healthy());
+
+        storage.refresh().await;
+        assert_eq!(
+            storage.lookup_custom_domain(&fqdn!("foo.bar")),
+            Some(principal!(TEST_CANISTER_ID))
+        );
+        // Once a provider has delivered, a later failure doesn't flip us unhealthy
+        assert!(storage.healthy());
+        assert_eq!(storage.metric_failures.get(), 1);
+    }
 }

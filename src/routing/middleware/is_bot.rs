@@ -87,3 +87,51 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod middleware_test {
+    use axum::{Router, body::Body, middleware::from_fn_with_state, response::Response};
+    use http::HeaderValue;
+    use tower::ServiceExt;
+
+    use super::*;
+
+    const UA_BOT: &str = "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; ClaudeBot/1.0; +claudebot@anthropic.com)";
+    const UA_BROWSER: &str = "Mozilla/5.0 (Android 15; Mobile; SM-G556B/DS; rv:130.0) Gecko/130.0 Firefox/130.0";
+
+    async fn is_bot_for(ua: Option<&[u8]>) -> bool {
+        let router = Router::new()
+            .fallback(|request: Request| async move {
+                let is_bot = request.extensions().get::<IsBot>().cloned();
+                let mut resp = Response::new(Body::empty());
+                resp.extensions_mut().insert(is_bot);
+                resp
+            })
+            .layer(from_fn_with_state(Arc::new(IsBotState::default()), middleware));
+
+        let mut req = Request::new(Body::empty());
+        if let Some(v) = ua {
+            req.headers_mut()
+                .insert(USER_AGENT, HeaderValue::from_bytes(v).unwrap());
+        }
+
+        let mut resp = router.oneshot(req).await.unwrap();
+        // The extension is always inserted, so downstream (prerender) can rely on it
+        resp.extensions_mut()
+            .remove::<Option<IsBot>>()
+            .unwrap()
+            .expect("IsBot extension was not inserted")
+            .0
+    }
+
+    #[tokio::test]
+    async fn test_middleware() {
+        assert!(is_bot_for(Some(UA_BOT.as_bytes())).await);
+        assert!(!is_bot_for(Some(UA_BROWSER.as_bytes())).await);
+
+        // A missing or unreadable User-Agent is not a bot
+        assert!(!is_bot_for(None).await);
+        assert!(!is_bot_for(Some(b"")).await);
+        assert!(!is_bot_for(Some(&[0xff, 0xfe])).await);
+    }
+}

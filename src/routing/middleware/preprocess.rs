@@ -98,4 +98,128 @@ mod test {
             "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.7444.172 Mobile Safari/537.36"
         ));
     }
+
+    /// The middleware sets up the task-local the error pages are rendered from,
+    /// and tags the request/response with the derived request type.
+    #[tokio::test]
+    async fn test_middleware() {
+        use axum::{Router, body::Body, middleware::from_fn_with_state, response::Response};
+        use fqdn::fqdn;
+        use http::{HeaderValue, StatusCode};
+        use tower::ServiceExt;
+
+        const UA_BROWSER: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36";
+
+        async fn run(state: PreprocessState, ua: Option<&str>, path: &str) -> Response {
+            let router = Router::new()
+                .route(
+                    "/health",
+                    axum::routing::get(|request: Request| async move {
+                        // Report what the middleware set up
+                        let ctx = ERROR_CONTEXT.with(|x| x.borrow().clone());
+                        let rt = request.extensions().get::<RequestType>().copied();
+                        let mut resp = Response::new(Body::empty());
+                        resp.extensions_mut().insert(ctx);
+                        resp.extensions_mut().insert(("req", rt));
+                        resp
+                    }),
+                )
+                .fallback(|request: Request| async move {
+                    let ctx = ERROR_CONTEXT.with(|x| x.borrow().clone());
+                    let rt = request.extensions().get::<RequestType>().copied();
+                    let mut resp = Response::new(Body::empty());
+                    resp.extensions_mut().insert(ctx);
+                    resp.extensions_mut().insert(("req", rt));
+                    resp
+                })
+                .layer(from_fn_with_state(Arc::new(state), middleware));
+
+            let mut req = Request::builder()
+                .uri(path)
+                .body(Body::empty())
+                .unwrap();
+            if let Some(v) = ua {
+                req.headers_mut()
+                    .insert(USER_AGENT, HeaderValue::from_str(v).unwrap());
+            }
+
+            router.oneshot(req).await.unwrap()
+        }
+
+        // A matched path drives the request type, and it's mirrored onto the
+        // response for the metrics layer.
+        let mut resp = run(PreprocessState::new(None, false), None, "/health").await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            resp.extensions_mut().remove::<(&str, Option<RequestType>)>(),
+            Some(("req", Some(RequestType::Health)))
+        );
+        let ctx = resp.extensions_mut().remove::<ErrorContext>().unwrap();
+        assert_eq!(ctx.request_type, RequestType::Health);
+        assert!(!ctx.is_browser);
+        assert_eq!(
+            resp.extensions_mut().remove::<RequestType>(),
+            Some(RequestType::Health)
+        );
+
+        // No matched path (the gateway's own fallback) means a plain HTTP request
+        let mut resp = run(PreprocessState::new(None, false), None, "/index.html").await;
+        let ctx = resp.extensions_mut().remove::<ErrorContext>().unwrap();
+        assert_eq!(ctx.request_type, RequestType::Http);
+
+        // A browser User-Agent flips `is_browser`, which is what selects the
+        // HTML error pages.
+        let mut resp = run(PreprocessState::new(None, false), Some(UA_BROWSER), "/").await;
+        let ctx = resp.extensions_mut().remove::<ErrorContext>().unwrap();
+        assert!(ctx.is_browser);
+
+        let mut resp = run(PreprocessState::new(None, false), Some("curl/8.7.1"), "/").await;
+        let ctx = resp.extensions_mut().remove::<ErrorContext>().unwrap();
+        assert!(!ctx.is_browser);
+
+        // Config is threaded through to the context
+        let mut resp = run(
+            PreprocessState::new(Some(fqdn!("caffeine.ai")), true),
+            Some(UA_BROWSER),
+            "/",
+        )
+        .await;
+        let ctx = resp.extensions_mut().remove::<ErrorContext>().unwrap();
+        assert!(ctx.disable_html_error_messages);
+        assert_eq!(ctx.alternate_error_domain, Some(fqdn!("caffeine.ai")));
+
+        // These are filled in later, by `validate`
+        assert_eq!(ctx.authority, None);
+        assert_eq!(ctx.canister_id, None);
+    }
+
+    /// A non-UTF8 User-Agent must not be treated as a browser (nor panic).
+    #[tokio::test]
+    async fn test_middleware_bad_user_agent() {
+        use axum::{Router, body::Body, middleware::from_fn_with_state, response::Response};
+        use http::HeaderValue;
+        use tower::ServiceExt;
+
+        let router = Router::new()
+            .fallback(|| async {
+                let ctx = ERROR_CONTEXT.with(|x| x.borrow().clone());
+                let mut resp = Response::new(Body::empty());
+                resp.extensions_mut().insert(ctx);
+                resp
+            })
+            .layer(from_fn_with_state(
+                Arc::new(PreprocessState::new(None, false)),
+                middleware,
+            ));
+
+        let mut req = Request::builder().uri("/").body(Body::empty()).unwrap();
+        req.headers_mut().insert(
+            USER_AGENT,
+            HeaderValue::from_bytes(&[0xff, 0xfe, 0xfd]).unwrap(),
+        );
+
+        let mut resp = router.oneshot(req).await.unwrap();
+        let ctx = resp.extensions_mut().remove::<ErrorContext>().unwrap();
+        assert!(!ctx.is_browser);
+    }
 }

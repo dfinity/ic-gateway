@@ -143,8 +143,16 @@ fn canister_id_from_referer_query_params(url: &Url) -> Option<Principal> {
 
 #[cfg(test)]
 mod test {
-    use axum::body::Body;
-    use ic_bn_lib::principal;
+    use axum::{Router, body::Body, middleware::from_fn_with_state, response::Response};
+    use fqdn::{Fqdn, fqdn};
+    use http::{HeaderValue, StatusCode, header::HOST};
+    use ic_bn_lib::{
+        custom_domains::flags::{DomainFlags, FLAG_PRERENDER},
+        principal,
+    };
+    use tower::ServiceExt;
+
+    use crate::routing::domain::{Domain, DomainLookup};
 
     use super::*;
 
@@ -237,5 +245,354 @@ mod test {
         // no canister id
         let uri = Url::parse("http://foo.bar/?foo=bar").unwrap();
         assert_eq!(canister_id_from_referer_query_params(&uri), None);
+    }
+
+    /// Resolver that returns a canned lookup for one host and nothing for others
+    #[derive(Debug, Clone)]
+    struct TestResolver(Option<DomainLookup>);
+
+    impl ResolvesDomain for TestResolver {
+        fn resolve(&self, host: &Fqdn) -> Option<DomainLookup> {
+            self.0
+                .clone()
+                .filter(|_| host == &fqdn!("known.example.com"))
+        }
+    }
+
+    fn lookup(canister_id: Option<Principal>, flags: Option<DomainFlags>) -> DomainLookup {
+        DomainLookup {
+            domain: Domain {
+                name: fqdn!("known.example.com"),
+                custom: false,
+                http: true,
+                api: true,
+            },
+            canister_id,
+            timestamp: 0,
+            verify: true,
+            priority: 0,
+            flags,
+        }
+    }
+
+    /// What the inner handler saw, plus the response the chain produced
+    #[derive(Debug)]
+    struct Seen {
+        canister_id: Option<CanisterId>,
+        ctx: Option<Arc<RequestCtx>>,
+        flags: Option<DomainFlags>,
+        response: Response,
+    }
+
+    async fn run(state: ValidateState, request: Request<Body>) -> Result<Seen, ErrorCause> {
+        // The middleware's error is converted into a response by axum, so capture
+        // the `ErrorCause` from the response extensions to assert on it directly.
+        let router = Router::new()
+            .fallback(|request: Request| async move {
+                let mut resp = Response::new(Body::empty());
+                // Echo what the middleware injected back out via extensions
+                if let Some(v) = request.extensions().get::<CanisterId>().copied() {
+                    resp.extensions_mut().insert(("seen_canister_id", v));
+                }
+                if let Some(v) = request.extensions().get::<Arc<RequestCtx>>().cloned() {
+                    resp.extensions_mut().insert(("seen_ctx", v));
+                }
+                if let Some(v) = request.extensions().get::<DomainFlags>().copied() {
+                    resp.extensions_mut().insert(("seen_flags", v));
+                }
+                resp
+            })
+            .layer(from_fn_with_state(state, middleware));
+
+        let mut response = router.oneshot(request).await.unwrap();
+
+        if let Some(e) = response.extensions_mut().remove::<ErrorCause>() {
+            return Err(e);
+        }
+
+        Ok(Seen {
+            canister_id: response
+                .extensions_mut()
+                .remove::<(&str, CanisterId)>()
+                .map(|x| x.1),
+            ctx: response
+                .extensions_mut()
+                .remove::<(&str, Arc<RequestCtx>)>()
+                .map(|x| x.1),
+            flags: response
+                .extensions_mut()
+                .remove::<(&str, DomainFlags)>()
+                .map(|x| x.1),
+            response,
+        })
+    }
+
+    fn request(host: &str, path_and_query: &str) -> Request<Body> {
+        Request::builder()
+            .uri(format!("http://{host}{path_and_query}"))
+            .header(HOST, host)
+            .body(Body::empty())
+            .unwrap()
+    }
+
+    fn state(canister_id: Option<Principal>) -> ValidateState {
+        ValidateState::new(
+            Arc::new(TestResolver(Some(lookup(canister_id, None)))),
+            false,
+            false,
+        )
+    }
+
+    #[tokio::test]
+    async fn test_middleware_no_authority() {
+        // No Host header and no authority in the URI
+        let req = Request::builder().uri("/foo").body(Body::empty()).unwrap();
+
+        let err = run(state(None), req).await.unwrap_err();
+        assert_eq!(err, ErrorCause::Client(ClientError::NoAuthority));
+    }
+
+    #[tokio::test]
+    async fn test_middleware_bad_authority() {
+        // An authority that isn't a valid FQDN is the same as none
+        let req = Request::builder()
+            .uri("/foo")
+            .header(HOST, HeaderValue::from_static("...."))
+            .body(Body::empty())
+            .unwrap();
+
+        let err = run(state(None), req).await.unwrap_err();
+        assert_eq!(err, ErrorCause::Client(ClientError::NoAuthority));
+    }
+
+    #[tokio::test]
+    async fn test_middleware_unknown_domain() {
+        let err = run(state(None), request("unknown.example.com", "/"))
+            .await
+            .unwrap_err();
+
+        assert_eq!(
+            err,
+            ErrorCause::Client(ClientError::UnknownDomain(fqdn!("unknown.example.com")))
+        );
+    }
+
+    #[tokio::test]
+    async fn test_middleware_injects_context() {
+        let canister_id = principal!("s6hwe-laaaa-aaaab-qaeba-cai");
+        let seen = run(
+            state(Some(canister_id)),
+            request("known.example.com", "/index.html"),
+        )
+        .await
+        .unwrap();
+
+        // Canister id & context reach the inner handler...
+        assert_eq!(seen.canister_id, Some(CanisterId(canister_id)));
+        let ctx = seen.ctx.unwrap();
+        assert_eq!(ctx.authority, fqdn!("known.example.com"));
+        assert_eq!(ctx.domain.name, fqdn!("known.example.com"));
+        assert!(ctx.verify);
+        assert_eq!(ctx.request_type, RequestType::Unknown);
+
+        // ...and are also re-attached to the response for the outer middleware
+        // (metrics/headers) to pick up.
+        let mut response = seen.response;
+        assert_eq!(
+            response.extensions_mut().remove::<CanisterId>(),
+            Some(CanisterId(canister_id))
+        );
+        assert!(response.extensions_mut().remove::<Arc<RequestCtx>>().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_middleware_no_canister_id() {
+        let seen = run(state(None), request("known.example.com", "/"))
+            .await
+            .unwrap();
+
+        assert_eq!(seen.canister_id, None);
+        // Context is still injected even without a canister id
+        let mut response = seen.response;
+        assert!(response.extensions_mut().remove::<Arc<RequestCtx>>().is_some());
+        assert_eq!(response.extensions_mut().remove::<CanisterId>(), None);
+    }
+
+    #[tokio::test]
+    async fn test_middleware_request_type_preserved() {
+        // `preprocess` runs before us and puts the request type in the extensions
+        let mut req = request("known.example.com", "/");
+        req.extensions_mut().insert(RequestType::Health);
+
+        let seen = run(state(None), req).await.unwrap();
+        assert_eq!(seen.ctx.unwrap().request_type, RequestType::Health);
+    }
+
+    #[tokio::test]
+    async fn test_middleware_flags_injected() {
+        let flags = DomainFlags::new([FLAG_PRERENDER]);
+        let st = ValidateState::new(Arc::new(TestResolver(Some(lookup(None, Some(flags))))), false, false);
+
+        let seen = run(st, request("known.example.com", "/")).await.unwrap();
+        assert_eq!(seen.flags, Some(flags));
+    }
+
+    #[tokio::test]
+    async fn test_middleware_canister_id_from_query_params() {
+        let canister_id = principal!("s6hwe-laaaa-aaaab-qaeba-cai");
+
+        // Disabled -> query param is ignored
+        let seen = run(
+            state(None),
+            request("known.example.com", &format!("/?canisterId={canister_id}")),
+        )
+        .await
+        .unwrap();
+        assert_eq!(seen.canister_id, None);
+
+        // Enabled -> picked up
+        let st = ValidateState::new(Arc::new(TestResolver(Some(lookup(None, None)))), true, false);
+        let seen = run(
+            st.clone(),
+            request("known.example.com", &format!("/?canisterId={canister_id}")),
+        )
+        .await
+        .unwrap();
+        assert_eq!(seen.canister_id, Some(CanisterId(canister_id)));
+
+        // A malformed one is a hard error rather than a silent fallthrough
+        let err = run(st, request("known.example.com", "/?canisterId=nope"))
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, ErrorCause::Canister(CanisterError::IdIncorrect(_))),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_middleware_domain_canister_id_wins_over_query_params() {
+        // The domain already resolved a canister id, so the client-supplied
+        // query param must not be able to override it.
+        let from_domain = principal!("s6hwe-laaaa-aaaab-qaeba-cai");
+        let st = ValidateState::new(
+            Arc::new(TestResolver(Some(lookup(Some(from_domain), None)))),
+            true,
+            true,
+        );
+
+        let mut req = request("known.example.com", "/?canisterId=aaaaa-aa");
+        req.headers_mut()
+            .insert(REFERER, HeaderValue::from_static("http://aaaaa-aa.foo.bar/"));
+
+        let seen = run(st, req).await.unwrap();
+        assert_eq!(seen.canister_id, Some(CanisterId(from_domain)));
+    }
+
+    #[tokio::test]
+    async fn test_middleware_canister_id_from_referer() {
+        let canister_id = principal!("s6hwe-laaaa-aaaab-qaeba-cai");
+        let st = ValidateState::new(Arc::new(TestResolver(Some(lookup(None, None)))), false, true);
+
+        // From the referer host
+        let mut req = request("known.example.com", "/");
+        req.headers_mut().insert(
+            REFERER,
+            HeaderValue::from_str(&format!("http://{canister_id}.example.com/app")).unwrap(),
+        );
+        let seen = run(st.clone(), req).await.unwrap();
+        assert_eq!(seen.canister_id, Some(CanisterId(canister_id)));
+
+        // Falling back to the referer query params
+        let mut req = request("known.example.com", "/");
+        req.headers_mut().insert(
+            REFERER,
+            HeaderValue::from_str(&format!("http://example.com/app?canisterId={canister_id}"))
+                .unwrap(),
+        );
+        let seen = run(st.clone(), req).await.unwrap();
+        assert_eq!(seen.canister_id, Some(CanisterId(canister_id)));
+
+        // A garbage referer resolves to nothing, and (unlike the query param path)
+        // is not an error
+        for referer in ["not-a-url", "http://example.com/app?canisterId=nope"] {
+            let mut req = request("known.example.com", "/");
+            req.headers_mut()
+                .insert(REFERER, HeaderValue::from_str(referer).unwrap());
+            let seen = run(st.clone(), req).await.unwrap();
+            assert_eq!(seen.canister_id, None, "referer {referer}");
+        }
+
+        // Disabled -> ignored
+        let mut req = request("known.example.com", "/");
+        req.headers_mut().insert(
+            REFERER,
+            HeaderValue::from_str(&format!("http://{canister_id}.example.com/app")).unwrap(),
+        );
+        let seen = run(state(None), req).await.unwrap();
+        assert_eq!(seen.canister_id, None);
+    }
+
+    #[tokio::test]
+    async fn test_middleware_error_context_populated() {
+        // The error pages need the authority & canister id to render, and they're
+        // read from the task-local set up by `preprocess`.
+        let canister_id = principal!("s6hwe-laaaa-aaaab-qaeba-cai");
+
+        let ctx = ERROR_CONTEXT
+            .scope(std::cell::RefCell::default(), async {
+                let _ = run(
+                    state(Some(canister_id)),
+                    request("known.example.com", "/"),
+                )
+                .await;
+
+                ERROR_CONTEXT.with(|x| x.borrow().clone())
+            })
+            .await;
+
+        assert_eq!(ctx.authority, Some(fqdn!("known.example.com")));
+        assert_eq!(ctx.canister_id, Some(canister_id));
+    }
+
+    #[tokio::test]
+    async fn test_middleware_error_context_authority_on_unknown_domain() {
+        // The authority must be recorded even when the domain lookup fails, since
+        // the alternate-error-domain check depends on it.
+        let ctx = ERROR_CONTEXT
+            .scope(std::cell::RefCell::default(), async {
+                let _ = run(state(None), request("unknown.example.com", "/")).await;
+                ERROR_CONTEXT.with(|x| x.borrow().clone())
+            })
+            .await;
+
+        assert_eq!(ctx.authority, Some(fqdn!("unknown.example.com")));
+        assert_eq!(ctx.canister_id, None);
+    }
+
+    #[tokio::test]
+    async fn test_middleware_verify_flag_propagated() {
+        // `verify: false` (a "raw" domain) must reach the handler so that response
+        // verification is skipped there.
+        let mut lookup = lookup(None, None);
+        lookup.verify = false;
+        let st = ValidateState::new(Arc::new(TestResolver(Some(lookup))), false, false);
+
+        let seen = run(st, request("known.example.com", "/")).await.unwrap();
+        assert!(!seen.ctx.unwrap().verify);
+    }
+
+    #[tokio::test]
+    async fn test_middleware_error_status_codes() {
+        // Sanity-check what the client actually gets
+        let router = Router::new()
+            .fallback(|| async { StatusCode::OK })
+            .layer(from_fn_with_state(state(None), middleware));
+
+        let resp = router
+            .oneshot(request("unknown.example.com", "/"))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 }
