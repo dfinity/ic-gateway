@@ -264,4 +264,165 @@ mod tests {
 
         Ok(())
     }
+
+    /// A denylist that was never loaded must not block anything
+    #[test]
+    fn test_not_loaded_blocks_nothing() {
+        let client = Arc::new(TestClient(reqwest::Client::new())) as Arc<dyn Client>;
+        let denylist = Denylist::new(None, AHashSet::new(), client);
+
+        assert!(!denylist.is_blocked(principal!("aaaaa-aa"), None));
+        assert!(!denylist.is_blocked(
+            principal!("aaaaa-aa"),
+            Some(CountryCode("CH".try_into().unwrap()))
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_update_without_url() {
+        let client = Arc::new(TestClient(reqwest::Client::new())) as Arc<dyn Client>;
+        let denylist = Denylist::new(None, AHashSet::new(), client);
+
+        assert!(denylist.update().await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_update_non_200() {
+        use httptest::{Expectation, Server, matchers::*, responders::*};
+
+        let server = Server::run();
+        server.expect(
+            Expectation::matching(request::method_path("GET", "/denylist.json"))
+                .respond_with(status_code(500)),
+        );
+
+        let client = Arc::new(TestClient(reqwest::Client::new())) as Arc<dyn Client>;
+        let denylist = Denylist::new(
+            Some(Url::parse(&server.url_str("/denylist.json")).unwrap()),
+            AHashSet::new(),
+            client,
+        );
+
+        let err = denylist.update().await.unwrap_err();
+        assert!(err.to_string().contains("500"), "{err:#}");
+    }
+
+    /// A failed update must leave the previously loaded list in place rather than
+    /// clearing it - otherwise a transient fetch error unblocks everything.
+    #[tokio::test]
+    async fn test_failed_update_keeps_old_list() {
+        use httptest::{Expectation, Server, matchers::*, responders::*};
+
+        let server = Server::run();
+        server.expect(
+            Expectation::matching(request::method_path("GET", "/denylist.json"))
+                .times(1..)
+                .respond_with(status_code(500)),
+        );
+
+        let client = Arc::new(TestClient(reqwest::Client::new())) as Arc<dyn Client>;
+        let denylist = Denylist::new(
+            Some(Url::parse(&server.url_str("/denylist.json")).unwrap()),
+            AHashSet::new(),
+            client,
+        );
+
+        denylist
+            .load_json(br#"{"canisters": {"aaaaa-aa": {"localities": []}}}"#)
+            .unwrap();
+        assert!(denylist.is_blocked(principal!("aaaaa-aa"), None));
+
+        assert!(denylist.update().await.is_err());
+        assert!(denylist.is_blocked(principal!("aaaaa-aa"), None));
+    }
+
+    #[test]
+    fn test_load_json() {
+        let client = Arc::new(TestClient(reqwest::Client::new())) as Arc<dyn Client>;
+        let denylist = Denylist::new(None, AHashSet::new(), client);
+
+        // `localities` is optional and an absent one means "everywhere"
+        assert_eq!(
+            denylist
+                .load_json(br#"{"canisters": {"aaaaa-aa": {}, "s6hwe-laaaa-aaaab-qaeba-cai": {"localities": ["CH"]}}}"#)
+                .unwrap(),
+            2
+        );
+        assert!(denylist.is_blocked(principal!("aaaaa-aa"), None));
+
+        // Unknown top-level fields are tolerated (the real list has $schema/version)
+        assert_eq!(
+            denylist
+                .load_json(br#"{"$schema": "x", "version": "1", "canisters": {}}"#)
+                .unwrap(),
+            0
+        );
+        // ...and reloading replaces the list rather than merging into it
+        assert!(!denylist.is_blocked(principal!("aaaaa-aa"), None));
+
+        // Broken input is rejected
+        for data in [
+            &b"not json"[..],
+            // Missing the required `canisters` key
+            br#"{"version": "1"}"#,
+            // Bad principal
+            br#"{"canisters": {"nope": {}}}"#,
+            // Wrong shape
+            br#"{"canisters": {"aaaaa-aa": {"localities": "CH"}}}"#,
+        ] {
+            assert!(denylist.load_json(data).is_err(), "data {data:?}");
+        }
+    }
+
+    #[test]
+    fn test_init_with_seed_and_allowlist() {
+        use std::io::Write;
+
+        let client = Arc::new(TestClient(reqwest::Client::new())) as Arc<dyn Client>;
+
+        let mut seed = tempfile::NamedTempFile::new().unwrap();
+        seed.write_all(
+            br#"{"canisters": {"aaaaa-aa": {"localities": []}, "s6hwe-laaaa-aaaab-qaeba-cai": {"localities": []}}}"#,
+        )
+        .unwrap();
+        seed.flush().unwrap();
+
+        let mut allow = tempfile::NamedTempFile::new().unwrap();
+        allow.write_all(b"s6hwe-laaaa-aaaab-qaeba-cai\n").unwrap();
+        allow.flush().unwrap();
+
+        let denylist = Denylist::init(
+            None,
+            Some(allow.path().to_path_buf()),
+            Some(seed.path().to_path_buf()),
+            client.clone(),
+        )
+        .unwrap();
+
+        assert!(denylist.is_blocked(principal!("aaaaa-aa"), None));
+        // The allowlist wins over the seed
+        assert!(!denylist.is_blocked(principal!("s6hwe-laaaa-aaaab-qaeba-cai"), None));
+
+        // A broken seed or allowlist is a hard startup failure, not a silent
+        // "block nothing".
+        let mut bad = tempfile::NamedTempFile::new().unwrap();
+        bad.write_all(b"not json").unwrap();
+        bad.flush().unwrap();
+
+        assert!(
+            Denylist::init(None, None, Some(bad.path().to_path_buf()), client.clone()).is_err()
+        );
+        assert!(
+            Denylist::init(None, Some(bad.path().to_path_buf()), None, client.clone()).is_err()
+        );
+        assert!(
+            Denylist::init(
+                None,
+                None,
+                Some(PathBuf::from("/nonexistent/seed.json")),
+                client
+            )
+            .is_err()
+        );
+    }
 }

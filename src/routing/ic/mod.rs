@@ -156,3 +156,86 @@ pub async fn setup(
 
     Ok(client)
 }
+
+#[cfg(test)]
+mod test {
+    use http::HeaderValue;
+    use ic_bn_lib::{hval, http::headers::X_IC_CANISTER_ID};
+
+    use super::*;
+
+    #[test]
+    fn test_bn_response_metadata_default() {
+        let m = BNResponseMetadata::default();
+
+        assert_eq!(m.node_id, "");
+        assert_eq!(m.subnet_id, "");
+        assert_eq!(m.subnet_type, "");
+        assert_eq!(m.canister_id_cbor, "");
+        assert_eq!(m.sender, "");
+        assert_eq!(m.method_name, "");
+        assert_eq!(m.error_cause, "");
+        assert_eq!(m.retries, "");
+        assert_eq!(m.cache_status, "");
+        assert_eq!(m.cache_bypass_reason, "");
+        assert_eq!(m.status, None);
+    }
+
+    /// The extraction must also *remove* the headers, since these are internal
+    /// and must not be forwarded to the client.
+    #[test]
+    fn test_bn_response_metadata_extract_and_remove() {
+        let mut hm = HeaderMap::new();
+        hm.insert(X_IC_NODE_ID, hval!("node"));
+        hm.insert(X_IC_SUBNET_ID, hval!("subnet"));
+        hm.insert(X_IC_SUBNET_TYPE, hval!("system"));
+        hm.insert(X_IC_CANISTER_ID_CBOR, hval!("cbor"));
+        hm.insert(X_IC_SENDER, hval!("sender"));
+        hm.insert(X_IC_METHOD_NAME, hval!("method"));
+        hm.insert(X_IC_ERROR_CAUSE, hval!("cause"));
+        hm.insert(X_IC_RETRIES, hval!("3"));
+        hm.insert(X_IC_CACHE_STATUS, hval!("hit"));
+        hm.insert(X_IC_CACHE_BYPASS_REASON, hval!("none"));
+        // Headers that aren't ours to consume
+        hm.insert(X_IC_CANISTER_ID, hval!("aaaaa-aa"));
+
+        let m = BNResponseMetadata::from(&mut hm);
+
+        assert_eq!(m.node_id, "node");
+        assert_eq!(m.subnet_id, "subnet");
+        assert_eq!(m.subnet_type, "system");
+        assert_eq!(m.canister_id_cbor, "cbor");
+        assert_eq!(m.sender, "sender");
+        assert_eq!(m.method_name, "method");
+        assert_eq!(m.error_cause, "cause");
+        assert_eq!(m.retries, "3");
+        assert_eq!(m.cache_status, "hit");
+        assert_eq!(m.cache_bypass_reason, "none");
+        // Status is not carried in a header - the caller fills it in
+        assert_eq!(m.status, None);
+
+        // Everything consumed is gone, everything else stays
+        assert_eq!(hm.len(), 1);
+        assert_eq!(hm.get(X_IC_CANISTER_ID).unwrap(), "aaaaa-aa");
+    }
+
+    /// Non-UTF8 header values can't be represented, so they read as empty rather
+    /// than panicking - but they must still be removed.
+    #[test]
+    fn test_bn_response_metadata_non_utf8() {
+        let mut hm = HeaderMap::new();
+        hm.insert(
+            X_IC_ERROR_CAUSE,
+            HeaderValue::from_bytes(&[0xff, 0xfe]).unwrap(),
+        );
+
+        let m = BNResponseMetadata::from(&mut hm);
+        assert_eq!(m.error_cause, "");
+        assert!(hm.is_empty());
+    }
+
+    #[test]
+    fn test_bn_request_metadata_default() {
+        assert_eq!(BNRequestMetadata::default().upstream, None);
+    }
+}

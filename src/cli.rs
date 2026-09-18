@@ -3,7 +3,7 @@
 
 use std::{net::SocketAddr, path::PathBuf, time::Duration};
 
-use clap::{Args, Parser};
+use clap::{Args, Parser, builder::RangedU64ValueParser};
 use fqdn::FQDN;
 use http::{HeaderValue, Uri};
 use humantime::parse_duration;
@@ -217,7 +217,7 @@ pub struct Ic {
 
     /// Maximum number of request retries for connection failures and HTTP code 429.
     /// First attempt is not counted.
-    #[clap(env, long, default_value = "4")]
+    #[clap(env, long, default_value = "4", value_parser = RangedU64ValueParser::<usize>::new().range(1..))]
     pub ic_request_retries: usize,
 
     /// How long to wait between retries.

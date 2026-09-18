@@ -1125,4 +1125,222 @@ mod test {
                 .contains("POST")
         );
     }
+
+    /// Reads the `error_type` out of a JSON error reply.
+    ///
+    /// Note the `x-ic-error-cause` header can't be used here: `headers::middleware`
+    /// strips it on the way out, together with the `ic-boundary` service headers.
+    async fn error_type(resp: axum::response::Response) -> String {
+        let body = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        json["error_type"].as_str().unwrap().to_string()
+    }
+
+    /// Builds a request the common middleware chain will accept
+    fn plain_request(method: Method, host: &str, path_and_query: &str) -> Request {
+        let mut req = Request::new(Body::empty());
+        *req.method_mut() = method;
+        *req.uri_mut() = Uri::try_from(format!("http://{host}{path_and_query}")).unwrap();
+        let conn_info = Arc::new(ConnInfo {
+            remote_addr: Addr::Tcp(SocketAddr::from_str("127.0.0.1:12345").unwrap()),
+            ..Default::default()
+        });
+        req.extensions_mut().insert(conn_info);
+        req
+    }
+
+    /// The `/` of a base domain (and of a bare `raw.` subdomain) redirects to the
+    /// dashboard, but only when no canister was resolved.
+    #[tokio::test]
+    async fn test_router_dashboard_redirect() {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
+        let mut tasks = TaskManager::new();
+        let (mut router, _) = setup_test_router(&mut tasks).await;
+
+        for host in ["ic0.app", "raw.ic0.app"] {
+            let resp = router
+                .call(plain_request(Method::GET, host, "/"))
+                .await
+                .unwrap();
+
+            assert_eq!(resp.status(), StatusCode::TEMPORARY_REDIRECT, "host {host}");
+            assert_eq!(
+                resp.headers().get(http::header::LOCATION).unwrap(),
+                "https://dashboard.internetcomputer.org/",
+                "host {host}",
+            );
+        }
+
+        // Any other path on the base domain goes to the HTTP->IC handler, which
+        // has no canister id to work with.
+        let resp = router
+            .call(plain_request(Method::GET, "ic0.app", "/index.html"))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(error_type(resp).await, "canister_id_not_resolved");
+
+        // With a canister id resolved, `/` is served by the handler instead of
+        // being redirected away.
+        let resp = router
+            .call(plain_request(Method::GET, "aaaaa-aa.ic0.app", "/"))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    /// `/health` on the base domain must work without a token - agent-rs uses it
+    /// to bootstrap dynamic routing.
+    #[tokio::test]
+    async fn test_router_health_bootstrap() {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
+        let mut tasks = TaskManager::new();
+        let (mut router, domains) = setup_test_router(&mut tasks).await;
+
+        let resp = router
+            .call(plain_request(Method::GET, "ic0.app", "/health"))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+        // Not on a custom domain though - that's the canister's own path
+        let resp = router
+            .call(plain_request(Method::GET, &domains[0], "/health"))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    /// An unknown host is rejected before reaching any handler.
+    #[tokio::test]
+    async fn test_router_unknown_domain() {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
+        let mut tasks = TaskManager::new();
+        let (mut router, _) = setup_test_router(&mut tasks).await;
+
+        let resp = router
+            .call(plain_request(Method::GET, "not-served.example.com", "/"))
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(error_type(resp).await, "client_unknown_domain");
+    }
+
+    /// When an API hostname is configured, requests to it are served by the
+    /// management API rather than the gateway.
+    #[tokio::test]
+    async fn test_router_api_hostname() {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
+        let mut tasks = TaskManager::new();
+        let (mut router, _) = crate::test::setup_test_router_with_http_client(
+            &mut tasks,
+            Arc::new(crate::test::TestClient(512)),
+            &["--api-hostname", "admin.ic0.app", "--api-token", "deadbeef"],
+        )
+        .await;
+
+        // Unauthenticated privileged endpoint
+        let resp = router
+            .call(plain_request(Method::GET, "admin.ic0.app", "/shutdown"))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+        // Health is open
+        let resp = router
+            .call(plain_request(Method::GET, "admin.ic0.app", "/health"))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+        // The same path on a non-API host is not the API
+        let resp = router
+            .call(plain_request(Method::GET, "ic0.app", "/shutdown"))
+            .await
+            .unwrap();
+        assert_ne!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    /// The `/api/v*` routers only expose the documented endpoints.
+    #[tokio::test]
+    async fn test_router_api_paths() {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
+        let mut tasks = TaskManager::new();
+        let (mut router, _) = setup_test_router(&mut tasks).await;
+
+        // An unknown endpoint under a known API version is a 404, not a
+        // fallthrough to the HTTP->IC handler.
+        for path in ["/api/v2/nope", "/api/v3/nope", "/api/v4/nope"] {
+            let resp = router
+                .call(plain_request(Method::POST, "ic0.app", path))
+                .await
+                .unwrap();
+            assert_eq!(resp.status(), StatusCode::NOT_FOUND, "path {path}");
+        }
+
+        // A bad principal is rejected before any upstream call
+        let resp = router
+            .call(plain_request(
+                Method::POST,
+                "ic0.app",
+                "/api/v2/canister/not-a-principal/query",
+            ))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(error_type(resp).await, "client_incorrect_principal");
+
+        // GET on a POST-only endpoint
+        let resp = router
+            .call(plain_request(
+                Method::GET,
+                "ic0.app",
+                "/api/v2/canister/aaaaa-aa/call",
+            ))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
+    }
+
+    /// The service headers that `ic-boundary` sets must never reach the client,
+    /// on any route.
+    #[tokio::test]
+    async fn test_router_strips_service_headers() {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
+        let mut tasks = TaskManager::new();
+        let (mut router, domains) = setup_test_router(&mut tasks).await;
+
+        let resp = router
+            .call(plain_request(Method::GET, &domains[0], "/"))
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        for h in [
+            "x-ic-node-id",
+            "x-ic-subnet-id",
+            "x-ic-subnet-type",
+            "x-ic-canister-id-cbor",
+            "x-ic-sender",
+            "x-ic-method-name",
+            "x-ic-error-cause",
+            "x-ic-retries",
+            "x-ic-cache-status",
+            "x-ic-cache-bypass-reason",
+            "x-ic-country-code",
+        ] {
+            assert!(!resp.headers().contains_key(h), "header {h} leaked");
+        }
+
+        // ...but HSTS and the resolved canister id are present
+        assert!(resp.headers().contains_key("strict-transport-security"));
+        assert_eq!(resp.headers().get("x-ic-canister-id").unwrap(), "aaaaa-aa");
+    }
 }
