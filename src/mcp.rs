@@ -152,6 +152,7 @@ pub fn setup_mcp(
         clients: SharedClients::load(&state_dir),
         state_dir,
         require_resource: true,
+        cimd_enabled: true,
     };
 
     let mcp = McpServer::new(config);
