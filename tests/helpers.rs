@@ -345,6 +345,7 @@ pub fn start_ic_gateway(
     cmd.arg("--log-stdout");
     cmd.arg("--log-level");
     cmd.arg("info");
+    cmd.arg("--dns-dnssec-disabled");
 
     let child = cmd.spawn().expect("failed to start ic-gateway service");
     info!("ic-gateway service started");
