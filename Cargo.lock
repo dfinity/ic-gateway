@@ -2921,9 +2921,9 @@ dependencies = [
 
 [[package]]
 name = "ic-bn-lib"
-version = "0.9.0"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "28846ee2f665e8cb50bc5dd95ba098f01e20ffd4f9dc31622378cab3f5e286af"
+checksum = "a70460b6d906131de763da7365ab331ee7dee4cd1e58ca9f91215f6822c0062e"
 dependencies = [
  "ahash",
  "anyhow",
@@ -2957,6 +2957,7 @@ dependencies = [
  "hyper-util",
  "ic-agent",
  "ic-custom-domains-canister-api",
+ "ic-smtp-gateway-protocol",
  "ic-transport-types 0.49.2",
  "indoc",
  "instant-acme",
@@ -3396,6 +3397,17 @@ dependencies = [
  "sha2 0.10.9",
  "thiserror 1.0.69",
  "urlencoding",
+]
+
+[[package]]
+name = "ic-smtp-gateway-protocol"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a57ce2ae38cc11b8f4319af37f5a63d083135b87bb4d3053db85aa5b6d7b0d72"
+dependencies = [
+ "candid",
+ "serde",
+ "sha2 0.11.1",
 ]
 
 [[package]]
