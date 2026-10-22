@@ -20,6 +20,7 @@ use ic_bn_lib::{
         redirect_to_https,
         server::{ServerOptions, metrics::Metrics},
     },
+    ic_agent::identity::Secp256k1Identity,
     tasks::TaskManager,
     tls::{ProvidesCertificates, prepare_client_config, verify::NoopServerCertVerifier},
     vector::{self, VectorOptions, client::Vector},
@@ -155,7 +156,7 @@ pub async fn main(
     // - Hyper client needs resolver
     // - Resolver needs Agent
     // - Agent needs Hyper client
-    let ic_agent_resolver = create_agent(cli, http_service, route_provider.clone()).await?;
+    let ic_agent_resolver = create_agent(cli, http_service, route_provider.clone(), None).await?;
     let api_bn_resolver = ApiBnResolver::new(dns_resolver.clone(), ic_agent_resolver);
 
     // Least-load Hyper-based HTTP Client
@@ -278,8 +279,8 @@ pub async fn main(
         )) as Arc<dyn ProvidesCustomDomains>);
     }
 
-    // Create IC Agent for use by RoutingTableManager / SMTP / MCP
-    let ic_agent = create_agent(cli, http_service_ll, route_provider.clone())
+    // Create IC Agent for use by RoutingTableManager / MCP
+    let ic_agent = create_agent(cli, http_service_ll.clone(), route_provider.clone(), None)
         .await
         .context("unable to create agent for subnets info fetcher")?;
 
@@ -398,6 +399,29 @@ pub async fn main(
     // Setup SMTP server
     #[cfg(feature = "smtp")]
     let vector_smtp = if cli.smtp_server.smtp_server_listen.is_some() {
+        let identity = if let Some(v) = &cli.smtp_server.smtp_server_ic_identity {
+            let key = tokio::fs::read(v)
+                .await
+                .context("unable to read SMTP IC identity from file")?;
+
+            Some(
+                Secp256k1Identity::from_pem(key.as_slice())
+                    .context("failed to create IC identity")?,
+            )
+        } else {
+            None
+        };
+
+        // Create IC Agent for use by the SMTP server
+        let ic_agent = create_agent(
+            cli,
+            http_service_ll.clone(),
+            route_provider.clone(),
+            identity,
+        )
+        .await
+        .context("unable to create an IC Agent for SMTP")?;
+
         crate::smtp::setup_smtp_server(
             cli,
             rustls_cfg.map(Arc::new),

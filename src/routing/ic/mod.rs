@@ -24,6 +24,7 @@ use ic_bn_lib::{
     ic_agent::{
         Agent,
         agent::{HttpService, route_provider::RouteProvider},
+        identity::Secp256k1Identity,
     },
 };
 use ic_http_gateway_protocol::{
@@ -109,17 +110,22 @@ pub async fn create_agent(
     cli: &Cli,
     http_service: Arc<dyn HttpService>,
     route_provider: Arc<dyn RouteProvider>,
+    identity: Option<Secp256k1Identity>,
 ) -> Result<Agent, Error> {
-    let agent = Agent::builder()
+    let mut builder = Agent::builder()
         .with_arc_http_middleware(http_service)
         // Just some very large number
         .with_max_concurrent_requests(200_000_000)
         .with_max_response_body_size(cli.ic.ic_response_max_size)
         .with_max_tcp_error_retries(cli.ic.ic_request_retries)
         .with_arc_route_provider(route_provider)
-        .with_verify_query_signatures(cli.ic.ic_enable_replica_signed_queries)
-        .build()
-        .context("unable to build Agent")?;
+        .with_verify_query_signatures(cli.ic.ic_enable_replica_signed_queries);
+
+    if let Some(identity) = identity {
+        builder = builder.with_identity(identity);
+    }
+
+    let agent = builder.build().context("unable to build Agent")?;
 
     if let Some(v) = &cli.ic.ic_root_key {
         let key = tokio::fs::read(v)
@@ -147,7 +153,7 @@ pub async fn setup(
         cli.ic.ic_request_retry_interval,
     ));
 
-    let agent = create_agent(cli, http_service, route_provider).await?;
+    let agent = create_agent(cli, http_service, route_provider, None).await?;
 
     let client = HttpGatewayClientBuilder::new()
         .with_agent(agent)
@@ -160,7 +166,7 @@ pub async fn setup(
 #[cfg(test)]
 mod test {
     use http::HeaderValue;
-    use ic_bn_lib::{hval, http::headers::X_IC_CANISTER_ID};
+    use ic_bn_lib::{http::headers::X_IC_CANISTER_ID, hval};
 
     use super::*;
 
