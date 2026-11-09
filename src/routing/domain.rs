@@ -169,31 +169,29 @@ impl std::fmt::Debug for CustomDomainStorage {
 impl CustomDomainStorage {
     pub fn new(providers: Vec<Arc<dyn ProvidesCustomDomains>>, registry: &Registry) -> Self {
         let metric_count = register_int_gauge_with_registry!(
-            format!("custom_domains_count"),
-            format!("Number of custom domains loaded"),
+            "custom_domains_count",
+            "Number of custom domains loaded",
             registry
         )
         .unwrap();
 
         let metric_dupes = register_int_gauge_with_registry!(
-            format!("custom_domains_dupes"),
-            format!("Number of duplicates among custom domains"),
+            "custom_domains_dupes",
+            "Number of duplicates among custom domains",
             registry
         )
         .unwrap();
 
         let metric_dupes_overridden = register_int_gauge_with_registry!(
-            format!("custom_domains_dupes_overridden"),
-            format!(
-                "Number of duplicates among custom domains that were overridden (higher prio/ts)"
-            ),
+            "custom_domains_dupes_overridden",
+            "Number of duplicates among custom domains that were overridden (higher prio/ts)",
             registry
         )
         .unwrap();
 
         let metric_failures = register_int_counter_with_registry!(
-            format!("custom_domains_failures_total"),
-            format!("Total number of fetch failures"),
+            "custom_domains_failures_total",
+            "Total number of fetch failures",
             registry
         )
         .unwrap();

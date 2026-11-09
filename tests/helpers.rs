@@ -1,3 +1,6 @@
+// False positive on `#[derive(new)]` (derive-new) since clippy 1.99
+#![allow(clippy::redundant_field_names)]
+
 use std::{
     collections::HashMap,
     env,

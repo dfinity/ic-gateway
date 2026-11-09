@@ -53,15 +53,15 @@ impl MetricsRunner {
         route_provider: Arc<dyn RouteProvider>,
     ) -> Self {
         let mem_allocated = register_int_gauge_with_registry!(
-            format!("memory_allocated"),
-            format!("Allocated memory in bytes"),
+            "memory_allocated",
+            "Allocated memory in bytes",
             registry
         )
         .unwrap();
 
         let mem_resident = register_int_gauge_with_registry!(
-            format!("memory_resident"),
-            format!("Resident memory in bytes"),
+            "memory_resident",
+            "Resident memory in bytes",
             registry
         )
         .unwrap();

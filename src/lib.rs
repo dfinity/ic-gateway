@@ -2,6 +2,8 @@
 #![warn(clippy::nursery)]
 #![allow(clippy::too_many_lines)]
 #![allow(clippy::type_complexity)]
+// False positive on `#[derive(new)]` (derive-new) since clippy 1.99
+#![allow(clippy::redundant_field_names)]
 // Needed for certain macros
 #![recursion_limit = "256"]
 
