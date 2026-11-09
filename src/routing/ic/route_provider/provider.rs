@@ -32,8 +32,8 @@ impl Metrics {
     pub fn new(registry: &Registry) -> Self {
         Self {
             nodes_picked: register_int_counter_vec_with_registry!(
-                format!("route_provider_nodes_picked"),
-                format!("Counts the number of times each node was picked as a route"),
+                "route_provider_nodes_picked",
+                "Counts the number of times each node was picked as a route",
                 &["node"],
                 registry
             )

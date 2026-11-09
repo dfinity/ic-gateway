@@ -40,23 +40,23 @@ impl Metrics {
     pub fn new(registry: &Registry) -> Self {
         Self {
             nodes: register_int_gauge_with_registry!(
-                format!("route_provider_fetcher_nodes"),
-                format!("How many nodes were fetched"),
+                "route_provider_fetcher_nodes",
+                "How many nodes were fetched",
                 registry
             )
             .unwrap(),
 
             fetches: register_int_counter_vec_with_registry!(
-                format!("route_provider_fetcher_count"),
-                format!("Counts number of fetches and their outcome"),
+                "route_provider_fetcher_count",
+                "Counts number of fetches and their outcome",
                 &["success"],
                 registry
             )
             .unwrap(),
 
             duration: register_histogram_vec_with_registry!(
-                format!("route_provider_fetcher_duration"),
-                format!("Records the duration of node fetching in seconds"),
+                "route_provider_fetcher_duration",
+                "Records the duration of node fetching in seconds",
                 &["success"],
                 HTTP_DURATION_BUCKETS.to_vec(),
                 registry

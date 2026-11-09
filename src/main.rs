@@ -8,6 +8,8 @@
 #![allow(clippy::type_complexity)]
 #![allow(clippy::doc_markdown)]
 #![allow(clippy::similar_names)]
+// False positive on `#[derive(new)]` (derive-new) since clippy 1.99
+#![allow(clippy::redundant_field_names)]
 // Needed for certain macros
 #![recursion_limit = "256"]
 

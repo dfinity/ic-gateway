@@ -50,46 +50,46 @@ impl Metrics {
     pub fn new(registry: &Registry) -> Self {
         Self {
             nodes: register_int_gauge_with_registry!(
-                format!("route_provider_health_nodes"),
-                format!("How many nodes are there"),
+                "route_provider_health_nodes",
+                "How many nodes are there",
                 registry
             )
             .unwrap(),
 
             healthy_nodes: register_int_gauge_with_registry!(
-                format!("route_provider_health_healthy_nodes"),
-                format!("How many healthy nodes are there"),
+                "route_provider_health_healthy_nodes",
+                "How many healthy nodes are there",
                 registry
             )
             .unwrap(),
 
             node_states: register_int_gauge_vec_with_registry!(
-                format!("route_provider_health_node_states"),
-                format!("Per-node health states (1 - healthy, 0 - not)"),
+                "route_provider_health_node_states",
+                "Per-node health states (1 - healthy, 0 - not)",
                 &["node"],
                 registry
             )
             .unwrap(),
 
             node_latencies: register_int_gauge_vec_with_registry!(
-                format!("route_provider_health_node_latencies"),
-                format!("Per-node latencies in msec"),
+                "route_provider_health_node_latencies",
+                "Per-node latencies in msec",
                 &["node"],
                 registry
             )
             .unwrap(),
 
             checks: register_int_counter_vec_with_registry!(
-                format!("route_provider_health_checks"),
-                format!("Counts number of health checks per node and their outcome"),
+                "route_provider_health_checks",
+                "Counts number of health checks per node and their outcome",
                 &["node", "success"],
                 registry
             )
             .unwrap(),
 
             check_duration: register_histogram_vec_with_registry!(
-                format!("route_provider_health_check_duration"),
-                format!("Records the duration of node health checks in seconds"),
+                "route_provider_health_check_duration",
+                "Records the duration of node health checks in seconds",
                 &["node", "success"],
                 HTTP_DURATION_BUCKETS.to_vec(),
                 registry

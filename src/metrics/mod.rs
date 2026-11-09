@@ -109,16 +109,16 @@ impl HttpMetrics {
             vector,
 
             requests: register_int_counter_vec_with_registry!(
-                format!("http_total"),
-                format!("Counts occurrences of requests"),
+                "http_total",
+                "Counts occurrences of requests",
                 LABELS_HTTP,
                 registry
             )
             .unwrap(),
 
             duration: register_histogram_vec_with_registry!(
-                format!("http_duration_sec"),
-                format!("Records the duration of request processing in seconds"),
+                "http_duration_sec",
+                "Records the duration of request processing in seconds",
                 LABELS_HTTP,
                 HTTP_DURATION_BUCKETS.to_vec(),
                 registry
@@ -126,8 +126,8 @@ impl HttpMetrics {
             .unwrap(),
 
             duration_full: register_histogram_vec_with_registry!(
-                format!("http_duration_full_sec"),
-                format!("Records the full duration of request processing including response streaming in seconds"),
+                "http_duration_full_sec",
+                "Records the full duration of request processing including response streaming in seconds",
                 LABELS_HTTP,
                 HTTP_DURATION_BUCKETS.to_vec(),
                 registry
@@ -135,8 +135,8 @@ impl HttpMetrics {
             .unwrap(),
 
             request_size: register_histogram_vec_with_registry!(
-                format!("http_request_size"),
-                format!("Records the size of requests"),
+                "http_request_size",
+                "Records the size of requests",
                 LABELS_HTTP,
                 HTTP_REQUEST_SIZE_BUCKETS.to_vec(),
                 registry
@@ -144,8 +144,8 @@ impl HttpMetrics {
             .unwrap(),
 
             response_size: register_histogram_vec_with_registry!(
-                format!("http_response_size"),
-                format!("Records the size of responses"),
+                "http_response_size",
+                "Records the size of responses",
                 LABELS_HTTP,
                 HTTP_RESPONSE_SIZE_BUCKETS.to_vec(),
                 registry

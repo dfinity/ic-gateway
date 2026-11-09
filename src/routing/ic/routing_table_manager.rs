@@ -46,22 +46,22 @@ impl Metrics {
     pub fn new(registry: &Registry) -> Self {
         Self {
             subnets: register_int_gauge_with_registry!(
-                format!("routing_table_manager_subnets"),
-                format!("How many subnets are there"),
+                "routing_table_manager_subnets",
+                "How many subnets are there",
                 registry
             )
             .unwrap(),
 
             ranges: register_int_gauge_with_registry!(
-                format!("routing_table_manager_ranges"),
-                format!("How many canister ranges are there"),
+                "routing_table_manager_ranges",
+                "How many canister ranges are there",
                 registry
             )
             .unwrap(),
 
             data_fetches: register_int_counter_vec_with_registry!(
-                format!("routing_table_manager_data_fetches"),
-                format!("Counts number of per-subnet data fetches"),
+                "routing_table_manager_data_fetches",
+                "Counts number of per-subnet data fetches",
                 &["subnet_id", "success"],
                 registry
             )

@@ -27,8 +27,8 @@ impl MetricParams {
     pub fn new(registry: &Registry) -> Self {
         Self {
             updates: register_int_counter_vec_with_registry!(
-                format!("denylist_updates"),
-                format!("Counts denylist updates and results"),
+                "denylist_updates",
+                "Counts denylist updates and results",
                 &["result"],
                 registry
             )

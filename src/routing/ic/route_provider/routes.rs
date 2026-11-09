@@ -23,8 +23,8 @@ impl Metrics {
     pub fn new(registry: &Registry) -> Self {
         Self {
             active_nodes: register_int_gauge_with_registry!(
-                format!("route_provider_active_nodes"),
-                format!("How many nodes are in the active list"),
+                "route_provider_active_nodes",
+                "How many nodes are in the active list",
                 registry
             )
             .unwrap(),
