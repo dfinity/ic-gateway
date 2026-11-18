@@ -580,7 +580,10 @@ impl IntoResponse for ErrorClientFacing {
             .try_with(|x| x.borrow().clone())
             .unwrap_or_default();
 
-        let error_data = self.data();
+        let mut error_data = self.data();
+        // Lets the appeal form identify the domain & canister, also when it sits behind a custom domain
+        error_data.appeal_domain = ctx.authority.clone();
+        error_data.appeal_canister_id = ctx.canister_id;
 
         // Return an HTML error page if it was an HTTP request and it was sent from a browser.
         let (body, content_type) = if ctx.request_type == RequestType::Http
@@ -642,6 +645,8 @@ struct ErrorData {
     retry_message: Option<String>,
     canister_id: Option<Principal>,
     appeal_section: bool,
+    appeal_domain: Option<FQDN>,
+    appeal_canister_id: Option<Principal>,
     icon: String,
 }
 
@@ -656,6 +661,8 @@ impl Default for ErrorData {
             retry_message: None,
             canister_id: None,
             appeal_section: false,
+            appeal_domain: None,
+            appeal_canister_id: None,
             icon: GENERAL_ERROR_SVG.into(),
         }
     }
@@ -684,16 +691,35 @@ impl ErrorData {
                 .replace("{{RETRY_LOGIC}}", "");
         }
 
+        // Sections fill in their placeholders before going into the page, as some share names
         if let Some(canister_id) = &self.canister_id {
-            tpl = tpl
-                .replace("{{CANISTER_SECTION}}", CANISTER_SECTION_TEMPLATE)
-                .replace("{{CANISTER_ID}}", canister_id.to_string().as_str());
+            tpl = tpl.replace(
+                "{{CANISTER_SECTION}}",
+                &CANISTER_SECTION_TEMPLATE.replace("{{CANISTER_ID}}", &canister_id.to_string()),
+            );
         } else {
             tpl = tpl.replace("{{CANISTER_SECTION}}", "");
         }
 
         if self.appeal_section {
-            tpl = tpl.replace("{{APPEAL_SECTION}}", APPEAL_SECTION);
+            // The values go into JSON inside a single-quoted HTML attribute. They need no escaping:
+            // an FQDN only has [a-z0-9-_#.] and a principal only has [a-z2-7-].
+            let domain = self
+                .appeal_domain
+                .as_ref()
+                .map(|x| x.to_string())
+                .unwrap_or_default();
+            let canister_id = self
+                .appeal_canister_id
+                .map(|x| x.to_string())
+                .unwrap_or_default();
+
+            tpl = tpl.replace(
+                "{{APPEAL_SECTION}}",
+                &APPEAL_SECTION
+                    .replace("{{DOMAIN}}", &domain)
+                    .replace("{{CANISTER_ID}}", &canister_id),
+            );
         } else {
             tpl = tpl.replace("{{APPEAL_SECTION}}", "");
         }
@@ -1089,11 +1115,55 @@ mod test {
         assert!(html.contains("unknown"));
 
         // Appeal section: denylisting only
+        let appeal_form = "https://forms.kebabstack.com/embed.js";
         let html = ErrorClientFacing::Denylisted.data().html();
-        assert!(html.contains(APPEAL_SECTION));
+        assert!(html.contains(appeal_form));
+        // Nothing known about the request -> empty values
+        assert!(html.contains(r#"data-context='{"domain":"","canister_id":""}'"#));
 
         let html = ErrorClientFacing::Forbidden.data().html();
-        assert!(!html.contains(APPEAL_SECTION));
+        assert!(!html.contains(appeal_form));
+    }
+
+    /// The appeal form gets the domain & canister id from the request context, so that
+    /// appeals coming through a custom domain can be attributed to a canister.
+    #[tokio::test]
+    async fn test_appeal_section_context() {
+        let canister_id = ic_bn_lib::principal!("s6hwe-laaaa-aaaab-qaeba-cai");
+
+        let context = RefCell::new(ErrorContext {
+            is_browser: true,
+            request_type: RequestType::Http,
+            authority: Some(fqdn!("foo.bar")),
+            canister_id: Some(canister_id),
+            ..Default::default()
+        });
+
+        ERROR_CONTEXT
+            .scope(context, async {
+                let resp = ErrorClientFacing::Denylisted.into_response();
+                assert_eq!(resp.status(), StatusCode::UNAVAILABLE_FOR_LEGAL_REASONS);
+                let body = resp.into_body().collect().await.unwrap().to_bytes();
+                let html = String::from_utf8(body.to_vec()).unwrap();
+
+                let context = html
+                    .split("data-context='")
+                    .nth(1)
+                    .and_then(|x| x.split('\'').next())
+                    .unwrap();
+                let context: serde_json::Value = serde_json::from_str(context).unwrap();
+                assert_eq!(
+                    context,
+                    serde_json::json!({
+                        "domain": "foo.bar",
+                        "canister_id": canister_id.to_string(),
+                    })
+                );
+
+                // It doesn't add the canister section to the page
+                assert!(!html.contains(r#"class="canister-error-section""#));
+            })
+            .await;
     }
 
     /// `description_html` wins over `description` when rendering a page, but the
