@@ -391,6 +391,7 @@ impl ErrorClientFacing {
                     </a>.
                 "#).trim().into()),
                 canister_id: Some(*canister_id),
+                canister_section: true,
                 ..Default::default()
             },
             Self::Client(ClientError::IncorrectPrincipal) => ErrorData {
@@ -453,6 +454,7 @@ impl ErrorClientFacing {
                     title: "Canister Not Found".into(),
                     description: format!("The requested canister ({canister_id}) does not exist or is no longer available on the Internet Computer."),
                     canister_id: *v,
+                    canister_section: true,
                     icon: CANISTER_ERROR_SVG.into(),
                     ..Default::default()
                 }
@@ -581,9 +583,10 @@ impl IntoResponse for ErrorClientFacing {
             .unwrap_or_default();
 
         let mut error_data = self.data();
-        // Lets the appeal form identify the domain & canister, also when it sits behind a custom domain
-        error_data.appeal_domain = ctx.authority.clone();
-        error_data.appeal_canister_id = ctx.canister_id;
+        // Not every error carries the canister ID, so fall back to the one from the request.
+        // With the domain, it lets the appeal form identify the canister, also behind a custom domain.
+        error_data.canister_id = error_data.canister_id.or(ctx.canister_id);
+        error_data.appeal_domain.clone_from(&ctx.authority);
 
         // Return an HTML error page if it was an HTTP request and it was sent from a browser.
         let (body, content_type) = if ctx.request_type == RequestType::Http
@@ -643,10 +646,12 @@ struct ErrorData {
     description_html: Option<String>,
     details: Option<String>,
     retry_message: Option<String>,
+    /// The canister the error is about, if known
     canister_id: Option<Principal>,
+    /// Shows a box with the canister ID (needs `canister_id`)
+    canister_section: bool,
     appeal_section: bool,
     appeal_domain: Option<FQDN>,
-    appeal_canister_id: Option<Principal>,
     icon: String,
 }
 
@@ -660,9 +665,9 @@ impl Default for ErrorData {
             details: None,
             retry_message: None,
             canister_id: None,
+            canister_section: false,
             appeal_section: false,
             appeal_domain: None,
-            appeal_canister_id: None,
             icon: GENERAL_ERROR_SVG.into(),
         }
     }
@@ -691,40 +696,32 @@ impl ErrorData {
                 .replace("{{RETRY_LOGIC}}", "");
         }
 
-        // Sections fill in their placeholders before going into the page, as some share names
-        if let Some(canister_id) = &self.canister_id {
-            tpl = tpl.replace(
-                "{{CANISTER_SECTION}}",
-                &CANISTER_SECTION_TEMPLATE.replace("{{CANISTER_ID}}", &canister_id.to_string()),
-            );
+        if self.canister_section && self.canister_id.is_some() {
+            tpl = tpl.replace("{{CANISTER_SECTION}}", CANISTER_SECTION_TEMPLATE);
         } else {
             tpl = tpl.replace("{{CANISTER_SECTION}}", "");
         }
 
         if self.appeal_section {
-            // The values go into JSON inside a single-quoted HTML attribute. They need no escaping:
-            // an FQDN only has [a-z0-9-_#.] and a principal only has [a-z2-7-].
+            // The domain & canister ID go into JSON inside a single-quoted HTML attribute.
+            // They need no escaping: an FQDN only has [a-z0-9-_#.] and a principal only has [a-z2-7-].
             let domain = self
                 .appeal_domain
                 .as_ref()
                 .map(|x| x.to_string())
                 .unwrap_or_default();
-            let canister_id = self
-                .appeal_canister_id
-                .map(|x| x.to_string())
-                .unwrap_or_default();
 
             tpl = tpl.replace(
                 "{{APPEAL_SECTION}}",
-                &APPEAL_SECTION
-                    .replace("{{DOMAIN}}", &domain)
-                    .replace("{{CANISTER_ID}}", &canister_id),
+                &APPEAL_SECTION.replace("{{DOMAIN}}", &domain),
             );
         } else {
             tpl = tpl.replace("{{APPEAL_SECTION}}", "");
         }
 
-        tpl
+        // Used by both the canister & appeal sections
+        let canister_id = self.canister_id.map(|x| x.to_string()).unwrap_or_default();
+        tpl.replace("{{CANISTER_ID}}", &canister_id)
     }
 }
 
@@ -1108,11 +1105,13 @@ mod test {
             .data()
             .html();
         assert!(html.contains(&p.to_string()));
+        assert!(html.contains(r#"class="canister-error-section""#));
 
         let html = ErrorClientFacing::Canister(CanisterError::NotFound(None))
             .data()
             .html();
         assert!(html.contains("unknown"));
+        assert!(!html.contains(r#"class="canister-error-section""#));
 
         // Appeal section: denylisting only
         let appeal_form = "https://forms.kebabstack.com/embed.js";
