@@ -703,8 +703,6 @@ impl ErrorData {
         }
 
         if self.appeal_section {
-            // The domain & canister ID go into JSON inside a single-quoted HTML attribute.
-            // They need no escaping: an FQDN only has [a-z0-9-_#.] and a principal only has [a-z2-7-].
             let domain = self
                 .appeal_domain
                 .as_ref()
@@ -1083,7 +1081,10 @@ mod test {
                 "status code missing from page for {e}"
             );
             if !data.title.is_empty() {
-                assert!(html.contains(&data.title), "title missing from page for {e}");
+                assert!(
+                    html.contains(&data.title),
+                    "title missing from page for {e}"
+                );
             }
         }
     }
@@ -1192,13 +1193,28 @@ mod test {
         let p = ic_bn_lib::principal!("s6hwe-laaaa-aaaab-qaeba-cai");
 
         let cases = [
-            (ErrorClientFacing::SubnetUnavailable, StatusCode::SERVICE_UNAVAILABLE),
-            (ErrorClientFacing::Denylisted, StatusCode::UNAVAILABLE_FOR_LEGAL_REASONS),
+            (
+                ErrorClientFacing::SubnetUnavailable,
+                StatusCode::SERVICE_UNAVAILABLE,
+            ),
+            (
+                ErrorClientFacing::Denylisted,
+                StatusCode::UNAVAILABLE_FOR_LEGAL_REASONS,
+            ),
             (ErrorClientFacing::Forbidden, StatusCode::FORBIDDEN),
             (ErrorClientFacing::LoadShed, StatusCode::TOO_MANY_REQUESTS),
-            (ErrorClientFacing::RateLimited, StatusCode::TOO_MANY_REQUESTS),
-            (ErrorClientFacing::Other("x".into()), StatusCode::INTERNAL_SERVER_ERROR),
-            (ErrorClientFacing::Client(ClientError::SubnetNotFound), StatusCode::BAD_REQUEST),
+            (
+                ErrorClientFacing::RateLimited,
+                StatusCode::TOO_MANY_REQUESTS,
+            ),
+            (
+                ErrorClientFacing::Other("x".into()),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            ),
+            (
+                ErrorClientFacing::Client(ClientError::SubnetNotFound),
+                StatusCode::BAD_REQUEST,
+            ),
             (
                 ErrorClientFacing::Client(ClientError::UnknownDomain(fqdn!("foo.bar"))),
                 StatusCode::BAD_REQUEST,
@@ -1207,20 +1223,35 @@ mod test {
                 ErrorClientFacing::Client(ClientError::DomainCanisterMismatch(p)),
                 StatusCode::BAD_REQUEST,
             ),
-            (ErrorClientFacing::Client(ClientError::IncorrectPrincipal), StatusCode::BAD_REQUEST),
+            (
+                ErrorClientFacing::Client(ClientError::IncorrectPrincipal),
+                StatusCode::BAD_REQUEST,
+            ),
             (
                 ErrorClientFacing::Client(ClientError::MalformedRequest("x".into())),
                 StatusCode::BAD_REQUEST,
             ),
-            (ErrorClientFacing::Client(ClientError::NoAuthority), StatusCode::BAD_REQUEST),
-            (ErrorClientFacing::Client(ClientError::BodyTooLarge), StatusCode::PAYLOAD_TOO_LARGE),
+            (
+                ErrorClientFacing::Client(ClientError::NoAuthority),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                ErrorClientFacing::Client(ClientError::BodyTooLarge),
+                StatusCode::PAYLOAD_TOO_LARGE,
+            ),
             // These never reach the client - 408 is for logging only
-            (ErrorClientFacing::Client(ClientError::BodyTimeout), StatusCode::REQUEST_TIMEOUT),
+            (
+                ErrorClientFacing::Client(ClientError::BodyTimeout),
+                StatusCode::REQUEST_TIMEOUT,
+            ),
             (
                 ErrorClientFacing::Client(ClientError::Body("x".into())),
                 StatusCode::REQUEST_TIMEOUT,
             ),
-            (ErrorClientFacing::Backend(BackendError::Connect), StatusCode::SERVICE_UNAVAILABLE),
+            (
+                ErrorClientFacing::Backend(BackendError::Connect),
+                StatusCode::SERVICE_UNAVAILABLE,
+            ),
             (
                 ErrorClientFacing::Backend(BackendError::ResponseVerification("x".into())),
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -1233,12 +1264,18 @@ mod test {
                 ErrorClientFacing::Canister(CanisterError::RouteNotFound(None)),
                 StatusCode::NOT_FOUND,
             ),
-            (ErrorClientFacing::Canister(CanisterError::Reject), StatusCode::SERVICE_UNAVAILABLE),
+            (
+                ErrorClientFacing::Canister(CanisterError::Reject),
+                StatusCode::SERVICE_UNAVAILABLE,
+            ),
             (
                 ErrorClientFacing::Canister(CanisterError::Error("x".into())),
                 StatusCode::SERVICE_UNAVAILABLE,
             ),
-            (ErrorClientFacing::Canister(CanisterError::Frozen), StatusCode::SERVICE_UNAVAILABLE),
+            (
+                ErrorClientFacing::Canister(CanisterError::Frozen),
+                StatusCode::SERVICE_UNAVAILABLE,
+            ),
             (
                 ErrorClientFacing::Canister(CanisterError::IdNotResolved),
                 StatusCode::BAD_REQUEST,
@@ -1371,7 +1408,10 @@ mod test {
         );
 
         // Payload-free ones have nothing to show
-        assert_eq!(ErrorCause::Client(ClientError::BodyTooLarge).details(), None);
+        assert_eq!(
+            ErrorCause::Client(ClientError::BodyTooLarge).details(),
+            None
+        );
         assert_eq!(ErrorCause::Backend(BackendError::Connect).details(), None);
         assert_eq!(ErrorCause::Canister(CanisterError::Frozen).details(), None);
         assert_eq!(ErrorCause::Denylisted.details(), None);
@@ -1538,7 +1578,10 @@ mod test {
             .await;
 
         assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
-        assert_eq!(resp.headers().get(X_IC_ERROR_CAUSE).unwrap(), "rate_limited");
+        assert_eq!(
+            resp.headers().get(X_IC_ERROR_CAUSE).unwrap(),
+            "rate_limited"
+        );
     }
 
     #[tokio::test]
