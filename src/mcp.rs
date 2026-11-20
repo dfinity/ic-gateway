@@ -80,22 +80,20 @@ impl FromStr for IiType {
     }
 }
 
-struct McpWrapper(McpServer, Option<Deploys>);
+struct McpWrapper(McpServer, Deploys);
 
 #[async_trait]
 impl Run for McpWrapper {
     async fn run(&self, token: CancellationToken) -> Result<(), Error> {
-        // Also starts the deploy sweeper if the deploy tools are enabled
+        // Also starts the deploy sweeper
         self.0.spawn_session_reaper();
         token.cancelled().await;
 
         // Tell the running deploys to stop and give them a (bounded) time to answer
         // with the canisters they've created before the MCP transport is cancelled.
-        if let Some(v) = &self.1 {
-            v.stop();
-            if !v.stopped().await {
-                warn!("MCP: a deploy had not ended when the server stopped waiting for it");
-            }
+        self.1.stop();
+        if !self.1.stopped().await {
+            warn!("MCP: a deploy had not ended when the server stopped waiting for it");
         }
 
         self.0.shutdown();
@@ -170,20 +168,10 @@ pub fn setup_mcp(
 
     // Deploy tools state: needs to be attached before the metrics are created
     // so that the deploy metrics are registered too.
-    let deploys = if cli.mcp_deploy_enable {
-        Some(
-            Deploys::new(&DeployConfig::default(), &config.state_dir)
-                .context("unable to set up MCP deploy state")?,
-        )
-    } else {
-        None
-    };
+    let deploys = Deploys::new(&DeployConfig::default(), &config.state_dir)
+        .context("unable to set up MCP deploy state")?;
 
-    let mcp = McpServer::new(config);
-    let mcp = match &deploys {
-        Some(v) => mcp.with_deploy(v.clone()),
-        None => mcp,
-    };
+    let mcp = McpServer::new(config).with_deploy(deploys.clone());
 
     let metrics = Metrics::new(
         registry,
