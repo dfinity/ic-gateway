@@ -391,6 +391,7 @@ impl ErrorClientFacing {
                     </a>.
                 "#).trim().into()),
                 canister_id: Some(*canister_id),
+                canister_section: true,
                 ..Default::default()
             },
             Self::Client(ClientError::IncorrectPrincipal) => ErrorData {
@@ -453,6 +454,7 @@ impl ErrorClientFacing {
                     title: "Canister Not Found".into(),
                     description: format!("The requested canister ({canister_id}) does not exist or is no longer available on the Internet Computer."),
                     canister_id: *v,
+                    canister_section: true,
                     icon: CANISTER_ERROR_SVG.into(),
                     ..Default::default()
                 }
@@ -580,7 +582,11 @@ impl IntoResponse for ErrorClientFacing {
             .try_with(|x| x.borrow().clone())
             .unwrap_or_default();
 
-        let error_data = self.data();
+        let mut error_data = self.data();
+        // Not every error carries the canister ID, so fall back to the one from the request.
+        // With the domain, it lets the appeal form identify the canister, also behind a custom domain.
+        error_data.canister_id = error_data.canister_id.or(ctx.canister_id);
+        error_data.appeal_domain.clone_from(&ctx.authority);
 
         // Return an HTML error page if it was an HTTP request and it was sent from a browser.
         let (body, content_type) = if ctx.request_type == RequestType::Http
@@ -640,8 +646,12 @@ struct ErrorData {
     description_html: Option<String>,
     details: Option<String>,
     retry_message: Option<String>,
+    /// The canister the error is about, if known
     canister_id: Option<Principal>,
+    /// Shows a box with the canister ID (needs `canister_id`)
+    canister_section: bool,
     appeal_section: bool,
+    appeal_domain: Option<FQDN>,
     icon: String,
 }
 
@@ -655,7 +665,9 @@ impl Default for ErrorData {
             details: None,
             retry_message: None,
             canister_id: None,
+            canister_section: false,
             appeal_section: false,
+            appeal_domain: None,
             icon: GENERAL_ERROR_SVG.into(),
         }
     }
@@ -684,21 +696,30 @@ impl ErrorData {
                 .replace("{{RETRY_LOGIC}}", "");
         }
 
-        if let Some(canister_id) = &self.canister_id {
-            tpl = tpl
-                .replace("{{CANISTER_SECTION}}", CANISTER_SECTION_TEMPLATE)
-                .replace("{{CANISTER_ID}}", canister_id.to_string().as_str());
+        if self.canister_section && self.canister_id.is_some() {
+            tpl = tpl.replace("{{CANISTER_SECTION}}", CANISTER_SECTION_TEMPLATE);
         } else {
             tpl = tpl.replace("{{CANISTER_SECTION}}", "");
         }
 
         if self.appeal_section {
-            tpl = tpl.replace("{{APPEAL_SECTION}}", APPEAL_SECTION);
+            let domain = self
+                .appeal_domain
+                .as_ref()
+                .map(|x| x.to_string())
+                .unwrap_or_default();
+
+            tpl = tpl.replace(
+                "{{APPEAL_SECTION}}",
+                &APPEAL_SECTION.replace("{{DOMAIN}}", &domain),
+            );
         } else {
             tpl = tpl.replace("{{APPEAL_SECTION}}", "");
         }
 
-        tpl
+        // Used by both the canister & appeal sections
+        let canister_id = self.canister_id.map(|x| x.to_string()).unwrap_or_default();
+        tpl.replace("{{CANISTER_ID}}", &canister_id)
     }
 }
 
@@ -1060,7 +1081,10 @@ mod test {
                 "status code missing from page for {e}"
             );
             if !data.title.is_empty() {
-                assert!(html.contains(&data.title), "title missing from page for {e}");
+                assert!(
+                    html.contains(&data.title),
+                    "title missing from page for {e}"
+                );
             }
         }
     }
@@ -1082,18 +1106,64 @@ mod test {
             .data()
             .html();
         assert!(html.contains(&p.to_string()));
+        assert!(html.contains(r#"class="canister-error-section""#));
 
         let html = ErrorClientFacing::Canister(CanisterError::NotFound(None))
             .data()
             .html();
         assert!(html.contains("unknown"));
+        assert!(!html.contains(r#"class="canister-error-section""#));
 
         // Appeal section: denylisting only
+        let appeal_form = "https://forms.kebabstack.com/embed.js";
         let html = ErrorClientFacing::Denylisted.data().html();
-        assert!(html.contains(APPEAL_SECTION));
+        assert!(html.contains(appeal_form));
+        // Nothing known about the request -> empty values
+        assert!(html.contains(r#"data-context='{"domain":"","canister_id":""}'"#));
 
         let html = ErrorClientFacing::Forbidden.data().html();
-        assert!(!html.contains(APPEAL_SECTION));
+        assert!(!html.contains(appeal_form));
+    }
+
+    /// The appeal form gets the domain & canister id from the request context, so that
+    /// appeals coming through a custom domain can be attributed to a canister.
+    #[tokio::test]
+    async fn test_appeal_section_context() {
+        let canister_id = ic_bn_lib::principal!("s6hwe-laaaa-aaaab-qaeba-cai");
+
+        let context = RefCell::new(ErrorContext {
+            is_browser: true,
+            request_type: RequestType::Http,
+            authority: Some(fqdn!("foo.bar")),
+            canister_id: Some(canister_id),
+            ..Default::default()
+        });
+
+        ERROR_CONTEXT
+            .scope(context, async {
+                let resp = ErrorClientFacing::Denylisted.into_response();
+                assert_eq!(resp.status(), StatusCode::UNAVAILABLE_FOR_LEGAL_REASONS);
+                let body = resp.into_body().collect().await.unwrap().to_bytes();
+                let html = String::from_utf8(body.to_vec()).unwrap();
+
+                let context = html
+                    .split("data-context='")
+                    .nth(1)
+                    .and_then(|x| x.split('\'').next())
+                    .unwrap();
+                let context: serde_json::Value = serde_json::from_str(context).unwrap();
+                assert_eq!(
+                    context,
+                    serde_json::json!({
+                        "domain": "foo.bar",
+                        "canister_id": canister_id.to_string(),
+                    })
+                );
+
+                // It doesn't add the canister section to the page
+                assert!(!html.contains(r#"class="canister-error-section""#));
+            })
+            .await;
     }
 
     /// `description_html` wins over `description` when rendering a page, but the
@@ -1123,13 +1193,28 @@ mod test {
         let p = ic_bn_lib::principal!("s6hwe-laaaa-aaaab-qaeba-cai");
 
         let cases = [
-            (ErrorClientFacing::SubnetUnavailable, StatusCode::SERVICE_UNAVAILABLE),
-            (ErrorClientFacing::Denylisted, StatusCode::UNAVAILABLE_FOR_LEGAL_REASONS),
+            (
+                ErrorClientFacing::SubnetUnavailable,
+                StatusCode::SERVICE_UNAVAILABLE,
+            ),
+            (
+                ErrorClientFacing::Denylisted,
+                StatusCode::UNAVAILABLE_FOR_LEGAL_REASONS,
+            ),
             (ErrorClientFacing::Forbidden, StatusCode::FORBIDDEN),
             (ErrorClientFacing::LoadShed, StatusCode::TOO_MANY_REQUESTS),
-            (ErrorClientFacing::RateLimited, StatusCode::TOO_MANY_REQUESTS),
-            (ErrorClientFacing::Other("x".into()), StatusCode::INTERNAL_SERVER_ERROR),
-            (ErrorClientFacing::Client(ClientError::SubnetNotFound), StatusCode::BAD_REQUEST),
+            (
+                ErrorClientFacing::RateLimited,
+                StatusCode::TOO_MANY_REQUESTS,
+            ),
+            (
+                ErrorClientFacing::Other("x".into()),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            ),
+            (
+                ErrorClientFacing::Client(ClientError::SubnetNotFound),
+                StatusCode::BAD_REQUEST,
+            ),
             (
                 ErrorClientFacing::Client(ClientError::UnknownDomain(fqdn!("foo.bar"))),
                 StatusCode::BAD_REQUEST,
@@ -1138,20 +1223,35 @@ mod test {
                 ErrorClientFacing::Client(ClientError::DomainCanisterMismatch(p)),
                 StatusCode::BAD_REQUEST,
             ),
-            (ErrorClientFacing::Client(ClientError::IncorrectPrincipal), StatusCode::BAD_REQUEST),
+            (
+                ErrorClientFacing::Client(ClientError::IncorrectPrincipal),
+                StatusCode::BAD_REQUEST,
+            ),
             (
                 ErrorClientFacing::Client(ClientError::MalformedRequest("x".into())),
                 StatusCode::BAD_REQUEST,
             ),
-            (ErrorClientFacing::Client(ClientError::NoAuthority), StatusCode::BAD_REQUEST),
-            (ErrorClientFacing::Client(ClientError::BodyTooLarge), StatusCode::PAYLOAD_TOO_LARGE),
+            (
+                ErrorClientFacing::Client(ClientError::NoAuthority),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                ErrorClientFacing::Client(ClientError::BodyTooLarge),
+                StatusCode::PAYLOAD_TOO_LARGE,
+            ),
             // These never reach the client - 408 is for logging only
-            (ErrorClientFacing::Client(ClientError::BodyTimeout), StatusCode::REQUEST_TIMEOUT),
+            (
+                ErrorClientFacing::Client(ClientError::BodyTimeout),
+                StatusCode::REQUEST_TIMEOUT,
+            ),
             (
                 ErrorClientFacing::Client(ClientError::Body("x".into())),
                 StatusCode::REQUEST_TIMEOUT,
             ),
-            (ErrorClientFacing::Backend(BackendError::Connect), StatusCode::SERVICE_UNAVAILABLE),
+            (
+                ErrorClientFacing::Backend(BackendError::Connect),
+                StatusCode::SERVICE_UNAVAILABLE,
+            ),
             (
                 ErrorClientFacing::Backend(BackendError::ResponseVerification("x".into())),
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -1164,12 +1264,18 @@ mod test {
                 ErrorClientFacing::Canister(CanisterError::RouteNotFound(None)),
                 StatusCode::NOT_FOUND,
             ),
-            (ErrorClientFacing::Canister(CanisterError::Reject), StatusCode::SERVICE_UNAVAILABLE),
+            (
+                ErrorClientFacing::Canister(CanisterError::Reject),
+                StatusCode::SERVICE_UNAVAILABLE,
+            ),
             (
                 ErrorClientFacing::Canister(CanisterError::Error("x".into())),
                 StatusCode::SERVICE_UNAVAILABLE,
             ),
-            (ErrorClientFacing::Canister(CanisterError::Frozen), StatusCode::SERVICE_UNAVAILABLE),
+            (
+                ErrorClientFacing::Canister(CanisterError::Frozen),
+                StatusCode::SERVICE_UNAVAILABLE,
+            ),
             (
                 ErrorClientFacing::Canister(CanisterError::IdNotResolved),
                 StatusCode::BAD_REQUEST,
@@ -1302,7 +1408,10 @@ mod test {
         );
 
         // Payload-free ones have nothing to show
-        assert_eq!(ErrorCause::Client(ClientError::BodyTooLarge).details(), None);
+        assert_eq!(
+            ErrorCause::Client(ClientError::BodyTooLarge).details(),
+            None
+        );
         assert_eq!(ErrorCause::Backend(BackendError::Connect).details(), None);
         assert_eq!(ErrorCause::Canister(CanisterError::Frozen).details(), None);
         assert_eq!(ErrorCause::Denylisted.details(), None);
@@ -1469,7 +1578,10 @@ mod test {
             .await;
 
         assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
-        assert_eq!(resp.headers().get(X_IC_ERROR_CAUSE).unwrap(), "rate_limited");
+        assert_eq!(
+            resp.headers().get(X_IC_ERROR_CAUSE).unwrap(),
+            "rate_limited"
+        );
     }
 
     #[tokio::test]
