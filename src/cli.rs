@@ -694,6 +694,12 @@ pub struct McpCli {
     /// Required if MCP is enabled.
     #[clap(env, long)]
     pub mcp_state_dir: Option<PathBuf>,
+
+    /// Whether to serve the MCP deploy tools (bundle upload & canister deployment).
+    /// The deploy state (uploaded bundles, deploy records) is stored under `mcp_state_dir`
+    /// and is local to this process.
+    #[clap(env, long, requires = "mcp_ii_instance")]
+    pub mcp_deploy_enable: bool,
 }
 
 #[cfg(test)]
