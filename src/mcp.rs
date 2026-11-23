@@ -21,12 +21,14 @@ use ic_bn_lib::{
 };
 use imcp2::{
     Agent, IiInstance, McpConfig, McpServer, SharedClients, auth_callbacks_router,
+    deploy::{DeployConfig, Deploys},
     metrics::{Metrics, write_request_metrics},
 };
 use itertools::Itertools;
 use prometheus::Registry;
 use tokio_util::sync::CancellationToken;
 use tower::ServiceExt;
+use tracing::warn;
 use url::Url;
 
 use crate::cli::McpCli;
@@ -78,13 +80,22 @@ impl FromStr for IiType {
     }
 }
 
-struct McpWrapper(McpServer);
+struct McpWrapper(McpServer, Deploys);
 
 #[async_trait]
 impl Run for McpWrapper {
     async fn run(&self, token: CancellationToken) -> Result<(), Error> {
+        // Also starts the deploy sweeper
         self.0.spawn_session_reaper();
         token.cancelled().await;
+
+        // Tell the running deploys to stop and give them a (bounded) time to answer
+        // with the canisters they've created before the MCP transport is cancelled.
+        self.1.stop();
+        if !self.1.stopped().await {
+            warn!("MCP: a deploy had not ended when the server stopped waiting for it");
+        }
+
         self.0.shutdown();
         Ok(())
     }
@@ -155,7 +166,12 @@ pub fn setup_mcp(
         cimd_enabled: true,
     };
 
-    let mcp = McpServer::new(config);
+    // Deploy tools state: needs to be attached before the metrics are created
+    // so that the deploy metrics are registered too.
+    let deploys = Deploys::new(&DeployConfig::default(), &config.state_dir)
+        .context("unable to set up MCP deploy state")?;
+
+    let mcp = McpServer::new(config).with_deploy(deploys.clone());
 
     let metrics = Metrics::new(
         registry,
@@ -197,7 +213,7 @@ pub fn setup_mcp(
         })
         .layer(from_fn_with_state(metrics.clone(), write_request_metrics));
 
-    tasks.add("mcp", Arc::new(McpWrapper(mcp)));
+    tasks.add("mcp", Arc::new(McpWrapper(mcp, deploys)));
     tasks.add_interval(
         "mcp-metrics-refresh",
         Arc::new(MetricsWrapper(metrics)),
