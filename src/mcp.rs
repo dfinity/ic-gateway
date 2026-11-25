@@ -20,8 +20,8 @@ use ic_bn_lib::{
     tasks::{Run, TaskManager},
 };
 use imcp2::{
-    Agent, IiInstance, McpConfig, McpServer, SharedClients, auth_callbacks_router,
-    deploy::{DeployConfig, Deploys},
+    Agent, IiInstance, McpConfig, McpServer, auth_callbacks_router,
+    deploy::DeployConfig,
     metrics::{Metrics, write_request_metrics},
 };
 use itertools::Itertools;
@@ -80,7 +80,7 @@ impl FromStr for IiType {
     }
 }
 
-struct McpWrapper(McpServer, Deploys);
+struct McpWrapper(McpServer);
 
 #[async_trait]
 impl Run for McpWrapper {
@@ -91,8 +91,8 @@ impl Run for McpWrapper {
 
         // Tell the running deploys to stop and give them a (bounded) time to answer
         // with the canisters they've created before the MCP transport is cancelled.
-        self.1.stop();
-        if !self.1.stopped().await {
+        self.0.deploys().stop();
+        if !self.0.deploys().stopped().await {
             warn!("MCP: a deploy had not ended when the server stopped waiting for it");
         }
 
@@ -160,18 +160,15 @@ pub fn setup_mcp(
             .trim_end_matches('/')
             .into(),
         mcp_path: cli.mcp_url_path.clone(),
-        clients: SharedClients::load(&state_dir),
         state_dir,
         require_resource: true,
         cimd_enabled: true,
+        deploy: DeployConfig::default(),
     };
 
-    // Deploy tools state: needs to be attached before the metrics are created
-    // so that the deploy metrics are registered too.
-    let deploys = Deploys::new(&DeployConfig::default(), &config.state_dir)
-        .context("unable to set up MCP deploy state")?;
-
-    let mcp = McpServer::new(config).with_deploy(deploys.clone());
+    // Also sets up the deploy tools state (under the state directory), before the
+    // metrics are created so that the deploy metrics are registered too.
+    let mcp = McpServer::new(config).context("unable to set up MCP server")?;
 
     let metrics = Metrics::new(
         registry,
@@ -213,7 +210,7 @@ pub fn setup_mcp(
         })
         .layer(from_fn_with_state(metrics.clone(), write_request_metrics));
 
-    tasks.add("mcp", Arc::new(McpWrapper(mcp, deploys)));
+    tasks.add("mcp", Arc::new(McpWrapper(mcp)));
     tasks.add_interval(
         "mcp-metrics-refresh",
         Arc::new(MetricsWrapper(metrics)),
