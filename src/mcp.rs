@@ -21,7 +21,7 @@ use ic_bn_lib::{
 };
 use imcp2::{
     Agent, IiInstance, McpConfig, McpServer, auth_callbacks_router,
-    deploy::DeployConfig,
+    deploy::{DeployConfig, PluginLimits},
     metrics::{Metrics, write_request_metrics},
 };
 use itertools::Itertools;
@@ -163,7 +163,35 @@ pub fn setup_mcp(
         state_dir,
         require_resource: true,
         cimd_enabled: true,
-        deploy: DeployConfig::default(),
+        // Limits of the deploy tools, spelled out: these are the values that
+        // `DeployConfig::default()` yields. The standalone `imcp2` binary could
+        // alternatively take them from environment variables, which are given
+        // next to each field (the gateway does not read them).
+        deploy: DeployConfig {
+            // $MCP_DEPLOY_MAX_CONCURRENT: deploys running at once across all sessions
+            concurrent: 2,
+            // $MCP_DEPLOY_MAX_UPLOAD_BYTES: max size of an uploaded (compressed) archive
+            max_upload_bytes: 64 * 1024 * 1024,
+            // $MCP_DEPLOY_MAX_EXTRACTED_BYTES: max size of one bundle as extracted
+            max_extracted_bytes: 128 * 1024 * 1024,
+            // $MCP_DEPLOY_MAX_STORED_BYTES: max size of all bundles held at once.
+            // `None` means one bundle per concurrent deploy plus one, i.e.
+            // (2 + 1) * 128 MiB = 384 MiB, and follows `concurrent` if that changes.
+            max_stored_bytes: None,
+            // $MCP_DEPLOY_ALLOWED_PLUGINS: sha256 of extra sync plugins to run
+            // besides the ones imcp2 knows: none
+            allowed_plugins: vec![],
+            // What each sync plugin run is held to. These are the icp CLI's own
+            // defaults.
+            plugin_limits: PluginLimits {
+                // $MCP_DEPLOY_PLUGIN_MAX_MEMORY_BYTES: 4 GiB
+                memory_bytes: Some(4 * 1024 * 1024 * 1024),
+                // $MCP_DEPLOY_PLUGIN_MAX_COMPUTE_SECS: 60s of CPU time
+                compute_secs: Some(60),
+                // $MCP_DEPLOY_PLUGIN_MAX_WALL_CLOCK_SECS: no limit on the whole run
+                wall_clock: None,
+            },
+        },
     };
 
     // Also sets up the deploy tools state (under the state directory), before the
