@@ -4213,7 +4213,7 @@ dependencies = [
 [[package]]
 name = "imcp2"
 version = "0.7.0"
-source = "git+https://github.com/dfinity/imcp2?rev=d8061cc500d2d01ffef1a0fedff801f4be235cf7#d8061cc500d2d01ffef1a0fedff801f4be235cf7"
+source = "git+https://github.com/dfinity/imcp2?rev=6881ab96dc13ca0f289293f2b73962a397c20da2#6881ab96dc13ca0f289293f2b73962a397c20da2"
 dependencies = [
  "anyhow",
  "axum",
@@ -4243,7 +4243,7 @@ dependencies = [
 [[package]]
 name = "imcp2-core"
 version = "0.7.0"
-source = "git+https://github.com/dfinity/imcp2?rev=d8061cc500d2d01ffef1a0fedff801f4be235cf7#d8061cc500d2d01ffef1a0fedff801f4be235cf7"
+source = "git+https://github.com/dfinity/imcp2?rev=6881ab96dc13ca0f289293f2b73962a397c20da2#6881ab96dc13ca0f289293f2b73962a397c20da2"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
