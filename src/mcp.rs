@@ -20,8 +20,8 @@ use ic_bn_lib::{
     tasks::{Run, TaskManager},
 };
 use imcp2::{
-    Agent, IiInstance, McpConfig, McpServer, SharedClients, auth_callbacks_router,
-    deploy::{DeployConfig, Deploys},
+    Agent, IiInstance, McpConfig, McpServer, auth_callbacks_router,
+    deploy::{DeployConfig, PluginLimits},
     metrics::{Metrics, write_request_metrics},
 };
 use itertools::Itertools;
@@ -80,7 +80,7 @@ impl FromStr for IiType {
     }
 }
 
-struct McpWrapper(McpServer, Deploys);
+struct McpWrapper(McpServer);
 
 #[async_trait]
 impl Run for McpWrapper {
@@ -91,8 +91,8 @@ impl Run for McpWrapper {
 
         // Tell the running deploys to stop and give them a (bounded) time to answer
         // with the canisters they've created before the MCP transport is cancelled.
-        self.1.stop();
-        if !self.1.stopped().await {
+        self.0.deploys().stop();
+        if !self.0.deploys().stopped().await {
             warn!("MCP: a deploy had not ended when the server stopped waiting for it");
         }
 
@@ -160,18 +160,43 @@ pub fn setup_mcp(
             .trim_end_matches('/')
             .into(),
         mcp_path: cli.mcp_url_path.clone(),
-        clients: SharedClients::load(&state_dir),
         state_dir,
         require_resource: true,
         cimd_enabled: true,
+        // Limits of the deploy tools, spelled out: these are the values that
+        // `DeployConfig::default()` yields. The standalone `imcp2` binary could
+        // alternatively take them from environment variables, which are given
+        // next to each field (the gateway does not read them).
+        deploy: DeployConfig {
+            // $MCP_DEPLOY_MAX_CONCURRENT: deploys running at once across all sessions
+            concurrent: 2,
+            // $MCP_DEPLOY_MAX_UPLOAD_BYTES: max size of an uploaded (compressed) archive
+            max_upload_bytes: 64 * 1024 * 1024,
+            // $MCP_DEPLOY_MAX_EXTRACTED_BYTES: max size of one bundle as extracted
+            max_extracted_bytes: 128 * 1024 * 1024,
+            // $MCP_DEPLOY_MAX_STORED_BYTES: max size of all bundles held at once.
+            // `None` means one bundle per concurrent deploy plus one, i.e.
+            // (2 + 1) * 128 MiB = 384 MiB, and follows `concurrent` if that changes.
+            max_stored_bytes: None,
+            // $MCP_DEPLOY_ALLOWED_PLUGINS: sha256 of extra sync plugins to run
+            // besides the ones imcp2 knows: none
+            allowed_plugins: vec![],
+            // What each sync plugin run is held to. These are the icp CLI's own
+            // defaults.
+            plugin_limits: PluginLimits {
+                // $MCP_DEPLOY_PLUGIN_MAX_MEMORY_BYTES: 4 GiB
+                memory_bytes: Some(4 * 1024 * 1024 * 1024),
+                // $MCP_DEPLOY_PLUGIN_MAX_COMPUTE_SECS: 60s of CPU time
+                compute_secs: Some(60),
+                // $MCP_DEPLOY_PLUGIN_MAX_WALL_CLOCK_SECS: no limit on the whole run
+                wall_clock: None,
+            },
+        },
     };
 
-    // Deploy tools state: needs to be attached before the metrics are created
-    // so that the deploy metrics are registered too.
-    let deploys = Deploys::new(&DeployConfig::default(), &config.state_dir)
-        .context("unable to set up MCP deploy state")?;
-
-    let mcp = McpServer::new(config).with_deploy(deploys.clone());
+    // Also sets up the deploy tools state (under the state directory), before the
+    // metrics are created so that the deploy metrics are registered too.
+    let mcp = McpServer::new(config).context("unable to set up MCP server")?;
 
     let metrics = Metrics::new(
         registry,
@@ -213,7 +238,7 @@ pub fn setup_mcp(
         })
         .layer(from_fn_with_state(metrics.clone(), write_request_metrics));
 
-    tasks.add("mcp", Arc::new(McpWrapper(mcp, deploys)));
+    tasks.add("mcp", Arc::new(McpWrapper(mcp)));
     tasks.add_interval(
         "mcp-metrics-refresh",
         Arc::new(MetricsWrapper(metrics)),
